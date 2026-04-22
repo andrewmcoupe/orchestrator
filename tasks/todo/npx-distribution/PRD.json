@@ -1,0 +1,152 @@
+[
+  {
+    "category": "Backend — CLI Entry Point",
+    "description": "Create server/cli.ts as the bin entry point that parses CLI flags and bootstraps the server",
+    "steps_to_verify": [
+      "server/cli.ts exists and exports a main function",
+      "Parses --port flag with default 4321",
+      "Parses --help flag and prints usage info",
+      "Parses --version flag and prints package version",
+      "Calls existing server bootstrap after setup"
+    ],
+    "passes": false,
+    "priority": 1
+  },
+  {
+    "category": "Backend — Path Resolution",
+    "description": "Refactor all path resolution from import.meta.dirname-relative to process.cwd()-relative for host repo detection",
+    "steps_to_verify": [
+      "getDefaultRepoRoot() uses process.cwd() instead of import.meta.dirname",
+      "Database path resolves to <cwd>/.orchestrator/events.db",
+      "Blobs path resolves to <cwd>/.orchestrator/blobs/",
+      "Credentials path resolves to <cwd>/.orchestrator/.env.local",
+      "Worktrees path resolves to <cwd>/.orchestrator/worktrees/",
+      "Config path resolves to <cwd>/.orchestrator/config.yaml"
+    ],
+    "passes": false,
+    "priority": 2
+  },
+  {
+    "category": "Backend — Git Validation",
+    "description": "Hard fail with clear error message if not run from a git repository",
+    "steps_to_verify": [
+      "CLI checks for .git directory at process.cwd() or parent",
+      "Exits with error code 1 if no git repo found",
+      "Error message says: 'Error: Not a git repository. Run this command from the root of a git project, or run git init first.'"
+    ],
+    "passes": false,
+    "priority": 3
+  },
+  {
+    "category": "Backend — Scaffolding",
+    "description": "Auto-scaffold .orchestrator/ directory on first run with config, .env.local, and empty data directories",
+    "steps_to_verify": [
+      "Creates .orchestrator/ directory if it doesn't exist",
+      "Copies config.yaml from templates/config.yaml with full example gates",
+      "Creates .env.local with placeholder comments for API keys",
+      "Creates blobs/ subdirectory",
+      "Creates worktrees/ subdirectory",
+      "Auto-appends '.orchestrator/' to .gitignore (creates .gitignore if needed)",
+      "Prints confirmation message listing what was created"
+    ],
+    "passes": false,
+    "priority": 4
+  },
+  {
+    "category": "Backend — Prompt Seeding",
+    "description": "On first run, if prompt library is empty, seed it with prompt events from bundled templates",
+    "steps_to_verify": [
+      "Checks if any prompt_version.created events exist in DB",
+      "If empty, reads prompts/*.md files from package",
+      "Creates prompt_version.created events for each seed prompt",
+      "Seeds are stored in blob store with template_hash"
+    ],
+    "passes": false,
+    "priority": 5
+  },
+  {
+    "category": "Backend — Static File Serving",
+    "description": "Serve pre-built frontend via Hono serveStatic middleware on single port",
+    "steps_to_verify": [
+      "Hono app uses serveStatic middleware for '/*' routes",
+      "Static files served from dist/web/ directory",
+      "API routes at /api/* take precedence over static files",
+      "index.html served for client-side routing fallback",
+      "Server runs on single port (default 4321)"
+    ],
+    "passes": false,
+    "priority": 6
+  },
+  {
+    "category": "Build — TypeScript Compilation",
+    "description": "Add TypeScript compilation step for server and shared code",
+    "steps_to_verify": [
+      "npm run build compiles server/ to dist/server/",
+      "npm run build compiles shared/ to dist/shared/",
+      "Output is valid ES modules"
+    ],
+    "passes": false,
+    "priority": 7
+  },
+  {
+    "category": "Build — Frontend Bundle",
+    "description": "Configure Vite to output production build to dist/web/",
+    "steps_to_verify": [
+      "vite build outputs to dist/web/",
+      "Build includes all static assets (JS, CSS, images)",
+      "index.html is present in output"
+    ],
+    "passes": false,
+    "priority": 8
+  },
+  {
+    "category": "Build — Package Configuration",
+    "description": "Configure package.json for npm publishing with bin entry and files",
+    "steps_to_verify": [
+      "package.json has bin.orchestrator pointing to dist/server/cli.js",
+      "package.json has files array including dist/, prompts/, templates/",
+      "package.json has prepublishOnly script running build",
+      "Package name is @andycoupe/orchestrator"
+    ],
+    "passes": false,
+    "priority": 9
+  },
+  {
+    "category": "Templates",
+    "description": "Create templates/ directory with default config and .env.local files",
+    "steps_to_verify": [
+      "templates/config.yaml exists with full example including gates",
+      "templates/.env.local exists with commented placeholder API keys",
+      "Templates are included in published package"
+    ],
+    "passes": false,
+    "priority": 10
+  },
+  {
+    "category": "Integration — Dev Workflow",
+    "description": "Ensure existing pnpm dev workflow continues to work unchanged",
+    "steps_to_verify": [
+      "pnpm dev still runs tsx watch + vite concurrently",
+      "Hot reload works for server changes",
+      "Hot reload works for frontend changes",
+      "Existing tests pass"
+    ],
+    "passes": false,
+    "priority": 11
+  },
+  {
+    "category": "Manual Verification",
+    "description": "End-to-end test of npx workflow in a fresh git repository",
+    "steps_to_verify": [
+      "Create a new git repo in /tmp",
+      "Run npx @andycoupe/orchestrator (after local pack/publish)",
+      ".orchestrator/ directory is created with all expected files",
+      ".gitignore contains .orchestrator/ entry",
+      "Server starts and UI is accessible at http://localhost:4321",
+      "Can create a task and run an attempt",
+      "Data persists across server restarts"
+    ],
+    "passes": false,
+    "priority": 12
+  }
+]
