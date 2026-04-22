@@ -15,8 +15,7 @@ import {
   type ProbeScheduler,
 } from "./providers/probeScheduler.js";
 import { loadGateRegistry } from "./gates/registry.js";
-import { seedIngestPromptVersion } from "./ingest.js";
-import { seedAuditorPromptVersion } from "./auditor.js";
+import { seedPrompts } from "./seedPrompts.js";
 import { seedBuiltinPresets } from "./presets.js";
 import { createPresetCommandRoutes } from "./routes/presetCommands.js";
 import { createPromptCommandRoutes } from "./routes/promptCommands.js";
@@ -41,11 +40,8 @@ loadGateRegistry();
 // Seed provider.configured events for all known providers (idempotent)
 await configureProviders(db);
 
-// Seed the ingest prompt version (idempotent — checks event log first)
-seedIngestPromptVersion(db);
-
-// Seed the auditor prompt version (idempotent — checks event log first)
-seedAuditorPromptVersion(db);
+// Seed all bundled prompts (idempotent — checks event log first)
+seedPrompts(db);
 
 // Seed 4 built-in presets (idempotent — checks event log first)
 seedBuiltinPresets(db);

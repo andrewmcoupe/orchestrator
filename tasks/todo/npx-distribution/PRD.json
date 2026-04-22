@@ -61,7 +61,7 @@
       "Creates prompt_version.created events for each seed prompt",
       "Seeds are stored in blob store with template_hash"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 5
   },
   {
