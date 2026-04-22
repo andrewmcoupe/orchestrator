@@ -108,7 +108,7 @@
       "package.json has prepublishOnly script running build",
       "Package name is @andycoupe/orchestrator"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 9
   },
   {

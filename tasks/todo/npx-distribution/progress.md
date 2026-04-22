@@ -19,6 +19,8 @@
 
 - **Priority 8 — Build — Frontend Bundle**: Added `build.outDir: "../dist/web"` and `emptyOutDir: true` to `vite.config.ts`. Production build now outputs to `dist/web/` with index.html, JS bundle, CSS, and font assets.
 
+- **Priority 9 — Build — Package Configuration**: Configured `package.json` for npm publishing. Renamed package to `@andycoupe/orchestrator`, added `bin.orchestrator` pointing to `dist/server/cli.js`, added `files` array (`dist/`, `prompts/`, `templates/`), added `prepublishOnly` script running build, and removed `private: true`.
+
 ## In Progress
 _None yet_
 

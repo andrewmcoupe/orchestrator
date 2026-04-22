@@ -1,8 +1,15 @@
 {
-  "name": "orchestrator",
+  "name": "@andycoupe/orchestrator",
   "version": "0.0.1",
   "type": "module",
-  "private": true,
+  "bin": {
+    "orchestrator": "dist/server/cli.js"
+  },
+  "files": [
+    "dist/",
+    "prompts/",
+    "templates/"
+  ],
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"tsx watch server/index.ts | pino-pretty\" \"vite\"",
     "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && vite build",
@@ -10,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
