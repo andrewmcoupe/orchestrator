@@ -96,7 +96,7 @@
       "Build includes all static assets (JS, CSS, images)",
       "index.html is present in output"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 8
   },
   {

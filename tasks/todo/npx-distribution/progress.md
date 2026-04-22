@@ -17,6 +17,8 @@
 
 - **Priority 7 — Build — TypeScript Compilation**: Created `tsconfig.build.json` extending the base config with `module: "NodeNext"` targeting `server/` and `shared/` (excluding tests). Added `tsc-alias` to resolve `@shared/*` path aliases in compiled output. Updated `build` script to run `tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && vite build`. Added `build:server` convenience script. Output: `dist/server/` and `dist/shared/` with valid ES modules, declarations, and source maps.
 
+- **Priority 8 — Build — Frontend Bundle**: Added `build.outDir: "../dist/web"` and `emptyOutDir: true` to `vite.config.ts`. Production build now outputs to `dist/web/` with index.html, JS bundle, CSS, and font assets.
+
 ## In Progress
 _None yet_
 
