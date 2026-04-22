@@ -9,6 +9,8 @@
 
 - **Priority 3 — Backend — Git Validation**: Added `isInsideGitRepo()` to `server/cli.ts` that walks up from `process.cwd()` checking for `.git`. Called in `main()` before server bootstrap — exits with code 1 and the required error message if no git repo is found. Added 3 tests to `server/cli.test.ts` (12 total now passing).
 
+- **Priority 4 — Backend — Scaffolding**: Created `server/scaffold.ts` with `scaffold()`, `isAlreadyScaffolded()`, `ensureGitignoreEntry()`, and `printScaffoldSummary()`. On first run, creates `.orchestrator/` with `blobs/`, `worktrees/`, `config.yaml` (from `templates/config.yaml`), and `.env.local` (from `templates/.env.local`). Auto-appends `.orchestrator/` to `.gitignore`. Idempotent — skips if already scaffolded. Integrated into `cli.ts main()` after git validation. Created `templates/` directory with default config and env files. Added `server/scaffold.test.ts` with 15 passing tests.
+
 ## In Progress
 _None yet_
 

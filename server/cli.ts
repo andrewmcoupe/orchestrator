@@ -124,6 +124,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     process.exit(1);
   }
 
+  // Scaffold .orchestrator/ on first run
+  const { scaffold, printScaffoldSummary } = await import("./scaffold.js");
+  const scaffoldResult = scaffold();
+  printScaffoldSummary(scaffoldResult);
+
   // Set port in env so the server can pick it up
   process.env.PORT = String(args.port);
 
