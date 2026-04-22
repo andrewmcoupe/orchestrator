@@ -1,8 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "Preserve",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -14,12 +13,29 @@
     "outDir": "dist",
     "rootDir": ".",
     "jsx": "react-jsx",
+    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["./shared/*"],
-      "@server/*": ["./server/*"],
-      "@web/*": ["./web/*"]
+      "@shared/*": [
+        "./shared/*"
+      ],
+      "@server/*": [
+        "./server/*"
+      ],
+      "@web/*": [
+        "./web/*"
+      ]
     }
   },
-  "include": ["server/**/*.ts", "web/**/*.ts", "web/**/*.tsx", "shared/**/*.ts", "shared/**/*.tsx"],
-  "exclude": ["node_modules", "dist", ".data"]
+  "include": [
+    "server/**/*.ts",
+    "web/**/*.ts",
+    "web/**/*.tsx",
+    "shared/**/*.ts",
+    "shared/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".data"
+  ]
 }
