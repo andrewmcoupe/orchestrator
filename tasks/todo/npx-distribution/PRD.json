@@ -131,7 +131,7 @@
       "Hot reload works for frontend changes",
       "Existing tests pass"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 11
   },
   {
