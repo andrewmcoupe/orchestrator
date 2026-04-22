@@ -17,7 +17,6 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import { parse as parseYaml } from "yaml";
 import type Database from "better-sqlite3";
@@ -27,6 +26,7 @@ import { listGates } from "./gates/registry.js";
 import { runGate } from "./gates/runner.js";
 import type { MergeStrategy, Actor } from "@shared/events.js";
 import type { GateFailure } from "./gates/parsers/types.js";
+import { getConfigPath } from "./paths.js";
 
 // ============================================================================
 // Config loading
@@ -38,10 +38,7 @@ type OnMergeConfig = {
   preserve_branch: boolean;
 };
 
-const CONFIG_PATH = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../config.yaml",
-);
+const CONFIG_PATH = getConfigPath();
 
 function loadMergeConfig(configPath = CONFIG_PATH): OnMergeConfig {
   try {

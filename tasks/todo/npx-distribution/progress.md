@@ -1,9 +1,9 @@
 # npx-distribution Progress
 
-## Status: Not Started
+## Status: In Progress
 
 ## Completed Requirements
-_None yet_
+- **Priority 1 — Backend — CLI Entry Point**: Created `server/cli.ts` with `parseArgs()` and `main()`. Parses `--port` (default 4321), `--help`, and `--version`. Dynamically imports the server bootstrap on run. Added `server/cli.test.ts` with 9 passing tests. Also fixed a missing `path` import in `server/merge.ts` that was breaking typecheck.
 
 ## In Progress
 _None yet_

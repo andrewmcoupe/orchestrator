@@ -9,7 +9,7 @@
       "Parses --version flag and prints package version",
       "Calls existing server bootstrap after setup"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 1
   },
   {
