@@ -45,10 +45,17 @@ const ACTIVE_STATUSES: Set<TaskStatus> = new Set([
 ]);
 
 /** Statuses that count as "done" for the filter */
-const DONE_STATUSES: Set<TaskStatus> = new Set(["merged", "rejected", "archived"]);
+const DONE_STATUSES: Set<TaskStatus> = new Set([
+  "merged",
+  "rejected",
+  "archived",
+]);
 
 /** Statuses that count as "approved" for the filter */
-const APPROVED_STATUSES: Set<TaskStatus> = new Set(["approved", "awaiting_merge"]);
+const APPROVED_STATUSES: Set<TaskStatus> = new Set([
+  "approved",
+  "awaiting_merge",
+]);
 
 /** Human-readable status line for the sidebar */
 function statusLine(row: TaskListRow, currentBranch?: string | null): string {
@@ -175,7 +182,7 @@ export function TaskListSidebar({
     <aside className="w-72 shrink-0 border-r border-border-default bg-bg-primary flex flex-col overflow-hidden">
       {/* Search + actions */}
       <div className="p-3 flex flex-col gap-2 border-b border-border-muted">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2">
           <div className="flex-1 flex items-center gap-2 border border-border-default bg-bg-secondary px-2.5 py-1.5">
             <Search size={14} className="text-text-tertiary shrink-0" />
             <input
@@ -278,7 +285,8 @@ export function TaskListSidebar({
             </div>
             {group.tasks.map((task) => {
               const isApproved = APPROVED_STATUSES.has(task.status);
-              const canMerge = isApproved && !!task.current_attempt_id && !!onMergeIconClick;
+              const canMerge =
+                isApproved && !!task.current_attempt_id && !!onMergeIconClick;
 
               return (
                 <button
@@ -309,13 +317,19 @@ export function TaskListSidebar({
                         title="Open review to merge"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onMergeIconClick(task.task_id, task.current_attempt_id!);
+                          onMergeIconClick(
+                            task.task_id,
+                            task.current_attempt_id!,
+                          );
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.stopPropagation();
                             e.preventDefault();
-                            onMergeIconClick(task.task_id, task.current_attempt_id!);
+                            onMergeIconClick(
+                              task.task_id,
+                              task.current_attempt_id!,
+                            );
                           }
                         }}
                         className="ml-auto shrink-0 p-0.5 text-purple-400 opacity-50 hover:opacity-100 hover:text-purple-200 hover:bg-purple-900/20 transition-all cursor-pointer"

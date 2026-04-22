@@ -752,6 +752,7 @@ export function Measurement() {
         <div>
           <p className="text-xs text-text-tertiary uppercase tracking-wide">Section</p>
           <h1 className="text-2xl font-semibold text-text-primary">Measurement</h1>
+          <p className="text-xs text-text-tertiary mt-1">Cost, token usage, and invocation metrics across providers.</p>
         </div>
         {(tab === "cost" || tab === "invocations") && (
           <DateRangeStrip

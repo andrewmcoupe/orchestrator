@@ -964,8 +964,13 @@ export function reduceProviderHealth(
         auth_present: current?.auth_present ?? false,
       };
 
-    case "provider.probed":
+    case "provider.probed": {
       if (!current) return null;
+      // For API providers (env_var auth), infer auth_present from probe result:
+      // a successful probe means the key was used and accepted.
+      const authPresent = current.auth_method === "env_var"
+        ? event.payload.status === "healthy"
+        : current.auth_present;
       return {
         ...current,
         status: event.payload.status,
@@ -973,7 +978,9 @@ export function reduceProviderHealth(
         last_probe_at: event.ts,
         last_error: event.payload.error,
         models: event.payload.models_listed ?? current.models,
+        auth_present: authPresent,
       };
+    }
 
     case "provider.auth_changed":
       if (!current) return null;

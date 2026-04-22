@@ -211,7 +211,9 @@ export function Maintenance() {
       <div>
         <h3 className="text-sm font-semibold text-text-primary mb-1">Rebuild Projections</h3>
         <p className="text-xs text-text-tertiary mb-3">
-          Replays all events through every projection reducer. The event log is never modified.
+          Drops and rebuilds every projection table by replaying the full event log through each reducer.
+          The event log is append-only and never modified. Use this after projection logic changes,
+          to backfill newly added projections, or to recover from stale/diverged read models.
         </p>
         <button
           onClick={handleRebuildAll}

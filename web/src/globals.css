@@ -37,33 +37,31 @@
   --color-strip-bg: #f5f5f4;
 }
 
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-bg-primary: #0c0a09;
-    --color-bg-secondary: #1c1917;
-    --color-bg-tertiary: #292524;
-    --color-bg-inverse: #fafaf9;
+/* Dark mode — applied via .dark class on <html> */
+.dark {
+  --color-bg-primary: #0c0a09;
+  --color-bg-secondary: #1c1917;
+  --color-bg-tertiary: #292524;
+  --color-bg-inverse: #fafaf9;
 
-    --color-text-primary: #fafaf9;
-    --color-text-secondary: #a8a29e;
-    --color-text-tertiary: #78716c;
-    --color-text-inverse: #1c1917;
+  --color-text-primary: #fafaf9;
+  --color-text-secondary: #a8a29e;
+  --color-text-tertiary: #78716c;
+  --color-text-inverse: #1c1917;
 
-    --color-border-default: #44403c;
-    --color-border-muted: #292524;
+  --color-border-default: #44403c;
+  --color-border-muted: #292524;
 
-    --color-status-healthy: #22c55e;
-    --color-status-warning: #eab308;
-    --color-status-danger: #ef4444;
-    --color-status-muted: #78716c;
+  --color-status-healthy: #22c55e;
+  --color-status-warning: #eab308;
+  --color-status-danger: #ef4444;
+  --color-status-muted: #78716c;
 
-    --color-rail-bg: #0c0a09;
-    --color-rail-active: #fafaf9;
-    --color-rail-hover: #1c1917;
+  --color-rail-bg: #0c0a09;
+  --color-rail-active: #fafaf9;
+  --color-rail-hover: #1c1917;
 
-    --color-strip-bg: #1c1917;
-  }
+  --color-strip-bg: #1c1917;
 }
 
 body {

@@ -1,5 +1,5 @@
 # Orchestrator configuration
-project_name: "orchestrator"
+project_name: "player-status"
 
 presets:
   default: "default-new-feature"

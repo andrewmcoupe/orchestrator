@@ -100,7 +100,7 @@ export function App() {
   const hydrate = useEventStore((s) => s.hydrate);
   const applyEvent = useEventStore((s) => s.applyEvent);
 
-  // Provider health from the store (falls back to empty for fresh DBs)
+  // Provider health from the store (falls back to stubs for fresh DBs)
   const providerHealthRows = useProviderHealth();
   const providers: ProviderInfo[] = providerHealthRows.length > 0
     ? providerHealthRows.map((r) => ({

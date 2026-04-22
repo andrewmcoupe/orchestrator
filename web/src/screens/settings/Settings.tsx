@@ -774,7 +774,7 @@ export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("presets");
 
   return (
-    <div className="flex flex-1 overflow-hidden" data-testid="settings-screen">
+    <div className="flex flex-1 h-full min-h-0 overflow-hidden" data-testid="settings-screen">
       {/* Left nav */}
       <nav className="w-48 border-r border-surface-tertiary bg-surface-secondary flex-shrink-0 py-4">
         <p className="text-xs text-text-tertiary uppercase tracking-wide px-4 mb-2">Settings</p>

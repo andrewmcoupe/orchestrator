@@ -75,6 +75,12 @@ const STATUS_ICONS: Record<ProviderStatus, React.ElementType> = {
   unknown: HelpCircle,
 };
 
+/** Display-friendly status label — "not found" for CLI providers that are down */
+function statusLabel(status: ProviderStatus, isCli: boolean): string {
+  if (status === "down" && isCli) return "not found";
+  return status;
+}
+
 function formatLatency(ms?: number): string {
   if (ms == null) return "—";
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
@@ -211,17 +217,27 @@ function EditConfigForm({ row, onSave, onCancel }: EditConfigFormProps) {
         <label htmlFor={`auth-method-${row.provider_id}`} className="text-xs text-text-secondary">
           Auth Method
         </label>
-        <select
-          id={`auth-method-${row.provider_id}`}
-          aria-label="Auth Method"
-          value={authMethod}
-          onChange={(e) => setAuthMethod(e.target.value as EditState["auth_method"])}
-          className="text-xs bg-bg-primary border border-border-default px-2 py-1 text-text-primary focus:outline-none focus:ring-1 focus:ring-border-default"
-        >
-          <option value="cli_login">cli_login</option>
-          <option value="env_var">env_var</option>
-          <option value="keychain">keychain</option>
-        </select>
+        {isCli ? (
+          /* CLI providers always use cli_login — read-only */
+          <input
+            id={`auth-method-${row.provider_id}`}
+            aria-label="Auth Method"
+            type="text"
+            value="cli_login"
+            readOnly
+            className="text-xs bg-bg-primary border border-border-default px-2 py-1 text-text-tertiary font-mono cursor-not-allowed"
+          />
+        ) : (
+          /* API providers only support env_var for now */
+          <input
+            id={`auth-method-${row.provider_id}`}
+            aria-label="Auth Method"
+            type="text"
+            value="env_var"
+            readOnly
+            className="text-xs bg-bg-primary border border-border-default px-2 py-1 text-text-tertiary font-mono cursor-not-allowed"
+          />
+        )}
       </div>
 
       <div className="flex gap-2">
@@ -304,7 +320,7 @@ function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: Pro
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
               <StatusIcon className={`h-3 w-3 ${STATUS_COLORS[row.status]}`} />
-              <span className={`text-xs ${STATUS_COLORS[row.status]}`}>{row.status}</span>
+              <span className={`text-xs ${STATUS_COLORS[row.status]}`}>{statusLabel(row.status, isCli)}</span>
             </div>
           </div>
         </div>
@@ -337,7 +353,12 @@ function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: Pro
         {isCli && row.binary_path && (
           <>
             <span className="text-text-tertiary">Binary</span>
-            <span className="text-text-primary font-mono truncate">{row.binary_path}</span>
+            <span className="text-text-primary font-mono truncate">
+              {row.binary_path}
+              {row.status !== "down" && !row.binary_path.includes("/") && (
+                <span className="text-text-tertiary font-sans"> · Found on PATH</span>
+              )}
+            </span>
           </>
         )}
         {!isCli && row.endpoint && (
@@ -347,23 +368,29 @@ function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: Pro
           </>
         )}
 
-        {/* Auth */}
+        {/* Auth — hide indicator for cli_login since the orchestrator can't verify it */}
         <span className="text-text-tertiary">Auth</span>
         <div className="flex items-center gap-1.5">
           <span className="text-text-primary">{row.auth_method}</span>
-          {row.auth_present ? (
-            <span className="text-status-healthy text-xs font-medium">auth ok</span>
-          ) : (
-            <span className="text-status-danger text-xs font-medium">auth missing</span>
+          {row.auth_method !== "cli_login" && (
+            row.auth_present ? (
+              <span className="text-status-healthy text-xs font-medium">auth ok</span>
+            ) : (
+              <span className="text-status-danger text-xs font-medium">auth missing</span>
+            )
           )}
         </div>
 
-        {/* Latency */}
-        <span className="text-text-tertiary">Latency</span>
-        <div className="flex items-center gap-3">
-          <span className="text-text-primary">{formatLatency(row.latency_ms)}</span>
-          <Sparkline providerId={row.provider_id} events={probeEvents} />
-        </div>
+        {/* Latency — hide when provider is down since the value is just error-handling overhead */}
+        {row.status !== "down" && (
+          <>
+            <span className="text-text-tertiary">Latency</span>
+            <div className="flex items-center gap-3">
+              <span className="text-text-primary">{formatLatency(row.latency_ms)}</span>
+              <Sparkline providerId={row.provider_id} events={probeEvents} />
+            </div>
+          </>
+        )}
 
         {/* Last probe */}
         {row.last_probe_at && (
@@ -521,6 +548,7 @@ export function Providers({ focusedProvider }: ProvidersProps = {}) {
         <div>
           <p className="text-xs text-text-tertiary uppercase tracking-wide">Providers</p>
           <h1 className="text-lg font-semibold text-text-primary">Provider Health</h1>
+          <p className="text-xs text-text-tertiary mt-1">Status, auth, and latency for each configured AI provider.</p>
         </div>
         <button
           type="button"

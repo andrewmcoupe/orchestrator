@@ -78,7 +78,7 @@ function PhaseBox({
         <span className="text-sm font-medium text-text-primary">{phase.name}</span>
       </div>
       <div className="text-xs text-text-secondary font-mono">
-        {model} &middot; {phase.prompt_version_id.slice(0, 6) || "v?"}
+        {model} &middot; {phase.prompt_version_id || "v?"}
       </div>
     </div>
   );

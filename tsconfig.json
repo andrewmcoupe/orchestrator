@@ -20,6 +20,6 @@
       "@web/*": ["./web/*"]
     }
   },
-  "include": ["server/**/*.ts", "web/**/*.ts", "web/**/*.tsx", "shared/**/*.ts"],
+  "include": ["server/**/*.ts", "web/**/*.ts", "web/**/*.tsx", "shared/**/*.ts", "shared/**/*.tsx"],
   "exclude": ["node_modules", "dist", ".data"]
 }

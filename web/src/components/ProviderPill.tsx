@@ -1,3 +1,5 @@
+import { Badge } from "@shared/components/ui/badge";
+
 type ProviderStatus = "healthy" | "degraded" | "down" | "unknown";
 
 type ProviderPillProps = {
@@ -15,14 +17,14 @@ const STATUS_DOT_COLORS: Record<ProviderStatus, string> = {
 
 export function ProviderPill({ name, status, onClick }: ProviderPillProps) {
   return (
-    <button
-      type="button"
+    <Badge
+      variant="outline"
+      className="cursor-pointer gap-1.5 px-3 py-1 text-xs hover:bg-bg-secondary transition-colors"
       onClick={onClick}
-      className="flex items-center gap-1.5 rounded-full border border-border-default px-3 py-1 text-sm text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
     >
       <span className={`inline-block h-2 w-2 rounded-full ${STATUS_DOT_COLORS[status]}`} />
       {name}
-    </button>
+    </Badge>
   );
 }
 
