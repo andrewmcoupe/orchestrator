@@ -85,7 +85,7 @@
       "npm run build compiles shared/ to dist/shared/",
       "Output is valid ES modules"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 7
   },
   {

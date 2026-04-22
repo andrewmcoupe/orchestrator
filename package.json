@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"tsx watch server/index.ts | pino-pretty\" \"vite\"",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json && vite build",
+    "build:server": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
     "test": "vitest run",
@@ -52,6 +53,7 @@
     "postcss": "^8.5.3",
     "prettier": "^3.5.3",
     "tailwindcss": "^4.1.5",
+    "tsc-alias": "^1.8.16",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
     "vite": "^6.3.4",
