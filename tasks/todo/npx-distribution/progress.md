@@ -21,6 +21,8 @@
 
 - **Priority 9 — Build — Package Configuration**: Configured `package.json` for npm publishing. Renamed package to `@andycoupe/orchestrator`, added `bin.orchestrator` pointing to `dist/server/cli.js`, added `files` array (`dist/`, `prompts/`, `templates/`), added `prepublishOnly` script running build, and removed `private: true`.
 
+- **Priority 10 — Templates**: Verified `templates/config.yaml` (with gate examples and merge workflow config) and `templates/.env.local` (with commented API key placeholders) meet distribution requirements. Confirmed `templates/` is in `package.json` `files` array. Added `server/templates.test.ts` with 8 tests verifying template content and package inclusion.
+
 ## In Progress
 _None yet_
 

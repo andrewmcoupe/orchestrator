@@ -119,7 +119,7 @@
       "templates/.env.local exists with commented placeholder API keys",
       "Templates are included in published package"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 10
   },
   {
