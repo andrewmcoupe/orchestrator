@@ -8,6 +8,8 @@
  */
 
 import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+import path from "node:path";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -79,6 +81,25 @@ function printVersion(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Git validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk up from `startDir` looking for a `.git` directory.
+ * Returns true if one is found, false if we reach the filesystem root without
+ * finding one.
+ */
+export function isInsideGitRepo(startDir: string = process.cwd()): boolean {
+  let dir = path.resolve(startDir);
+  while (true) {
+    if (existsSync(path.join(dir, ".git"))) return true;
+    const parent = path.dirname(dir);
+    if (parent === dir) return false; // reached root
+    dir = parent;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -93,6 +114,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   if ("version" in args) {
     printVersion();
     return;
+  }
+
+  // Validate we're inside a git repository
+  if (!isInsideGitRepo()) {
+    console.error(
+      "Error: Not a git repository. Run this command from the root of a git project, or run git init first.",
+    );
+    process.exit(1);
   }
 
   // Set port in env so the server can pick it up

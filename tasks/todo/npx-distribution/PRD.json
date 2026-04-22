@@ -34,7 +34,7 @@
       "Exits with error code 1 if no git repo found",
       "Error message says: 'Error: Not a git repository. Run this command from the root of a git project, or run git init first.'"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 3
   },
   {

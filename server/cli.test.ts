@@ -1,9 +1,11 @@
 /**
- * Tests for CLI entry point argument parsing.
+ * Tests for CLI entry point argument parsing and git validation.
  */
 
-import { describe, it, expect } from "vitest";
-import { parseArgs } from "./cli.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { parseArgs, isInsideGitRepo } from "./cli.js";
+import fs from "node:fs";
+import path from "node:path";
 
 describe("parseArgs", () => {
   it("returns default port 4321 when no flags given", () => {
@@ -47,5 +49,40 @@ describe("parseArgs", () => {
 
   it("throws on unknown flags", () => {
     expect(() => parseArgs(["--unknown"])).toThrow();
+  });
+});
+
+describe("isInsideGitRepo", () => {
+  const tmpBase = path.join(
+    process.env.TMPDIR || "/tmp",
+    "orchestrator-git-test",
+  );
+
+  beforeEach(() => {
+    fs.mkdirSync(tmpBase, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpBase, { recursive: true, force: true });
+  });
+
+  it("returns true when .git exists in the given directory", () => {
+    const dir = path.join(tmpBase, "repo-direct");
+    fs.mkdirSync(path.join(dir, ".git"), { recursive: true });
+    expect(isInsideGitRepo(dir)).toBe(true);
+  });
+
+  it("returns true when .git exists in a parent directory", () => {
+    const repoRoot = path.join(tmpBase, "repo-parent");
+    fs.mkdirSync(path.join(repoRoot, ".git"), { recursive: true });
+    const nested = path.join(repoRoot, "src", "deep");
+    fs.mkdirSync(nested, { recursive: true });
+    expect(isInsideGitRepo(nested)).toBe(true);
+  });
+
+  it("returns false when no .git exists in any ancestor", () => {
+    const noGit = path.join(tmpBase, "no-git", "sub");
+    fs.mkdirSync(noGit, { recursive: true });
+    expect(isInsideGitRepo(noGit)).toBe(false);
   });
 });

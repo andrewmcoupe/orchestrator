@@ -7,6 +7,8 @@
 
 - **Priority 2 — Backend — Path Resolution**: Created `server/paths.ts` as a centralized path module with all paths resolving from `process.cwd()`. Refactored `db.ts`, `blobStore.ts`, `credentials.ts`, `worktree.ts`, `fsWatcher.ts`, `gates/registry.ts`, `phaseRunner.ts`, `routes/repo.ts`, and `routes/settings.ts` to import from `paths.ts` instead of using `import.meta.dirname`. Added `server/paths.test.ts` with 7 passing tests.
 
+- **Priority 3 — Backend — Git Validation**: Added `isInsideGitRepo()` to `server/cli.ts` that walks up from `process.cwd()` checking for `.git`. Called in `main()` before server bootstrap — exits with code 1 and the required error message if no git repo is found. Added 3 tests to `server/cli.test.ts` (12 total now passing).
+
 ## In Progress
 _None yet_
 
