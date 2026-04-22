@@ -249,30 +249,16 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
   const [showMergeDialog, setShowMergeDialog] = useState(false);
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
-      {/* Header: task ID + status + worktree + actions */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <span className="font-mono text-sm text-text-secondary">{detail.task_id}</span>
-            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_PILL[detail.status]}`}>
-              {detail.status}
-            </span>
-            {detail.worktree_branch && (
-              <span className="text-xs text-text-tertiary font-mono">
-                worktree: {detail.worktree_branch}
-              </span>
-            )}
-          </div>
-          <h2 className="text-xl font-semibold text-text-primary">{detail.title}</h2>
-        </div>
+    <div className="flex-1 overflow-y-auto">
+      {/* Action toolbar */}
+      <div className="flex items-center justify-between px-6 py-2.5 border-b border-border-muted bg-bg-secondary shrink-0">
         <div className="flex items-center gap-2">
           {onEditConfig && detail.status !== "merged" && detail.status !== "archived" && (
             <button
               type="button"
               onClick={onEditConfig}
               title="Edit config"
-              className="flex items-center gap-1.5 border border-border-default px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-secondary transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 border border-border-default px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
               Config
@@ -294,20 +280,36 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
                 type="button"
                 onClick={() => onReview(detail.task_id, detail.current_attempt_id!)}
                 title="View diff from last attempt"
-                className="flex items-center gap-1.5 border border-border-default px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-secondary transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 border border-border-default px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
               >
                 <ClipboardList className="h-3.5 w-3.5" />
                 View diff
               </button>
             ) : null
           )}
-          <ActionButtons
-            taskId={detail.task_id}
-            attemptId={detail.current_attempt_id ?? undefined}
-            status={detail.status}
-            onMerge={() => setShowMergeDialog(true)}
-          />
         </div>
+        <ActionButtons
+          taskId={detail.task_id}
+          attemptId={detail.current_attempt_id ?? undefined}
+          status={detail.status}
+          onMerge={() => setShowMergeDialog(true)}
+        />
+      </div>
+
+      {/* Task identity */}
+      <div className="px-6 pt-5 pb-6">
+        <div className="flex items-center gap-3 mb-1">
+          <span className="font-mono text-sm text-text-secondary">{detail.task_id}</span>
+          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_PILL[detail.status]}`}>
+            {detail.status}
+          </span>
+          {detail.worktree_branch && (
+            <span className="text-xs text-text-tertiary font-mono">
+              worktree: {detail.worktree_branch}
+            </span>
+          )}
+        </div>
+        <h2 className="text-xl font-semibold text-text-primary">{detail.title}</h2>
       </div>
 
       {/* Merge confirmation dialog */}
@@ -322,71 +324,74 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
         />
       )}
 
-      {/* Proposition block */}
-      {detail.proposition_ids.length > 0 && (
-        <section className="mb-6">
-          <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">Proposition</h3>
-          <div className="border border-border-muted bg-bg-secondary p-4">
-            <p className="text-sm text-text-primary leading-relaxed">
-              {detail.proposition_ids.map((id) => (
-                <span key={id} className="font-mono text-xs text-text-secondary">
-                  {id}{" "}
-                </span>
-              ))}
-            </p>
-          </div>
-        </section>
-      )}
+      {/* Content sections */}
+      <div className="px-6 pb-6">
+        {/* Proposition block */}
+        {detail.proposition_ids.length > 0 && (
+          <section className="mb-6">
+            <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">Proposition</h3>
+            <div className="border border-border-muted bg-bg-secondary p-4">
+              <p className="text-sm text-text-primary leading-relaxed">
+                {detail.proposition_ids.map((id) => (
+                  <span key={id} className="font-mono text-xs text-text-secondary">
+                    {id}{" "}
+                  </span>
+                ))}
+              </p>
+            </div>
+          </section>
+        )}
 
-      {/* Phase pipeline */}
-      <section className="mb-6">
-        <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">Phases</h3>
-        <div className="flex gap-3">
-          {enabledPhases.map((phase) => (
-            <PhaseBox
-              key={phase.name}
-              phase={phase}
-              currentPhase={listRow?.current_phase ?? undefined}
-              taskStatus={detail.status}
-            />
-          ))}
-          {enabledPhases.length === 0 && (
-            <p className="text-sm text-text-tertiary">No phases configured.</p>
-          )}
-        </div>
-      </section>
-
-      {/* Gates */}
-      {detail.config.gates.length > 0 && (
+        {/* Phase pipeline */}
         <section className="mb-6">
-          <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">Gates</h3>
-          <div className="flex flex-wrap gap-2">
-            {detail.config.gates.map((gate) => (
-              <GatePill key={gate.name} gate={gate} />
+          <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">Phases</h3>
+          <div className="flex gap-3">
+            {enabledPhases.map((phase) => (
+              <PhaseBox
+                key={phase.name}
+                phase={phase}
+                currentPhase={listRow?.current_phase ?? undefined}
+                taskStatus={detail.status}
+              />
             ))}
+            {enabledPhases.length === 0 && (
+              <p className="text-sm text-text-tertiary">No phases configured.</p>
+            )}
           </div>
         </section>
-      )}
 
-      {/* Retry policy + attempt counter */}
-      <section>
-        <div className="flex items-center justify-between border border-border-muted bg-bg-secondary px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-text-tertiary">retry:</span>
-            <span className="text-xs text-text-primary font-medium">
-              {retryPolicySummary(detail)}
-            </span>
+        {/* Gates */}
+        {detail.config.gates.length > 0 && (
+          <section className="mb-6">
+            <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">Gates</h3>
+            <div className="flex flex-wrap gap-2">
+              {detail.config.gates.map((gate) => (
+                <GatePill key={gate.name} gate={gate} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Retry policy + attempt counter */}
+        <section>
+          <div className="flex items-center justify-between border border-border-muted bg-bg-secondary px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-tertiary">retry:</span>
+              <span className="text-xs text-text-primary font-medium">
+                {retryPolicySummary(detail)}
+              </span>
+            </div>
+            {listRow && (
+              <span className="text-xs text-text-secondary font-mono">
+                attempt {listRow.attempt_count}/{detail.config.retry_policy.max_total_attempts}
+              </span>
+            )}
           </div>
-          {listRow && (
-            <span className="text-xs text-text-secondary font-mono">
-              attempt {listRow.attempt_count}/{detail.config.retry_policy.max_total_attempts}
-            </span>
-          )}
-        </div>
-      </section>
+        </section>
 
-      {/* Task timeline */}
-      <TaskTimeline taskId={detail.task_id} status={detail.status} />
+        {/* Task timeline */}
+        <TaskTimeline taskId={detail.task_id} status={detail.status} />
+      </div>
     </div>
   );
 }
