@@ -1,0 +1,23 @@
+# Orchestrator configuration
+project_name: "orchestrator"
+
+presets:
+  default: "default-new-feature"
+
+gates: []
+
+# Merge workflow configuration.
+# These defaults apply to every task unless overridden per-command.
+on_merge:
+  # How to merge the worktree branch into the target branch.
+  # squash   — collapses all commits into a single commit (cleanest history)
+  # merge    — standard merge commit preserving branch topology
+  # ff-only  — fast-forward only; refuses a non-linear merge
+  strategy: squash
+
+  # When true, the worktree is deleted automatically after a successful merge.
+  auto_delete_worktree: true
+
+  # When true, the wt/<task_id> branch is left alive after merge.
+  # Useful for auditing or cherry-picking if you need the branch history.
+  preserve_branch: false
