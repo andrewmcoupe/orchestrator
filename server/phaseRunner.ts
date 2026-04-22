@@ -51,11 +51,9 @@ import {
 } from "./auditor.js";
 import { evaluate as evaluateRetryPolicy } from "./retryPolicy.js";
 import { handleAutoMerge } from "./autoMerge.js";
-import path from "node:path";
+import { getBlobsDir } from "./paths.js";
 
-const defaultBlobStore = createBlobStore(
-  path.resolve(import.meta.dirname, "..", ".data", "blobs"),
-);
+const defaultBlobStore = createBlobStore(getBlobsDir());
 import type {
   TaskConfig,
   GateConfig,

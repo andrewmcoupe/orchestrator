@@ -20,6 +20,7 @@ import { execa } from "execa";
 import fs from "node:fs";
 import path from "node:path";
 import { appendAndProject } from "./projectionRunner.js";
+import { getDefaultRepoRoot as getDefaultRepoRootPath } from "./paths.js";
 
 // ============================================================================
 // Types
@@ -74,11 +75,11 @@ export function findHostRepoRoot(startDir: string): string {
 }
 
 /**
- * Returns the host repo root by walking up from this file's directory.
+ * Returns the host repo root — process.cwd() when run via npx.
  * Used as the default when callers don't supply an explicit repoRoot.
  */
 export function getDefaultRepoRoot(): string {
-  return findHostRepoRoot(import.meta.dirname);
+  return getDefaultRepoRootPath();
 }
 
 // ============================================================================

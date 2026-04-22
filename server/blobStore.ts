@@ -11,6 +11,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { getBlobsDir } from "./paths.js";
 
 export type BlobStore = {
   /** Store content and return its sha256 hex hash. Idempotent. */
@@ -68,14 +69,7 @@ export function createBlobStore(basePath: string): BlobStore {
 // Default singleton instance
 // ============================================================================
 
-const defaultBasePath = path.resolve(
-  import.meta.dirname,
-  "..",
-  ".data",
-  "blobs",
-);
-
-const defaultStore = createBlobStore(defaultBasePath);
+const defaultStore = createBlobStore(getBlobsDir());
 
 export const putBlob = defaultStore.putBlob.bind(defaultStore);
 export const getBlob = defaultStore.getBlob.bind(defaultStore);

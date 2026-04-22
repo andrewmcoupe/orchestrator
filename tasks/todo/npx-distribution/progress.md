@@ -5,6 +5,8 @@
 ## Completed Requirements
 - **Priority 1 — Backend — CLI Entry Point**: Created `server/cli.ts` with `parseArgs()` and `main()`. Parses `--port` (default 4321), `--help`, and `--version`. Dynamically imports the server bootstrap on run. Added `server/cli.test.ts` with 9 passing tests. Also fixed a missing `path` import in `server/merge.ts` that was breaking typecheck.
 
+- **Priority 2 — Backend — Path Resolution**: Created `server/paths.ts` as a centralized path module with all paths resolving from `process.cwd()`. Refactored `db.ts`, `blobStore.ts`, `credentials.ts`, `worktree.ts`, `fsWatcher.ts`, `gates/registry.ts`, `phaseRunner.ts`, `routes/repo.ts`, and `routes/settings.ts` to import from `paths.ts` instead of using `import.meta.dirname`. Added `server/paths.test.ts` with 7 passing tests.
+
 ## In Progress
 _None yet_
 

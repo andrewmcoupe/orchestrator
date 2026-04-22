@@ -5,21 +5,17 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { existsSync, statSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 import { appendAndProject, rebuildProjection } from "../projectionRunner.js";
 import { listGates, registerGate, clearGateRegistry, loadGateRegistry } from "../gates/registry.js";
 import type { Actor, GateConfig } from "@shared/events.js";
 import type { ProjectionName } from "@shared/projections.js";
+import { getDbPath, getCredentialsPath, getDefaultRepoRoot } from "../paths.js";
 
 const DEFAULT_ACTOR: Actor = { kind: "user", user_id: "local" };
 const VERSION = "0.1.0";
 
-const DB_PATH = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../.data/events.db",
-);
+const DB_PATH = getDbPath();
 
 const gateConfigBodySchema = z.object({
   name: z.string().min(1),
@@ -235,20 +231,13 @@ export function createSettingsRoutes(db: Database.Database) {
       }
     } catch { /* ignore */ }
 
-    // Find host repo root by walking up from orchestrator dir
-    let repoRoot = "unknown";
-    try {
-      // orchestrator/ is inside the host repo; go up two levels from routes/
-      repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-    } catch { /* ignore */ }
-
     return c.json({
       version: VERSION,
       event_count: eventCount,
       db_size_bytes: dbSizeBytes,
       db_path: DB_PATH,
-      env_local_path: resolve(dirname(fileURLToPath(import.meta.url)), "../../.env.local"),
-      repo_root: repoRoot,
+      env_local_path: getCredentialsPath(),
+      repo_root: getDefaultRepoRoot(),
       projections: VALID_PROJECTION_NAMES,
     });
   });

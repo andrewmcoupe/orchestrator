@@ -7,18 +7,13 @@
  */
 
 import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { execa } from "execa";
 import { parse as parseYaml } from "yaml";
 import type Database from "better-sqlite3";
-import { getDefaultRepoRoot } from "../worktree.js";
+import { getDefaultRepoRoot, getConfigPath } from "../paths.js";
 
-const CONFIG_PATH = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../config.yaml",
-);
+const CONFIG_PATH = getConfigPath();
 
 export function createRepoRoutes(db: Database.Database) {
   const app = new Hono();

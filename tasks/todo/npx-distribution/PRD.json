@@ -23,7 +23,7 @@
       "Worktrees path resolves to <cwd>/.orchestrator/worktrees/",
       "Config path resolves to <cwd>/.orchestrator/config.yaml"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 2
   },
   {
