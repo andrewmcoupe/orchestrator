@@ -1,0 +1,1 @@
+{"command":"pnpm test --run","description":"Run tests to check pass/fail status"}

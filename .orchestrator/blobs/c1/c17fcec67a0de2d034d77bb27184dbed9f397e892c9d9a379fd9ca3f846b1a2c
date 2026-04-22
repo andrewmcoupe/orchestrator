@@ -1,0 +1,1 @@
+{"command":"git log --oneline | head -3","description":"Check recent commits"}

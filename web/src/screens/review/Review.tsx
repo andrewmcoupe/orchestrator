@@ -25,7 +25,6 @@ import {
   ThumbsUp,
   ThumbsDown,
   GitMerge,
-  FolderOpen,
   Undo2,
 } from "lucide-react";
 import type { AttemptRow, AuditSummary, GateRunSummary, PhaseRunSummary } from "@shared/projections.js";
@@ -601,9 +600,7 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
     setShowMergeDialog(true);
   }, []);
 
-  const handleOpenEditor = useCallback(() => {
-    fetch(`/api/worktree/${taskId}/open`).catch(() => {});
-  }, [taskId]);
+
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -784,7 +781,6 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
           approvedAt={approvedAt}
           onMerge={handleMerge}
           onUnapprove={handleUnapprove}
-          onOpenEditor={handleOpenEditor}
         />
       ) : taskStatus === "merged" ? (
         <MergedFooter
@@ -799,7 +795,6 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
           onApprove={handleApprove}
           onReject={handleReject}
           onRetryWithFeedback={handleRetryWithFeedback}
-          onOpenEditor={handleOpenEditor}
         />
       )}
     </div>
@@ -865,14 +860,12 @@ function AwaitingReviewFooter({
   onApprove,
   onReject,
   onRetryWithFeedback,
-  onOpenEditor,
 }: {
   verdict?: AuditSummary["verdict"];
   verdictConfig: (typeof VERDICT_CONFIG)[keyof typeof VERDICT_CONFIG] | null;
   onApprove: () => void;
   onReject: () => void;
   onRetryWithFeedback: () => void;
-  onOpenEditor: () => void;
 }) {
   // Accent the recommended action based on the verdict
   const approveAccent =
@@ -904,24 +897,16 @@ function AwaitingReviewFooter({
         Reject task
       </button>
 
-      <button
-        type="button"
-        data-testid="manual-edit-btn"
-        onClick={onOpenEditor}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors bg-bg-secondary text-text-secondary border border-border-muted hover:text-text-primary"
-      >
-        <FolderOpen size={14} />
-        Manual edit
-      </button>
-
-      <button
-        type="button"
-        onClick={onRetryWithFeedback}
-        className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${retryAccent}`}
-      >
-        <RefreshCcw size={14} />
-        Retry with feedback
-      </button>
+{verdict && verdict !== "approve" && (
+        <button
+          type="button"
+          onClick={onRetryWithFeedback}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${retryAccent}`}
+        >
+          <RefreshCcw size={14} />
+          Retry with feedback
+        </button>
+      )}
 
       <button
         type="button"
@@ -945,14 +930,12 @@ function ApprovedFooter({
   approvedAt,
   onMerge,
   onUnapprove,
-  onOpenEditor,
 }: {
   taskId: string;
   currentBranch: string | null;
   approvedAt?: string;
   onMerge: () => void;
   onUnapprove: () => void;
-  onOpenEditor: () => void;
 }) {
   const branchLabel = currentBranch ?? "…";
 
@@ -974,18 +957,6 @@ function ApprovedFooter({
       </div>
 
       <div className="flex-1" />
-
-      {/* Open in editor */}
-      <button
-        type="button"
-        data-testid="open-in-editor-btn"
-        onClick={onOpenEditor}
-        title={`Open worktree for ${taskId} in editor`}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors bg-bg-secondary text-text-secondary border border-border-muted hover:text-text-primary"
-      >
-        <FolderOpen size={14} />
-        Open in editor
-      </button>
 
       {/* Unapprove (text link) */}
       <button

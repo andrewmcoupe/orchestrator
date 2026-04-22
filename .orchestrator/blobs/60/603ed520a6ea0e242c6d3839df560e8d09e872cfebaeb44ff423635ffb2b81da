@@ -1,0 +1,1 @@
+{"command":"npx vitest run 2>&1 | head -200","description":"Run vitest to find test failures","timeout":60000}

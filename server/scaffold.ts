@@ -22,7 +22,8 @@ import {
  * is installed.
  */
 function getTemplatesDir(): string {
-  return path.join(import.meta.dirname, "..", "templates");
+  // From dist/server/ we need to go up two levels to reach the package root
+  return path.join(import.meta.dirname, "..", "..", "templates");
 }
 
 /**

@@ -1,0 +1,1 @@
+{"command":"find /Users/andycoupe/web-dev/orchestrator/.orchestrator-worktrees/T-01KPVF6G5Q9MCGQJMXBAC626J9 -type f -name \"*.test.ts*\" -o -name \"*.spec.ts*\" | head -20"}

@@ -166,9 +166,22 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 }
 
 // Run when executed directly (not imported)
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const thisFile = fileURLToPath(import.meta.url);
+const invoked = (() => {
+  try {
+    return realpathSync(process.argv[1]);
+  } catch {
+    return process.argv[1];
+  }
+})();
+
 const isDirectRun =
-  import.meta.url === `file://${process.argv[1]}` ||
-  process.argv[1]?.endsWith("/cli.js");
+  thisFile === invoked ||
+  invoked?.endsWith("/cli.js") ||
+  invoked?.endsWith("/orchestrator");
 
 if (isDirectRun) {
   main().catch((err) => {

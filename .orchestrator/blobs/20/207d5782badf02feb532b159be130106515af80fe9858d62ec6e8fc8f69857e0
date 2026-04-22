@@ -1,0 +1,1 @@
+{"command":"cat package.json | grep -A 5 '\"test\"'","description":"Check test script in package.json"}

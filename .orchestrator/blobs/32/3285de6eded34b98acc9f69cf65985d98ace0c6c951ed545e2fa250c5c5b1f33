@@ -1,0 +1,1 @@
+{"command":"find /Users/andycoupe/web-dev/orchestrator/.orchestrator-worktrees/T-01KPVFZKPH35MW5XK72WC5FAHH/server -maxdepth 1 -name \"*.ts\" -type f","description":"List all TypeScript source files in server directory"}

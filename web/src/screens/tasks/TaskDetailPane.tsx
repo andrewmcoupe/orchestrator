@@ -39,11 +39,21 @@ const STATUS_PILL: Record<TaskStatus, string> = {
 
 type PhaseStatus = "done" | "running" | "pending";
 
-function derivePhaseStatus(phase: PhaseConfig, currentPhase?: string, taskStatus?: TaskStatus): PhaseStatus {
+function derivePhaseStatus(
+  phase: PhaseConfig,
+  enabledPhases: PhaseConfig[],
+  currentPhase?: string,
+  taskStatus?: TaskStatus,
+): PhaseStatus {
   if (!taskStatus || taskStatus === "draft" || taskStatus === "queued") return "pending";
-  if (taskStatus === "merged") return "done";
+  if (taskStatus === "merged" || taskStatus === "awaiting_review" || taskStatus === "rejected") return "done";
   if (currentPhase === phase.name) return "running";
-  // If we're past this phase (based on config order), it's done
+  // If the task is running, phases before the current one are done
+  if (taskStatus === "running" && currentPhase) {
+    const currentIdx = enabledPhases.findIndex((p) => p.name === currentPhase);
+    const thisIdx = enabledPhases.findIndex((p) => p.name === phase.name);
+    if (currentIdx >= 0 && thisIdx >= 0 && thisIdx < currentIdx) return "done";
+  }
   return "pending";
 }
 
@@ -61,20 +71,26 @@ const PHASE_DOT: Record<PhaseStatus, string> = {
 
 function PhaseBox({
   phase,
+  enabledPhases,
   currentPhase,
   taskStatus,
 }: {
   phase: PhaseConfig;
+  enabledPhases: PhaseConfig[];
   currentPhase?: string;
   taskStatus?: TaskStatus;
 }) {
-  const status = derivePhaseStatus(phase, currentPhase, taskStatus);
+  const status = derivePhaseStatus(phase, enabledPhases, currentPhase, taskStatus);
   const model = phase.model.split("/").pop() ?? phase.model;
 
   return (
     <div className={`flex-1 border px-4 py-3 min-w-[140px] ${PHASE_STATUS_STYLES[status]}`}>
       <div className="flex items-center gap-1.5 mb-1">
-        <span className={`inline-block h-2 w-2 rounded-full ${PHASE_DOT[status]}`} />
+        {status === "running" ? (
+          <span className="inline-block h-2.5 w-2.5 rounded-full border-[1.5px] border-status-warning border-t-transparent animate-spin" />
+        ) : (
+          <span className={`inline-block h-2 w-2 rounded-full ${PHASE_DOT[status]}`} />
+        )}
         <span className="text-sm font-medium text-text-primary">{phase.name}</span>
       </div>
       <div className="text-xs text-text-secondary font-mono">
@@ -324,6 +340,13 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
         />
       )}
 
+      {/* Pause banner */}
+      {detail.status === "paused" && (
+        <div className="mx-6 mt-4 px-3 py-2 border border-status-muted/30 bg-status-muted/5 text-xs text-text-secondary">
+          Pausing after current phase completes. Events may continue until then.
+        </div>
+      )}
+
       {/* Content sections */}
       <div className="px-6 pb-6">
         {/* Proposition block */}
@@ -350,6 +373,7 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
               <PhaseBox
                 key={phase.name}
                 phase={phase}
+                enabledPhases={enabledPhases}
                 currentPhase={listRow?.current_phase ?? undefined}
                 taskStatus={detail.status}
               />

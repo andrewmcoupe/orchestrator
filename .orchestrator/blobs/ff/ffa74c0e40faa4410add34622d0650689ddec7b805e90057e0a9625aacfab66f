@@ -1,0 +1,1 @@
+{"command":"find /Users/andycoupe/web-dev/orchestrator/.orchestrator-worktrees/T-01KPVETJGFZ7J46ZZ63N849DMR -type d -maxdepth 2 | grep -v node_modules | sort","description":"Show directory structure (excluding node_modules)"}

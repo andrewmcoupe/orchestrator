@@ -1,0 +1,1 @@
+{"command":"git log --oneline -10","description":"Show recent commits"}

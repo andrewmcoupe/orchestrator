@@ -166,6 +166,7 @@ export type TransportOptions =
       permission_mode: "default" | "plan" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "auto";
       allowed_tools?: string[];
       append_system_prompt_path?: string;
+      schema?: object; // JSON Schema for structured output via --json-schema
     }
   | {
       kind: "api";

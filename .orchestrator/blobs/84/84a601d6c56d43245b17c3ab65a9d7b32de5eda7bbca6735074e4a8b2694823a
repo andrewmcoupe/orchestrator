@@ -1,0 +1,1 @@
+{"command":"git diff main --stat","description":"Show changed files compared to main"}

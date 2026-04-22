@@ -1,0 +1,1 @@
+{"command":"find /Users/andycoupe/web-dev/orchestrator/.orchestrator-worktrees/T-01KPVFZKPH35MW5XK72WC5FAHH -maxdepth 2 -type f -name \"*.md\" | head -20","description":"Find markdown files that might contain PRD or requirements"}

@@ -1,0 +1,1 @@
+{"command":"git diff main...HEAD --name-only | grep -E \"\\.(ts|tsx|json)$\"","description":"Show TypeScript files changed"}

@@ -1,0 +1,1 @@
+{"command":"npm test -- web/src/screens/review/MergeDialog.test.tsx 2>&1 | head -100"}

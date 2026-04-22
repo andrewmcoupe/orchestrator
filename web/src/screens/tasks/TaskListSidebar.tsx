@@ -3,6 +3,7 @@ import { Search, GitMerge } from "lucide-react";
 import type { TaskListRow } from "@shared/projections.js";
 import type { TaskStatus } from "@shared/events.js";
 import { useCreateTask } from "../../hooks/useTaskMutations.js";
+import { Button } from "@shared/components/ui/button.js";
 
 type StatusFilter = "all" | "active" | "approved" | "done";
 
@@ -127,9 +128,12 @@ export function TaskListSidebar({
     if (showNewTask) inputRef.current?.focus();
   }, [showNewTask]);
 
+  const wordCount = newTitle.trim().split(/\s+/).filter(Boolean).length;
+  const isTooShort = newTitle.trim().length > 0 && wordCount < 5;
+
   const handleCreate = useCallback(() => {
     const title = newTitle.trim();
-    if (!title) return;
+    if (!title || title.split(/\s+/).filter(Boolean).length < 5) return;
     createTask.mutate(
       { title },
       {
@@ -255,16 +259,17 @@ export function TaskListSidebar({
           />
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-text-tertiary">
-              Enter to create · Esc to cancel
+              {isTooShort
+                ? `${5 - wordCount} more ${5 - wordCount === 1 ? "word" : "words"} needed`
+                : "Enter to create · Esc to cancel"}
             </span>
-            <button
-              type="button"
+            <Button
+              size="xs"
               onClick={handleCreate}
-              disabled={!newTitle.trim() || createTask.isPending}
-              className="bg-bg-inverse px-3 py-1 text-xs text-text-inverse hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={!newTitle.trim() || isTooShort || createTask.isPending}
             >
               {createTask.isPending ? "Creating…" : "Create"}
-            </button>
+            </Button>
           </div>
           {createTask.isError && (
             <p className="text-xs text-status-danger mt-1">

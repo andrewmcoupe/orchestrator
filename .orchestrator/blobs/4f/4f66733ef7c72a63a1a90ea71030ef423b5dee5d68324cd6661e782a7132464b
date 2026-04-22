@@ -1,0 +1,1 @@
+{"command":"npm test 2>&1 | head -200","description":"Run test suite and capture output"}

@@ -61,6 +61,7 @@ import type {
   InvocationCompleted,
   InvocationErrored,
   InvocationAssistantMessage,
+  InvocationToolCalled,
   TaskStatus,
   ContextManifest,
   AuditConcern,
@@ -442,35 +443,29 @@ export async function runAttempt(
       try {
         let invoker: AsyncIterable<AppendEventInput>;
 
+        // For the auditor phase, merge the verdict schema into whichever
+        // transport the phase is configured to use. If the user switched
+        // transport (e.g. to claude-code) but transport_options.kind is
+        // still "api" from the old default, reconcile by building fresh
+        // CLI transport_options.
+        let effectiveTransportOpts = phase.transport_options;
         if (isAuditorPhase) {
-          // Auditor always runs via the API with schema-enforced structured output.
-          // Use the phase's configured transport_options but inject the verdict schema.
-          const auditTransportOpts: Extract<typeof phase.transport_options, { kind: "api" }> =
-            phase.transport_options.kind === "api"
-              ? { ...phase.transport_options, schema: VERDICT_JSON_SCHEMA }
-              : {
-                  kind: "api",
-                  max_tokens: 4096,
-                  schema: VERDICT_JSON_SCHEMA,
-                };
-          invoker = doApiInvoke(
-            {
-              invocation_id,
-              attempt_id,
-              phase_name: phase.name,
-              model: phase.model || AUDITOR_MODEL,
-              messages: [{ role: "user", content: packResult.prompt }],
-              system_prompt: packResult.system_prompt_file
-                ? undefined
-                : undefined, // system prompt is in the packer output
-              prompt_version_id: phase.prompt_version_id || AUDITOR_PROMPT_VERSION_ID,
-              context_manifest_hash: packResult.manifest_hash,
-              transport_options: auditTransportOpts,
-            } satisfies ApiInvokeOptions,
-            bs,
-          );
-        } else if (isCliTransport(phase.transport)) {
-          if (phase.transport_options.kind !== "cli") {
+          if (isCliTransport(phase.transport) && phase.transport_options.kind !== "cli") {
+            // Transport was switched to CLI but options are still API-shaped — build CLI defaults
+            effectiveTransportOpts = {
+              kind: "cli",
+              max_turns: 10,
+              max_budget_usd: 1,
+              permission_mode: "bypassPermissions",
+              schema: VERDICT_JSON_SCHEMA,
+            };
+          } else {
+            effectiveTransportOpts = { ...phase.transport_options, schema: VERDICT_JSON_SCHEMA };
+          }
+        }
+
+        if (isCliTransport(phase.transport)) {
+          if (effectiveTransportOpts.kind !== "cli") {
             throw new Error(
               `Transport ${phase.transport} requires cli transport_options`,
             );
@@ -480,19 +475,21 @@ export async function runAttempt(
               invocation_id,
               attempt_id,
               phase_name: phase.name,
-              model: phase.model,
+              model: isAuditorPhase ? (phase.model || AUDITOR_MODEL) : phase.model,
               prompt: packResult.prompt,
-              prompt_version_id: phase.prompt_version_id,
+              prompt_version_id: isAuditorPhase
+                ? (phase.prompt_version_id || AUDITOR_PROMPT_VERSION_ID)
+                : phase.prompt_version_id,
               context_manifest_hash: packResult.manifest_hash,
               systemPromptFile: packResult.system_prompt_file,
               cwd: worktree_path ?? "/tmp/no-worktree",
-              transport_options: phase.transport_options,
+              transport_options: effectiveTransportOpts,
             } satisfies CliInvokeOptions,
             bs,
           );
         } else {
           // API transport (anthropic-api, openai-api)
-          if (phase.transport_options.kind !== "api") {
+          if (effectiveTransportOpts.kind !== "api") {
             throw new Error(
               `Transport ${phase.transport} requires api transport_options`,
             );
@@ -502,11 +499,13 @@ export async function runAttempt(
               invocation_id,
               attempt_id,
               phase_name: phase.name,
-              model: phase.model,
+              model: isAuditorPhase ? (phase.model || AUDITOR_MODEL) : phase.model,
               messages: [{ role: "user", content: packResult.prompt }],
-              prompt_version_id: phase.prompt_version_id,
+              prompt_version_id: isAuditorPhase
+                ? (phase.prompt_version_id || AUDITOR_PROMPT_VERSION_ID)
+                : phase.prompt_version_id,
               context_manifest_hash: packResult.manifest_hash,
-              transport_options: phase.transport_options,
+              transport_options: effectiveTransportOpts,
             } satisfies ApiInvokeOptions,
             bs,
           );
@@ -520,9 +519,19 @@ export async function runAttempt(
 
           const event = appendAndProject(db, input);
 
-          // Capture the last assistant message text for the auditor phase
-          if (isAuditorPhase && event.type === "invocation.assistant_message") {
-            auditorResponseText = (event.payload as InvocationAssistantMessage).text;
+          // Capture the auditor response text — could arrive as a plain
+          // assistant_message (API path) or as a StructuredOutput tool_use
+          // (CLI --json-schema path).
+          if (isAuditorPhase) {
+            if (event.type === "invocation.assistant_message") {
+              auditorResponseText = (event.payload as InvocationAssistantMessage).text;
+            } else if (event.type === "invocation.tool_called") {
+              const p = event.payload as InvocationToolCalled;
+              if (p.tool_name === "StructuredOutput") {
+                const blob = bs.getBlob(p.args_hash);
+                if (blob) auditorResponseText = blob.toString("utf8");
+              }
+            }
           }
 
           if (event.type === "invocation.completed") {

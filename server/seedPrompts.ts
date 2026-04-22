@@ -70,8 +70,9 @@ const SEED_ACTOR = { kind: "system" as const, component: "gate_runner" as const 
  * Returns the default prompts directory bundled with the package.
  */
 export function getPackagePromptsDir(): string {
+  // From dist/server/ we need to go up two levels to reach the package root
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  return path.join(__dirname, "..", "prompts");
+  return path.join(__dirname, "..", "..", "prompts");
 }
 
 /**
