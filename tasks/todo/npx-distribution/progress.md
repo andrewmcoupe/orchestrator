@@ -13,6 +13,8 @@
 
 - **Priority 5 — Backend — Prompt Seeding**: Created `server/seedPrompts.ts` with unified `seedPrompts(db)` that dynamically discovers all `prompts/*.md` files matching the `{phase}-v{N}.md` convention. Checks if any `prompt_version.created` events exist — if empty, reads each file, stores template content in blob store via `putBlob`, and emits `prompt_version.created` events via `appendAndProject`. Replaces individual `seedIngestPromptVersion` / `seedAuditorPromptVersion` calls in `app.ts` with a single `seedPrompts(db)` call. Added `server/seedPrompts.test.ts` with 11 passing tests.
 
+- **Priority 6 — Backend — Static File Serving**: Created `server/staticFiles.ts` with `getStaticRoot()` and `addStaticMiddleware()`. Uses `@hono/node-server/serve-static` to serve pre-built frontend from `dist/web/`. Added after all API routes in `app.ts` so `/api/*` takes precedence. Includes SPA fallback that serves `index.html` for non-API, non-file routes (client-side routing). Added `server/staticFiles.test.ts` with 9 passing tests.
+
 ## In Progress
 _None yet_
 

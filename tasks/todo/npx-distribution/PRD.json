@@ -74,7 +74,7 @@
       "index.html served for client-side routing fallback",
       "Server runs on single port (default 4321)"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 6
   },
   {

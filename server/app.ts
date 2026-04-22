@@ -23,6 +23,7 @@ import { createMeasurementRoutes } from "./routes/measurement.js";
 import { createSettingsRoutes } from "./routes/settings.js";
 import { createRepoRoutes } from "./routes/repo.js";
 import { createWorktreeRoutes } from "./routes/worktrees.js";
+import { addStaticMiddleware } from "./staticFiles.js";
 
 const app = new Hono();
 
@@ -61,5 +62,8 @@ app.route("/", createMeasurementRoutes(db));
 app.route("/", createSettingsRoutes(db));
 app.route("/", createRepoRoutes(db));
 app.route("/", createWorktreeRoutes(db));
+
+// Serve pre-built frontend (after API routes so they take precedence)
+addStaticMiddleware(app);
 
 export { app, probeScheduler };
