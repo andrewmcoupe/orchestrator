@@ -185,6 +185,10 @@ export interface TaskListRow {
   phase_models: Record<string, string>;
   /** True if this task was auto-merged (vs manual merge). */
   auto_merged?: boolean;
+  /** Task IDs this task depends on. Empty array means no dependencies. */
+  depends_on?: string[];
+  /** True if this task has unmet dependencies. */
+  blocked?: boolean;
   last_event_ts: string;
   updated_at: string;
 }
@@ -650,6 +654,26 @@ export function reduceTaskList(
         updated_at: event.ts,
       };
     }
+
+    case "task.dependency.set": {
+      if (!current) return null;
+      const deps = event.payload.depends_on;
+      return {
+        ...current,
+        depends_on: deps,
+        blocked: deps.length > 0,
+        updated_at: event.ts,
+      };
+    }
+
+    case "task.unblocked":
+      if (!current) return null;
+      return {
+        ...current,
+        blocked: false,
+        status: "queued",
+        updated_at: event.ts,
+      };
 
     case "task.auto_approved":
       if (!current) return null;

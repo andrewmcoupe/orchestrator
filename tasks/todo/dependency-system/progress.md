@@ -24,3 +24,11 @@
 - Updated `prdIngestBody` Zod schema from `z.object({ path })` to a `z.union` of `{ path }` and `{ content }`, rejecting payloads with both or neither.
 - Added 4 new tests in `server/routes/commands.test.ts` covering path-only, content-only, both-rejected, and neither-rejected cases.
 - All tests pass, typecheck clean.
+
+## 2026-04-23 — Dependency System: tests and core logic (PRD item: "Testing — Dependency System")
+
+- Created `shared/dependency.ts` with three pure functions: `topoSort` (Kahn's algorithm with DFS cycle-edge stripping), `canAddDependency` (status gate), `resolveBlockedStatus` (dependency status resolution with warnings for terminal failures).
+- Created `shared/dependency.test.ts` with 19 tests covering all 6 PRD verification steps: topo sort cycle detection, blocked projection state, unblocking on merge, partial unblocking, status validation, and cancelled/failed dependency warnings.
+- Added `depends_on?: string[]` and `blocked?: boolean` fields to `TaskListRow` in `shared/projections.ts`.
+- Added `task.dependency.set` and `task.unblocked` cases to `reduceTaskList`.
+- All tests pass (19/19 in dependency suite, 86/86 across related files), typecheck clean.

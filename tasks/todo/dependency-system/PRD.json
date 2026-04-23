@@ -46,7 +46,7 @@
       "Test dependencies cannot be added to tasks that are in_progress or beyond",
       "Test cancelled/failed dependency keeps dependents blocked and raises a warning"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 1
   },
   {
