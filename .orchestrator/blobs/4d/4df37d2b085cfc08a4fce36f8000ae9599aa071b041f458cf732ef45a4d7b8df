@@ -1,1 +1,0 @@
-{"command":"find /Users/andycoupe/web-dev/orchestrator/.orchestrator-worktrees/T-01KPVETJGFZ7J46ZZ63N849DMR -type d -name \"tasks\" -o -type d -name \"todo\" -o -type d -name \"PRD\"","description":"Find tasks/todo/PRD directories"}

@@ -1,1 +1,0 @@
-{"command":"find /Users/andycoupe/web-dev/orchestrator/.orchestrator-worktrees/T-01KPVFZKPH35MW5XK72WC5FAHH -type f \\( -name \"README*\" -o -name \"*.txt\" -o -name \"*.md\" \\) | grep -v node_modules","description":"Find all README and documentation files"}

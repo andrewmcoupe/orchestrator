@@ -1,1 +1,0 @@
-{"command":"ls -1 /Users/andycoupe/web-dev/orchestrator/.orchestrator-worktrees/T-01KPVFZKPH35MW5XK72WC5FAHH/server/*.ts | grep -E \"(cli|paths|scaffold|seedPrompts|staticFiles)\\.ts$\"","description":"Verify implementation files exist"}

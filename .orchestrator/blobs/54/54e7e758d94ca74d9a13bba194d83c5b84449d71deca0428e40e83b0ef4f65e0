@@ -1,1 +1,0 @@
-{"command":"git diff main...HEAD -- tasks/todo/npx-distribution/PRD.json | head -100","description":"Show PRD changes"}

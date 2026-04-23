@@ -1,1 +1,0 @@
-{"command":"pnpm vitest run 2>&1 | tail -20","description":"Run test suite to check current status","timeout":60000}
