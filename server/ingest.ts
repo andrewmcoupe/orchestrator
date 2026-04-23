@@ -162,6 +162,9 @@ async function callExtractionApi(
     let assistantText = "";
     let apiErrored = false;
 
+    console.log(`[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${INGEST_MODEL})`);
+    console.log(`[ingest] content length: ${content.length} chars`);
+
     const opts = {
       invocation_id: invocationId,
       attempt_id: prd_id,
@@ -173,29 +176,38 @@ async function callExtractionApi(
       context_manifest_hash: "",
       transport_options: {
         kind: "api" as const,
-        max_tokens: 4096,
+        max_tokens: 16384,
         schema: EXTRACTION_JSON_SCHEMA,
       },
     };
 
+    console.log(`[ingest] calling API...`);
+    const startTime = Date.now();
+
     for await (const event of invoke(opts, fetcher)) {
+      console.log(`[ingest] received event: ${event.type} (+${Date.now() - startTime}ms)`);
       if (event.type === "invocation.assistant_message") {
         assistantText += (event.payload as { text: string }).text;
       }
       if (event.type === "invocation.errored") {
         apiErrored = true;
-        lastError = new Error(
-          (event.payload as { error: string }).error ?? "API error",
-        );
+        const errorPayload = event.payload as { error: string };
+        console.error(`[ingest] API error: ${errorPayload.error}`);
+        lastError = new Error(errorPayload.error ?? "API error");
         break;
       }
     }
 
+    console.log(`[ingest] API call completed in ${Date.now() - startTime}ms (errored: ${apiErrored}, textLen: ${assistantText.length})`);
+
     if (!apiErrored && assistantText) {
       try {
         const parsed: unknown = JSON.parse(assistantText);
-        return extractionSchema.parse(parsed);
+        const result = extractionSchema.parse(parsed);
+        console.log(`[ingest] extraction succeeded: ${result.propositions.length} propositions, ${result.draft_tasks.length} tasks, ${result.pushbacks.length} pushbacks`);
+        return result;
       } catch (err) {
+        console.error(`[ingest] parse/validation failed:`, err instanceof Error ? err.message : err);
         lastError =
           err instanceof Error ? err : new Error("Validation failed");
         // continue to next retry

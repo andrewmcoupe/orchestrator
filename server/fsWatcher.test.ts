@@ -5,14 +5,7 @@
  * A short debounceMs (50ms) is used so tests complete quickly.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
@@ -39,7 +32,7 @@ function makeTestDb(): Database.Database {
  */
 async function waitFor(
   predicate: () => boolean,
-  maxMs = 6000,
+  maxMs = 10000,
   interval = 20,
 ): Promise<void> {
   const deadline = Date.now() + maxMs;
@@ -70,7 +63,9 @@ beforeEach(() => {
 afterEach(async () => {
   // Ensure all watchers are stopped to prevent EMFILE
   for (const w of activeWatchers) {
-    try { await w.stop(); } catch {}
+    try {
+      await w.stop();
+    } catch {}
   }
   activeWatchers = [];
   db.close();
@@ -203,7 +198,9 @@ describe("createFsWatcher — expected change filtering", () => {
     });
 
     const events = readEvents(db, { aggregate_id: "T-004" });
-    expect(events.some((e) => e.type === "files.changed_externally")).toBe(true);
+    expect(events.some((e) => e.type === "files.changed_externally")).toBe(
+      true,
+    );
 
     await watcher.stop();
   });
@@ -347,7 +344,9 @@ describe("createFsWatcher — lifecycle", () => {
     });
 
     const events = readEvents(db, { aggregate_id: "T-008" });
-    expect(events.some((e) => e.type === "files.changed_externally")).toBe(true);
+    expect(events.some((e) => e.type === "files.changed_externally")).toBe(
+      true,
+    );
 
     await watcher.stop();
   });

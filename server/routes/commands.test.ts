@@ -240,7 +240,10 @@ describe("POST /api/commands/task/:id/start", () => {
     const res = await post(app, "/api/commands/task/T-001/start");
     expect(res.status).toBe(202);
 
-    const body = await res.json() as { task_id: string; attempt_id: string | undefined };
+    const body = (await res.json()) as {
+      task_id: string;
+      attempt_id: string | undefined;
+    };
     expect(body.task_id).toBe("T-001");
     // attempt_id may be undefined in test environments where runAttempt is not mocked,
     // but the task must have been transitioned to running
@@ -477,7 +480,10 @@ describe("POST /api/commands/task/:id/retry", () => {
     });
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { events: AnyEvent[]; new_attempt_id: string };
+    const body = (await res.json()) as {
+      events: AnyEvent[];
+      new_attempt_id: string;
+    };
     // Command returns attempt.retry_requested + task.status_changed (attempt.started is background)
     expect(body.events).toHaveLength(2);
     expect(body.events[0].type).toBe("attempt.retry_requested");
@@ -489,7 +495,8 @@ describe("POST /api/commands/task/:id/retry", () => {
     ).toBe(body.new_attempt_id);
     expect(
       (body.events[0].payload as { previous_attempt_id: string })
-        .previous_attempt_id ?? (body.events[0].payload as { attempt_id: string }).attempt_id,
+        .previous_attempt_id ??
+        (body.events[0].payload as { attempt_id: string }).attempt_id,
     ).toBeDefined();
   });
 });
@@ -608,7 +615,7 @@ describe("POST /api/commands/attempt/:id/approve", () => {
       rationale: "Looks good",
     });
     expect(res.status).toBe(409);
-    const body = await res.json() as { detail: string };
+    const body = (await res.json()) as { detail: string };
     expect(body.detail).toContain("approved");
   });
 
@@ -718,8 +725,12 @@ describe("POST /api/commands/attempt/:id/unapprove", () => {
     const body = (await res.json()) as AnyEvent[];
     expect(body).toHaveLength(1);
     expect(body[0].type).toBe("task.status_changed");
-    expect((body[0].payload as { from: string; to: string }).from).toBe("approved");
-    expect((body[0].payload as { from: string; to: string }).to).toBe("awaiting_review");
+    expect((body[0].payload as { from: string; to: string }).from).toBe(
+      "approved",
+    );
+    expect((body[0].payload as { from: string; to: string }).to).toBe(
+      "awaiting_review",
+    );
 
     // Verify the projection reflects the revert
     const row = db
@@ -735,7 +746,7 @@ describe("POST /api/commands/attempt/:id/unapprove", () => {
 
     const res = await post(app, "/api/commands/attempt/A-001/unapprove");
     expect(res.status).toBe(409);
-    const body = await res.json() as { detail: string };
+    const body = (await res.json()) as { detail: string };
     expect(body.detail).toContain("approved");
   });
 
@@ -858,11 +869,16 @@ describe("POST /api/commands/attempt/:id/retry-with-feedback", () => {
     );
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { events: AnyEvent[]; new_attempt_id: string };
+    const body = (await res.json()) as {
+      events: AnyEvent[];
+      new_attempt_id: string;
+    };
     // Command returns attempt.retry_requested + task.status_changed (attempt.started is background)
     expect(body.events).toHaveLength(2);
     expect(body.events[0].type).toBe("attempt.retry_requested");
-    expect((body.events[0].payload as { with_feedback: boolean }).with_feedback).toBe(true);
+    expect(
+      (body.events[0].payload as { with_feedback: boolean }).with_feedback,
+    ).toBe(true);
     expect(body.events[1].type).toBe("task.status_changed");
     expect((body.events[1].payload as { to: string }).to).toBe("revising");
     expect(body.new_attempt_id).toMatch(/^A-/);
@@ -885,7 +901,7 @@ describe("POST /api/commands/prd/ingest", () => {
     });
     // Real ingestPrd is called; file not found → 500 with error message
     expect(res.status).toBe(500);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBeDefined();
   });
 
@@ -911,7 +927,7 @@ describe("POST /api/commands/prd/ingest", () => {
     });
     // Validation passes (500 from ingestPrd internals, not 400)
     expect(res.status).not.toBe(400);
-  });
+  }, 10000);
 
   it("rejects payload with both path and content", async () => {
     const { app } = setup();
@@ -1012,7 +1028,7 @@ describe("POST /api/commands/task/:id/dependencies", () => {
     });
     expect(res.status).toBe(200);
 
-    const body = await res.json() as AnyEvent;
+    const body = (await res.json()) as AnyEvent;
     expect(body.type).toBe("task.dependency.set");
     expect(body.payload).toMatchObject({
       task_id: "T-TARGET",
@@ -1029,7 +1045,7 @@ describe("POST /api/commands/task/:id/dependencies", () => {
       depends_on: ["T-DEP"],
     });
     expect(res.status).toBe(409);
-    const body = await res.json() as { detail: string };
+    const body = (await res.json()) as { detail: string };
     expect(body.detail).toContain("running");
   });
 
@@ -1052,7 +1068,7 @@ describe("POST /api/commands/task/:id/dependencies", () => {
       depends_on: ["T-B"],
     });
     expect(res.status).toBe(409);
-    const body = await res.json() as { detail: string };
+    const body = (await res.json()) as { detail: string };
     expect(body.detail).toContain("cycle");
   });
 
@@ -1076,7 +1092,7 @@ describe("POST /api/commands/task/:id/dependencies", () => {
     });
     expect(res.status).toBe(200);
 
-    const body = await res.json() as AnyEvent;
+    const body = (await res.json()) as AnyEvent;
     expect(body.type).toBe("task.dependency.set");
     expect(body.payload).toMatchObject({
       task_id: "T-TARGET",

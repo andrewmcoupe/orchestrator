@@ -35,6 +35,7 @@ fi
 
 PRD_PATH="tasks/todo/$SLUG/PRD.json"
 PROGRESS_PATH="tasks/todo/$SLUG/progress.md"
+FEATURE_INTENT_PATH="tasks/todo/$SLUG/feature-intent.md"
 DONE_PATH="tasks/done/$SLUG"
 
 # Verify the task folder and PRD exist
@@ -67,7 +68,7 @@ for ((i=1; i<=ITERATIONS; i++)); do
     --verbose \
     --print \
     --output-format stream-json \
-    -p "@$PRD_PATH @$PROGRESS_PATH \
+    -p "@FEATURE_INTENT_PATH @$PRD_PATH @$PROGRESS_PATH \
     1. Find the highest-priority feature to work on and work only on that feature. \
     This should be the one YOU decide has the highest priority - not necessarily the first in the list. \
     2. Use the tdd skill if appropriate, to write tests for the feature before implementing it. \

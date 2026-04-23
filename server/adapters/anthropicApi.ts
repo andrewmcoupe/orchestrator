@@ -140,6 +140,8 @@ export function translateSseEvent(
     correlation_id: state.attemptId,
   };
 
+  console.log(`[anthropicApi] SSE event: ${eventType}, toolJsonBuffer len: ${state.toolJsonBuffer.length}, textBuffer len: ${state.textBuffer.length}`);
+
   switch (eventType) {
     case "message_start": {
       // Capture input tokens from the message_start event
@@ -177,6 +179,8 @@ export function translateSseEvent(
         partial_json?: string;
       } | undefined;
 
+      console.log(`[anthropicApi] delta:`, JSON.stringify(delta));
+
       if (delta?.type === "text_delta" && delta.text) {
         const msg: AppendEventInput<"invocation.assistant_message"> = {
           ...base,
@@ -203,7 +207,9 @@ export function translateSseEvent(
       return [];
 
     case "message_delta": {
+      const delta = data.delta as { stop_reason?: string } | undefined;
       const usage = data.usage as { output_tokens?: number } | undefined;
+      console.log(`[anthropicApi] message_delta: stop_reason=${delta?.stop_reason}, output_tokens=${usage?.output_tokens}`);
       state.tokensOut = usage?.output_tokens ?? state.tokensOut;
       return [];
     }
