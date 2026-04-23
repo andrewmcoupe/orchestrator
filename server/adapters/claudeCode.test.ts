@@ -14,11 +14,13 @@ import {
   translateLine,
   parseGitNumstat,
   parseGitNameStatus,
+  classifySubprocessError,
   type InvokeOptions,
   type ClaudeCodeLine,
 } from "./claudeCode.js";
 import type { BlobStore } from "../blobStore.js";
 import { invoke } from "./claudeCode.js";
+import type { ExitReason } from "@shared/events.js";
 
 // ============================================================================
 // Helpers
@@ -353,7 +355,7 @@ describe("translateLine — result success", () => {
 });
 
 describe("translateLine — result error", () => {
-  it("produces invocation.errored on is_error=true", () => {
+  it("produces invocation.errored and invocation.completed on is_error=true", () => {
     const line: ClaudeCodeLine = {
       type: "result",
       subtype: "error",
@@ -367,9 +369,11 @@ describe("translateLine — result error", () => {
     };
     const blobStore = makeBlobStore();
     const inputs = translateLine(line, baseOpts, blobStore);
-    expect(inputs).toHaveLength(1);
+    expect(inputs).toHaveLength(2);
     expect(inputs[0].type).toBe("invocation.errored");
     expect((inputs[0].payload as { error_category: string }).error_category).toBe("unknown");
+    expect(inputs[1].type).toBe("invocation.completed");
+    expect((inputs[1].payload as { exit_reason: string }).exit_reason).toBe("unknown");
   });
 
   it("maps error_budget_exceeded subtype to budget_exceeded category", () => {
@@ -386,8 +390,9 @@ describe("translateLine — result error", () => {
     };
     const blobStore = makeBlobStore();
     const inputs = translateLine(line, baseOpts, blobStore);
-    expect(inputs[0].type).toBe("invocation.errored");
-    expect((inputs[0].payload as { error_category: string }).error_category).toBe(
+    const errored = inputs.find((i) => i.type === "invocation.errored");
+    expect(errored).toBeDefined();
+    expect((errored!.payload as { error_category: string }).error_category).toBe(
       "budget_exceeded",
     );
   });
@@ -406,7 +411,8 @@ describe("translateLine — result error", () => {
     };
     const blobStore = makeBlobStore();
     const inputs = translateLine(line, baseOpts, blobStore);
-    expect((inputs[0].payload as { error_category: string }).error_category).toBe("turn_limit");
+    const errored = inputs.find((i) => i.type === "invocation.errored");
+    expect((errored!.payload as { error_category: string }).error_category).toBe("turn_limit");
   });
 });
 
@@ -644,5 +650,161 @@ describe("invoke() pipeline", () => {
     // But args can be retrieved from blob store
     const stored = blobStore.getBlob(args_hash);
     expect(JSON.parse(stored!.toString())).toEqual(toolArgs);
+  });
+});
+
+// ============================================================================
+// Exit reason classification
+// ============================================================================
+
+describe("exit reason classification", () => {
+  describe("classifySubprocessError", () => {
+    it("classifies SIGKILL as killed", () => {
+      const err = Object.assign(new Error("killed"), { signal: "SIGKILL", exitCode: 137 });
+      expect(classifySubprocessError(err)).toBe("killed");
+    });
+
+    it("classifies exit code 137 as killed", () => {
+      const err = Object.assign(new Error("killed"), { exitCode: 137 });
+      expect(classifySubprocessError(err)).toBe("killed");
+    });
+
+    it("classifies exit code 124 as timeout", () => {
+      const err = Object.assign(new Error("timeout"), { exitCode: 124 });
+      expect(classifySubprocessError(err)).toBe("timeout");
+    });
+
+    it("classifies permission prompt in stderr as permission_blocked", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "Waiting for permission to use tool")).toBe("permission_blocked");
+    });
+
+    it("classifies ENOTFOUND as network_error", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "Error: ENOTFOUND api.anthropic.com")).toBe("network_error");
+    });
+
+    it("classifies ECONNREFUSED as network_error", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "connect ECONNREFUSED 127.0.0.1:443")).toBe("network_error");
+    });
+
+    it("classifies schema validation errors as schema_invalid", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "schema validation failed")).toBe("schema_invalid");
+    });
+
+    it("classifies segfault as crashed", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "Segmentation fault (core dumped)\nSIGSEGV")).toBe("crashed");
+    });
+
+    it("falls through to unknown with no matching pattern", () => {
+      const err = Object.assign(new Error("something went wrong"), { exitCode: 1 });
+      expect(classifySubprocessError(err)).toBe("unknown");
+    });
+  });
+
+  describe("budget-exceeded fixture: classifies correctly from structured event", () => {
+    it("translateLine produces exit_reason budget_exceeded from error_budget_exceeded result", () => {
+      const line: ClaudeCodeLine = {
+        type: "result",
+        subtype: "error_budget_exceeded",
+        duration_ms: 500,
+        is_error: true,
+        num_turns: 2,
+        result: "Budget exceeded",
+        session_id: "s1",
+        total_cost_usd: 1.0,
+        usage: { input_tokens: 100, output_tokens: 50 },
+      };
+      const blobStore = makeBlobStore();
+      const inputs = translateLine(line, baseOpts, blobStore, {}, 1000);
+      const completed = inputs.find((i) => i.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      expect((completed!.payload as { exit_reason: string }).exit_reason).toBe("budget_exceeded");
+    });
+  });
+
+  describe("unknown-crash fixture: falls through to unknown with tails preserved", () => {
+    it("invoke() yields invocation.completed with exit_reason from subprocess crash", async () => {
+      async function* crashingSpawner() {
+        yield JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          permissionMode: "acceptEdits",
+        });
+        const err = new Error("Unexpected crash") as Error & { exitCode?: number };
+        err.exitCode = 1;
+        throw err;
+      }
+
+      const blobStore = makeBlobStore();
+      const results: Array<{ type: string; payload: unknown }> = [];
+
+      for await (const input of invoke(baseOpts, blobStore, crashingSpawner)) {
+        results.push({ type: input.type, payload: input.payload });
+      }
+
+      // Should have both errored and completed events
+      const errored = results.find((r) => r.type === "invocation.errored");
+      expect(errored).toBeDefined();
+
+      const completed = results.find((r) => r.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      expect((completed!.payload as { exit_reason: ExitReason }).exit_reason).toBe("unknown");
+      expect((completed!.payload as { outcome: string }).outcome).toBe("failed");
+    });
+  });
+
+  describe("permission-prompt-hang fixture: adapter detects and classifies", () => {
+    it("invoke() classifies permission_blocked when stderr contains permission prompt", async () => {
+      async function* permissionHangSpawner() {
+        yield JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          permissionMode: "acceptEdits",
+        });
+        // Simulate a process that dies with stderr indicating a permission prompt
+        const err = new Error("Waiting for permission to use tool Write") as Error & { exitCode?: number };
+        err.exitCode = 1;
+        throw err;
+      }
+
+      const blobStore = makeBlobStore();
+      const results: Array<{ type: string; payload: unknown }> = [];
+
+      for await (const input of invoke(baseOpts, blobStore, permissionHangSpawner)) {
+        results.push({ type: input.type, payload: input.payload });
+      }
+
+      const completed = results.find((r) => r.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      expect((completed!.payload as { exit_reason: ExitReason }).exit_reason).toBe("permission_blocked");
+    });
+  });
+
+  describe("translateLine includes exit_reason on success result", () => {
+    it("sets exit_reason to normal on success", () => {
+      const line: ClaudeCodeLine = {
+        type: "result",
+        subtype: "success",
+        duration_ms: 1000,
+        is_error: false,
+        num_turns: 1,
+        result: "Done",
+        session_id: "s1",
+        total_cost_usd: 0.001,
+        usage: { input_tokens: 50, output_tokens: 5 },
+      };
+      const blobStore = makeBlobStore();
+      const inputs = translateLine(line, baseOpts, blobStore, {}, 1000);
+      expect(inputs).toHaveLength(1);
+      expect((inputs[0].payload as { exit_reason: string }).exit_reason).toBe("normal");
+    });
   });
 });

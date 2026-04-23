@@ -54,7 +54,6 @@ import { evaluate as evaluateRetryPolicy } from "./retryPolicy.js";
 import { handleAutoMerge } from "./autoMerge.js";
 import { getBlobsDir } from "./paths.js";
 
-const defaultBlobStore = createBlobStore(getBlobsDir());
 import type {
   TaskConfig,
   GateConfig,
@@ -67,9 +66,64 @@ import type {
   ContextManifest,
   AuditConcern,
   AnyEvent,
+  ExitReason,
+  ExitReasonPolicy,
+  RetryPolicy,
 } from "@shared/events.js";
 import type { TaskDetailRow, AttemptRow } from "@shared/projections.js";
 import type { AppendEventInput } from "./eventStore.js";
+
+const defaultBlobStore = createBlobStore(getBlobsDir());
+
+// ============================================================================
+// Default on_exit_reason map — used when config.retry_policy.on_exit_reason
+// doesn't specify a mapping for a given exit reason.
+// ============================================================================
+
+const DEFAULT_EXIT_REASON_POLICY: Partial<Record<ExitReason, ExitReasonPolicy>> = {
+  timeout: "retry_same",
+  network_error: "retry_same",
+  schema_invalid: "retry_same",
+  budget_exceeded: "escalate_to_human",
+  turn_limit: "escalate_to_human",
+  permission_blocked: "escalate_to_human",
+  killed: "escalate_to_human",
+  crashed: "escalate_to_human",
+  unknown: "escalate_to_human",
+};
+
+/** Max retries for schema_invalid before escalating. */
+const SCHEMA_INVALID_MAX_RETRIES = 2;
+
+/**
+ * Evaluates the on_exit_reason policy for a given exit reason.
+ * Returns the policy action, or null if the exit reason is "normal" (no action needed).
+ */
+export function evaluateExitReasonPolicy(
+  exitReason: ExitReason | undefined,
+  policy: RetryPolicy,
+  attemptNumber: number,
+): { action: "retry_same" | "escalate_to_human"; reason: string } | null {
+  if (!exitReason || exitReason === "normal") return null;
+
+  const userMap = policy.on_exit_reason ?? {};
+  const action = userMap[exitReason] ?? DEFAULT_EXIT_REASON_POLICY[exitReason] ?? "escalate_to_human";
+
+  // schema_invalid has a max retry count of 2 — escalate on attempt 3+
+  if (exitReason === "schema_invalid" && action === "retry_same") {
+    if (attemptNumber > SCHEMA_INVALID_MAX_RETRIES) {
+      return {
+        action: "escalate_to_human",
+        reason: `exit_reason '${exitReason}' — max retries (${SCHEMA_INVALID_MAX_RETRIES}) exhausted`,
+      };
+    }
+  }
+
+  return {
+    action,
+    reason: `exit_reason '${exitReason}' → ${action}`,
+  };
+}
 
 // ============================================================================
 // Injectable deps (for testing — swap out adapters without esm mocks)
@@ -503,6 +557,10 @@ export async function runAttempt(
       let phaseTokensOut = 0;
       let phaseCostUsd = 0;
       let phaseOutcome: "success" | "failed" | "aborted" = "success";
+      let phaseExitReason: ExitReason | undefined;
+      let phaseStdoutTailHash: string | null | undefined;
+      let phaseStderrTailHash: string | null | undefined;
+      let phasePermissionBlockedOn: string | null | undefined;
 
       // For the auditor phase, capture the last assistant message text
       // (it will contain the structured-output JSON verdict).
@@ -628,6 +686,11 @@ export async function runAttempt(
             phaseTokensOut = p.tokens_out;
             phaseCostUsd = p.cost_usd;
             if (p.outcome !== "success") phaseOutcome = p.outcome;
+            // Mirror exit_reason fields from invocation to phase
+            phaseExitReason = p.exit_reason;
+            phaseStdoutTailHash = p.stdout_tail_hash;
+            phaseStderrTailHash = p.stderr_tail_hash;
+            phasePermissionBlockedOn = p.permission_blocked_on;
           }
           if (event.type === "invocation.errored") {
             const p = event.payload as InvocationErrored;
@@ -768,12 +831,32 @@ export async function runAttempt(
           cost_usd: phaseCostUsd,
           duration_ms: phaseDuration,
           diff_hash,
+          exit_reason: phaseExitReason,
+          stdout_tail_hash: phaseStdoutTailHash,
+          stderr_tail_hash: phaseStderrTailHash,
+          permission_blocked_on: phasePermissionBlockedOn,
         },
       });
 
       totalTokensIn += phaseTokensIn;
       totalTokensOut += phaseTokensOut;
       totalCostUsd += phaseCostUsd;
+
+      // ----- on_exit_reason evaluation (before verdict-based retry logic) -----
+      if (phaseOutcome === "failed" && phaseExitReason && phaseExitReason !== "normal") {
+        const exitReasonResult = evaluateExitReasonPolicy(
+          phaseExitReason,
+          config.retry_policy,
+          attempt_number,
+        );
+        if (exitReasonResult) {
+          if (exitReasonResult.action === "escalate_to_human") {
+            finalOutcome = "escalated";
+            break phaseLoop;
+          }
+          // retry_same — fall through to let the existing retry counter/limits apply
+        }
+      }
 
       if (phaseOutcome === "failed") {
         // Only fall back to generic "failed" if the auditor didn't

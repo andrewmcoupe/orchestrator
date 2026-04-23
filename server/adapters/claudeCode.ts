@@ -18,7 +18,7 @@
 import { execa } from "execa";
 import type { BlobStore } from "../blobStore.js";
 import type { AppendEventInput } from "../eventStore.js";
-import type { EventType, PhaseName, TransportOptions } from "@shared/events.js";
+import type { EventType, ExitReason, PhaseName, TransportOptions } from "@shared/events.js";
 
 // ============================================================================
 // Public types
@@ -122,9 +122,16 @@ export type Spawner = (
   opts: { cwd: string },
 ) => AsyncIterable<string>;
 
+/** How long to wait after detecting a permission prompt before killing. */
+const PERMISSION_HANG_TIMEOUT_MS = 10_000;
+
 /**
  * Default spawner: reads stdout line-by-line from the claude subprocess.
  * Throws with exitCode attached on non-zero exit.
+ *
+ * Monitors stderr for permission prompts — if detected the process is killed
+ * after PERMISSION_HANG_TIMEOUT_MS (orchestrator runs in non-interactive mode
+ * so a permission prompt means the process will hang indefinitely).
  */
 async function* execaSpawner(
   cmd: string,
@@ -152,24 +159,44 @@ async function* execaSpawner(
     throw err;
   }
 
-  let buffer = "";
-  for await (const chunk of stdout) {
-    buffer += chunk.toString();
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (line.trim()) yield line;
-    }
+  // Monitor stderr for permission prompts and kill after timeout
+  let permissionHangTimer: ReturnType<typeof setTimeout> | undefined;
+  let stderrTail = "";
+  const stderr = proc.stderr;
+  if (stderr) {
+    stderr.on("data", (chunk: Buffer) => {
+      stderrTail = (stderrTail + chunk.toString()).slice(-2000);
+      if (!permissionHangTimer && /Waiting for permission/i.test(stderrTail)) {
+        permissionHangTimer = setTimeout(() => {
+          proc.kill("SIGKILL");
+        }, PERMISSION_HANG_TIMEOUT_MS);
+      }
+    });
   }
-  if (buffer.trim()) yield buffer;
 
-  const result = await proc;
-  if (result.exitCode !== 0) {
-    const err = new Error(
-      result.stderr ?? `claude exited with code ${result.exitCode}`,
-    ) as Error & { exitCode?: number };
-    err.exitCode = result.exitCode ?? 1;
-    throw err;
+  try {
+    let buffer = "";
+    for await (const chunk of stdout) {
+      buffer += chunk.toString();
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.trim()) yield line;
+      }
+    }
+    if (buffer.trim()) yield buffer;
+
+    const result = await proc;
+    if (result.exitCode !== 0) {
+      const err = new Error(
+        result.stderr ?? `claude exited with code ${result.exitCode}`,
+      ) as Error & { exitCode?: number; signal?: string };
+      err.exitCode = result.exitCode ?? 1;
+      if (result.signal) err.signal = result.signal;
+      throw err;
+    }
+  } finally {
+    if (permissionHangTimer) clearTimeout(permissionHangTimer);
   }
 }
 
@@ -347,7 +374,9 @@ export function translateLine(
   if (line.type === "result") {
     if (line.is_error) {
       const errorCategory = mapErrorCategory(line.subtype);
-      const input: AppendEventInput<"invocation.errored"> = {
+      const exitReason = mapExitReason(line.subtype, true);
+      const inputs: AppendEventInput[] = [];
+      inputs.push({
         ...base,
         type: "invocation.errored",
         payload: {
@@ -355,8 +384,25 @@ export function translateLine(
           error: line.result,
           error_category: errorCategory,
         },
-      };
-      return [input];
+      } satisfies AppendEventInput<"invocation.errored">);
+      // Also emit invocation.completed with exit_reason so phaseRunner can read it
+      const duration_ms = startedAt ? Date.now() - startedAt : line.duration_ms;
+      inputs.push({
+        ...base,
+        type: "invocation.completed",
+        payload: {
+          invocation_id: opts.invocation_id,
+          outcome: "failed",
+          tokens_in: line.usage.input_tokens,
+          tokens_out: line.usage.output_tokens,
+          cost_usd: line.total_cost_usd,
+          duration_ms,
+          turns: line.num_turns,
+          exit_code: 1,
+          exit_reason: exitReason,
+        },
+      } satisfies AppendEventInput<"invocation.completed">);
+      return inputs;
     }
 
     const duration_ms = startedAt ? Date.now() - startedAt : line.duration_ms;
@@ -372,6 +418,7 @@ export function translateLine(
         duration_ms,
         turns: line.num_turns,
         exit_code: 0,
+        exit_reason: "normal",
       },
     };
     return [input];
@@ -542,6 +589,41 @@ function mapErrorCategory(
   }
 }
 
+/** Maps an error subtype from the result line to an ExitReason. */
+function mapExitReason(subtype: string, isError: boolean): ExitReason {
+  if (!isError) return "normal";
+  switch (subtype) {
+    case "error_budget_exceeded":
+      return "budget_exceeded";
+    case "error_max_turns":
+      return "turn_limit";
+    case "error_timeout":
+      return "timeout";
+    default:
+      return "unknown";
+  }
+}
+
+/** Classifies exit reason from a subprocess error (catch block). */
+export function classifySubprocessError(
+  error: Error & { exitCode?: number; signal?: string },
+  stderrTail?: string,
+): ExitReason {
+  // Check signal/exit code
+  if (error.signal === "SIGKILL" || error.exitCode === 137) return "killed";
+  if (error.exitCode === 124) return "timeout";
+
+  // Pattern match on stderr
+  if (stderrTail) {
+    if (/Waiting for permission/i.test(stderrTail)) return "permission_blocked";
+    if (/ENOTFOUND|ECONNREFUSED|socket hang up/i.test(stderrTail)) return "network_error";
+    if (/schema.*(?:invalid|validation)|(?:invalid|validation).*schema/i.test(stderrTail)) return "schema_invalid";
+    if (/segfault|SIGSEGV|stack trace|Traceback/i.test(stderrTail)) return "crashed";
+  }
+
+  return "unknown";
+}
+
 // ============================================================================
 // invoke — the main async generator
 // ============================================================================
@@ -628,6 +710,7 @@ export async function* invoke(
     // Subprocess exited without emitting a normal result line — it was
     // killed, crashed, or errored before completion.
     const error = err as Error & { exitCode?: number; signal?: string };
+    const exitReason = classifySubprocessError(error, error.message);
 
     const actor = {
       kind: "cli" as const,
@@ -648,5 +731,26 @@ export async function* invoke(
       },
     };
     yield errInput;
+
+    // Emit invocation.completed with exit_reason so phaseRunner can read it
+    const completedInput: AppendEventInput<"invocation.completed"> = {
+      type: "invocation.completed",
+      aggregate_type: "attempt",
+      aggregate_id: opts.attempt_id,
+      actor,
+      correlation_id: opts.attempt_id,
+      payload: {
+        invocation_id: opts.invocation_id,
+        outcome: "failed",
+        tokens_in: 0,
+        tokens_out: 0,
+        cost_usd: 0,
+        duration_ms: Date.now() - startedAt,
+        turns: 0,
+        exit_code: error.exitCode ?? 1,
+        exit_reason: exitReason,
+      },
+    };
+    yield completedInput;
   }
 }

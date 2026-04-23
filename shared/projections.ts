@@ -32,6 +32,7 @@ import type {
   Transport,
   AuditConcern,
   GateConfig,
+  ExitReason,
 } from "./events.js";
 
 // ============================================================================
@@ -101,6 +102,17 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
     on_test_fail: { strategy: "retry_same", max_attempts: 2 },
     on_audit_reject: "escalate_to_human",
     on_spec_pushback: "pause_and_notify",
+    on_exit_reason: {
+      permission_blocked: "escalate_to_human",
+      budget_exceeded: "escalate_to_human",
+      timeout: "retry_same",
+      network_error: "retry_same",
+      schema_invalid: "retry_same",
+      turn_limit: "escalate_to_human",
+      killed: "escalate_to_human",
+      crashed: "escalate_to_human",
+      unknown: "escalate_to_human",
+    },
   },
   auto_merge_policy: "off",
   shadow_mode: false,
@@ -332,6 +344,7 @@ export interface AttemptRow {
   commit_sha?: string;
   empty?: boolean;
   effective_diff_attempt_id?: string;
+  last_failure_reason?: ExitReason | null;
   last_event_id: string;
 }
 
@@ -1426,6 +1439,8 @@ export function reduceAttempt(
             diff_hash: p.diff_hash,
           },
         },
+        last_failure_reason:
+          p.outcome !== "success" && p.exit_reason ? p.exit_reason : current.last_failure_reason,
         last_event_id: event.id,
       };
     }

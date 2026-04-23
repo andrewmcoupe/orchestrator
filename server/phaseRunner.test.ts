@@ -20,7 +20,8 @@ import {
   type PhaseRunnerDeps,
   type AdapterInvokeFn,
 } from "./phaseRunner.js";
-import type { Actor, TaskConfig, InvocationCompleted } from "@shared/events.js";
+import type { Actor, TaskConfig, InvocationCompleted, ExitReason, PhaseCompleted } from "@shared/events.js";
+import { evaluateExitReasonPolicy } from "./phaseRunner.js";
 import type { AppendEventInput } from "./eventStore.js";
 import type { BlobStore } from "./blobStore.js";
 import type { PackInput, PackResult } from "./packer/trivial.js";
@@ -1398,5 +1399,392 @@ describe("runAttempt", () => {
     expect(completedIdx).toBeGreaterThan(-1);
     // Committed before completed (commit is step 3b, completed is step 4)
     expect(committedIdx).toBeLessThan(completedIdx);
+  });
+
+  // --------------------------------------------------------------------------
+  // exit_reason field mirroring
+  // --------------------------------------------------------------------------
+
+  it("mirrors exit_reason fields from invocation.completed onto phase.completed", async () => {
+    const taskId = createTask(db);
+
+    // Fake invoker that yields an invocation.completed with exit_reason fields
+    const invokerWithExitReason: AdapterInvokeFn = async function* (opts) {
+      const attempt_id = (opts as { attempt_id: string }).attempt_id;
+      const invocation_id = (opts as { invocation_id: string }).invocation_id;
+      const actor = { kind: "cli" as const, transport: "claude-code" as const, invocation_id };
+      const base = {
+        aggregate_type: "attempt" as const,
+        aggregate_id: attempt_id,
+        actor,
+        correlation_id: attempt_id,
+      };
+
+      yield {
+        ...base,
+        type: "invocation.started" as const,
+        payload: {
+          invocation_id,
+          attempt_id,
+          phase_name: "implementer",
+          transport: "claude-code" as const,
+          model: "sonnet-4-6",
+          prompt_version_id: "pv-test",
+          context_manifest_hash: "abc",
+        },
+      } satisfies AppendEventInput<"invocation.started">;
+
+      yield {
+        ...base,
+        type: "invocation.completed" as const,
+        payload: {
+          invocation_id,
+          outcome: "success" as const,
+          tokens_in: 100,
+          tokens_out: 50,
+          cost_usd: 0.001,
+          duration_ms: 1000,
+          turns: 1,
+          exit_reason: "normal" as const,
+          stdout_tail_hash: "stdout-hash-abc",
+          stderr_tail_hash: "stderr-hash-def",
+          permission_blocked_on: null,
+        },
+      } satisfies AppendEventInput<"invocation.completed">;
+    };
+
+    await runAttempt(db, taskId, { deps: makeTestDeps(invokerWithExitReason) });
+
+    const phaseCompletedRow = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'phase.completed'")
+      .get() as { payload_json: string };
+    const payload = JSON.parse(phaseCompletedRow.payload_json) as PhaseCompleted;
+
+    expect(payload.exit_reason).toBe("normal");
+    expect(payload.stdout_tail_hash).toBe("stdout-hash-abc");
+    expect(payload.stderr_tail_hash).toBe("stderr-hash-def");
+    expect(payload.permission_blocked_on).toBeNull();
+  });
+
+  // --------------------------------------------------------------------------
+  // on_exit_reason retry policy evaluation
+  // --------------------------------------------------------------------------
+
+  describe("on_exit_reason retry policy evaluation", () => {
+    it("escalates immediately when exit_reason maps to escalate_to_human (e.g. permission_blocked)", async () => {
+      const configWithExitReason: TaskConfig = {
+        ...minimalCliConfig,
+        retry_policy: {
+          ...minimalCliConfig.retry_policy,
+          on_exit_reason: {
+            permission_blocked: "escalate_to_human",
+          },
+        },
+      };
+      const taskId = createTask(db, configWithExitReason);
+
+      // Invoker that simulates a permission_blocked failure
+      const failingInvoker: AdapterInvokeFn = async function* (opts) {
+        const attempt_id = (opts as { attempt_id: string }).attempt_id;
+        const invocation_id = (opts as { invocation_id: string }).invocation_id;
+        const actor = { kind: "cli" as const, transport: "claude-code" as const, invocation_id };
+        const base = {
+          aggregate_type: "attempt" as const,
+          aggregate_id: attempt_id,
+          actor,
+          correlation_id: attempt_id,
+        };
+
+        yield {
+          ...base,
+          type: "invocation.started" as const,
+          payload: {
+            invocation_id,
+            attempt_id,
+            phase_name: "implementer",
+            transport: "claude-code" as const,
+            model: "sonnet-4-6",
+            prompt_version_id: "pv-test",
+            context_manifest_hash: "abc",
+          },
+        } satisfies AppendEventInput<"invocation.started">;
+
+        yield {
+          ...base,
+          type: "invocation.completed" as const,
+          payload: {
+            invocation_id,
+            outcome: "failed" as const,
+            tokens_in: 10,
+            tokens_out: 0,
+            cost_usd: 0,
+            duration_ms: 500,
+            turns: 0,
+            exit_reason: "permission_blocked" as const,
+            permission_blocked_on: "Write",
+          },
+        } satisfies AppendEventInput<"invocation.completed">;
+      };
+
+      await runAttempt(db, taskId, { deps: makeTestDeps(failingInvoker) });
+
+      const attemptCompletedRow = db
+        .prepare("SELECT payload_json FROM events WHERE type = 'attempt.completed'")
+        .get() as { payload_json: string };
+      const payload = JSON.parse(attemptCompletedRow.payload_json);
+
+      expect(payload.outcome).toBe("escalated");
+    });
+
+    it("allows retry when exit_reason maps to retry_same (e.g. timeout)", async () => {
+      const configWithExitReason: TaskConfig = {
+        ...minimalCliConfig,
+        retry_policy: {
+          ...minimalCliConfig.retry_policy,
+          on_exit_reason: {
+            timeout: "retry_same",
+          },
+        },
+      };
+      const taskId = createTask(db, configWithExitReason);
+
+      // Invoker that simulates a timeout failure
+      const failingInvoker: AdapterInvokeFn = async function* (opts) {
+        const attempt_id = (opts as { attempt_id: string }).attempt_id;
+        const invocation_id = (opts as { invocation_id: string }).invocation_id;
+        const actor = { kind: "cli" as const, transport: "claude-code" as const, invocation_id };
+        const base = {
+          aggregate_type: "attempt" as const,
+          aggregate_id: attempt_id,
+          actor,
+          correlation_id: attempt_id,
+        };
+
+        yield {
+          ...base,
+          type: "invocation.started" as const,
+          payload: {
+            invocation_id,
+            attempt_id,
+            phase_name: "implementer",
+            transport: "claude-code" as const,
+            model: "sonnet-4-6",
+            prompt_version_id: "pv-test",
+            context_manifest_hash: "abc",
+          },
+        } satisfies AppendEventInput<"invocation.started">;
+
+        yield {
+          ...base,
+          type: "invocation.completed" as const,
+          payload: {
+            invocation_id,
+            outcome: "failed" as const,
+            tokens_in: 10,
+            tokens_out: 0,
+            cost_usd: 0,
+            duration_ms: 30000,
+            turns: 0,
+            exit_reason: "timeout" as const,
+          },
+        } satisfies AppendEventInput<"invocation.completed">;
+      };
+
+      await runAttempt(db, taskId, { deps: makeTestDeps(failingInvoker) });
+
+      const attemptCompletedRow = db
+        .prepare("SELECT payload_json FROM events WHERE type = 'attempt.completed'")
+        .get() as { payload_json: string };
+      const payload = JSON.parse(attemptCompletedRow.payload_json);
+
+      // timeout maps to retry_same, so attempt should complete as "failed"
+      // (not "escalated") — it just allows retry on next attempt
+      expect(payload.outcome).toBe("failed");
+    });
+
+    it("on_exit_reason is evaluated before verdict-based retry logic", async () => {
+      // Even with on_audit_reject set to retry_same, a killed exit_reason
+      // should escalate immediately
+      const configWithBothPolicies: TaskConfig = {
+        ...minimalCliConfig,
+        retry_policy: {
+          ...minimalCliConfig.retry_policy,
+          on_audit_reject: "retry_same",
+          on_exit_reason: {
+            killed: "escalate_to_human",
+          },
+        },
+      };
+      const taskId = createTask(db, configWithBothPolicies);
+
+      const killedInvoker: AdapterInvokeFn = async function* (opts) {
+        const attempt_id = (opts as { attempt_id: string }).attempt_id;
+        const invocation_id = (opts as { invocation_id: string }).invocation_id;
+        const actor = { kind: "cli" as const, transport: "claude-code" as const, invocation_id };
+        const base = {
+          aggregate_type: "attempt" as const,
+          aggregate_id: attempt_id,
+          actor,
+          correlation_id: attempt_id,
+        };
+
+        yield {
+          ...base,
+          type: "invocation.started" as const,
+          payload: {
+            invocation_id,
+            attempt_id,
+            phase_name: "implementer",
+            transport: "claude-code" as const,
+            model: "sonnet-4-6",
+            prompt_version_id: "pv-test",
+            context_manifest_hash: "abc",
+          },
+        } satisfies AppendEventInput<"invocation.started">;
+
+        yield {
+          ...base,
+          type: "invocation.completed" as const,
+          payload: {
+            invocation_id,
+            outcome: "failed" as const,
+            tokens_in: 0,
+            tokens_out: 0,
+            cost_usd: 0,
+            duration_ms: 100,
+            turns: 0,
+            exit_reason: "killed" as const,
+          },
+        } satisfies AppendEventInput<"invocation.completed">;
+      };
+
+      await runAttempt(db, taskId, { deps: makeTestDeps(killedInvoker) });
+
+      const attemptCompletedRow = db
+        .prepare("SELECT payload_json FROM events WHERE type = 'attempt.completed'")
+        .get() as { payload_json: string };
+      const payload = JSON.parse(attemptCompletedRow.payload_json);
+
+      // killed → escalate_to_human, regardless of verdict retry policy
+      expect(payload.outcome).toBe("escalated");
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // evaluateExitReasonPolicy unit tests
+  // --------------------------------------------------------------------------
+
+  describe("evaluateExitReasonPolicy", () => {
+    const basePolicy = minimalCliConfig.retry_policy;
+
+    it("returns null for normal exit reason", () => {
+      expect(evaluateExitReasonPolicy("normal", basePolicy, 1)).toBeNull();
+    });
+
+    it("returns null for undefined exit reason", () => {
+      expect(evaluateExitReasonPolicy(undefined, basePolicy, 1)).toBeNull();
+    });
+
+    it("returns escalate_to_human for permission_blocked (default)", () => {
+      const result = evaluateExitReasonPolicy("permission_blocked", {
+        ...basePolicy,
+        on_exit_reason: { permission_blocked: "escalate_to_human" },
+      }, 1);
+      expect(result?.action).toBe("escalate_to_human");
+    });
+
+    it("returns escalate_to_human for budget_exceeded (default)", () => {
+      const result = evaluateExitReasonPolicy("budget_exceeded", {
+        ...basePolicy,
+        on_exit_reason: { budget_exceeded: "escalate_to_human" },
+      }, 1);
+      expect(result?.action).toBe("escalate_to_human");
+    });
+
+    it("returns retry_same for timeout (default)", () => {
+      const result = evaluateExitReasonPolicy("timeout", {
+        ...basePolicy,
+        on_exit_reason: { timeout: "retry_same" },
+      }, 1);
+      expect(result?.action).toBe("retry_same");
+    });
+
+    it("returns retry_same for network_error (default)", () => {
+      const result = evaluateExitReasonPolicy("network_error", {
+        ...basePolicy,
+        on_exit_reason: { network_error: "retry_same" },
+      }, 1);
+      expect(result?.action).toBe("retry_same");
+    });
+
+    it("returns retry_same for schema_invalid with max 2 retries", () => {
+      const result = evaluateExitReasonPolicy("schema_invalid", {
+        ...basePolicy,
+        on_exit_reason: { schema_invalid: "retry_same" },
+      }, 1);
+      expect(result?.action).toBe("retry_same");
+    });
+
+    it("allows retry for schema_invalid on attempt 2 (second retry)", () => {
+      const result = evaluateExitReasonPolicy("schema_invalid", {
+        ...basePolicy,
+        on_exit_reason: { schema_invalid: "retry_same" },
+      }, 2);
+      expect(result?.action).toBe("retry_same");
+    });
+
+    it("escalates schema_invalid after max 2 retries exhausted (attempt 3)", () => {
+      const result = evaluateExitReasonPolicy("schema_invalid", {
+        ...basePolicy,
+        on_exit_reason: { schema_invalid: "retry_same" },
+      }, 3);
+      expect(result?.action).toBe("escalate_to_human");
+    });
+
+    it("returns escalate_to_human for turn_limit (default)", () => {
+      const result = evaluateExitReasonPolicy("turn_limit", {
+        ...basePolicy,
+        on_exit_reason: { turn_limit: "escalate_to_human" },
+      }, 1);
+      expect(result?.action).toBe("escalate_to_human");
+    });
+
+    it("returns escalate_to_human for killed (default)", () => {
+      const result = evaluateExitReasonPolicy("killed", {
+        ...basePolicy,
+        on_exit_reason: { killed: "escalate_to_human" },
+      }, 1);
+      expect(result?.action).toBe("escalate_to_human");
+    });
+
+    it("returns escalate_to_human for crashed (default)", () => {
+      const result = evaluateExitReasonPolicy("crashed", {
+        ...basePolicy,
+        on_exit_reason: { crashed: "escalate_to_human" },
+      }, 1);
+      expect(result?.action).toBe("escalate_to_human");
+    });
+
+    it("returns escalate_to_human for unknown (default)", () => {
+      const result = evaluateExitReasonPolicy("unknown", {
+        ...basePolicy,
+        on_exit_reason: { unknown: "escalate_to_human" },
+      }, 1);
+      expect(result?.action).toBe("escalate_to_human");
+    });
+
+    it("uses DEFAULT_EXIT_REASON_POLICY when on_exit_reason is not configured", () => {
+      // Without any on_exit_reason config, defaults should apply
+      const result = evaluateExitReasonPolicy("killed", basePolicy, 1);
+      expect(result?.action).toBe("escalate_to_human");
+    });
+
+    it("uses DEFAULT_EXIT_REASON_POLICY for timeout when on_exit_reason is empty", () => {
+      const result = evaluateExitReasonPolicy("timeout", {
+        ...basePolicy,
+        on_exit_reason: {},
+      }, 1);
+      expect(result?.action).toBe("retry_same");
+    });
   });
 });
