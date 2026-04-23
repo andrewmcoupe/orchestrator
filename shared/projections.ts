@@ -231,6 +231,8 @@ export interface TaskDetailRow {
   proposition_ids: string[];
   worktree_path?: string;
   worktree_branch?: string;
+  /** Resolved commit SHA from task.worktree_created — immutable diff anchor for attempt 1. */
+  base_sha?: string;
   current_attempt_id?: string;
   /** Set after a successful merge — the resulting commit sha */
   merge_commit_sha?: string;
@@ -840,6 +842,7 @@ export function reduceTaskDetail(
         ...current,
         worktree_path: event.payload.path,
         worktree_branch: event.payload.branch,
+        base_sha: event.payload.base_sha,
         last_event_id: event.id,
         updated_at: event.ts,
       };

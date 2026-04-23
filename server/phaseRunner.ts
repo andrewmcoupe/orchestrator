@@ -96,7 +96,7 @@ export type PhaseRunnerDeps = {
     worktree_path: string,
   ) => Promise<GateRunResult>;
   /** Override diff capture for testing — returns the diff string (empty = no changes). */
-  diffCapturer?: (worktree_path: string) => Promise<string>;
+  diffCapturer?: (worktree_path: string, base_sha: string) => Promise<string>;
   /** Override git commit for testing — returns { sha, empty }. */
   committer?: (worktree_path: string, message: string) => Promise<{ sha: string; empty: boolean }>;
 };
@@ -192,6 +192,7 @@ type TaskDetailDbRow = {
   status: string;
   config_json: string;
   worktree_path: string | null;
+  base_sha: string | null;
   proposition_ids_json: string;
   preset_id: string | null;
   preset_override_keys_json: string;
@@ -299,9 +300,9 @@ export async function runAttempt(
   const doApiInvoke: AdapterInvokeFn =
     deps?.apiInvoker ??
     ((opts, _blobStore) => apiInvoke(opts as ApiInvokeOptions));
-  const doDiffCapture = deps?.diffCapturer ?? (async (wp: string) => {
+  const doDiffCapture = deps?.diffCapturer ?? (async (wp: string, baseSha: string) => {
     const { stdout } = await execa(
-      "git", ["diff", "HEAD", "--", ".", ":!node_modules"],
+      "git", ["diff", baseSha, "--", ".", ":!node_modules"],
       { cwd: wp, stdio: ["ignore", "pipe", "pipe"] },
     );
     return stdout;
@@ -388,6 +389,31 @@ export async function runAttempt(
       last_event_id: taskDetailDbRow.last_event_id,
       updated_at: taskDetailDbRow.updated_at,
     };
+
+    // -----------------------------------------------------------------------
+    // 2b. Resolve diff base SHA
+    // -----------------------------------------------------------------------
+    // Attempt 1: base_sha from task.worktree_created (the commit the worktree branched from)
+    // Attempt 2+: commit_sha from the previous attempt's attempt.committed event
+    let diffBaseSha = "HEAD"; // fallback
+    if (options?.previous_attempt_id) {
+      // Look up previous attempt's commit SHA from events
+      const prevCommitRow = db
+        .prepare(
+          "SELECT payload_json FROM events WHERE type = 'attempt.committed' AND aggregate_id = ? LIMIT 1",
+        )
+        .get(options.previous_attempt_id) as { payload_json: string } | undefined;
+      if (prevCommitRow) {
+        const prevPayload = JSON.parse(prevCommitRow.payload_json) as { commit_sha: string };
+        diffBaseSha = prevPayload.commit_sha;
+      }
+    } else {
+      // Re-read base_sha from the task detail projection (may have been set by worktree creation above)
+      const freshDetail = getTaskDetailRow(db, task_id);
+      if (freshDetail?.base_sha) {
+        diffBaseSha = freshDetail.base_sha;
+      }
+    }
 
     // -----------------------------------------------------------------------
     // 3. Phase loop
@@ -677,10 +703,25 @@ export async function runAttempt(
       let diff_hash: string | undefined;
       if (worktree_path) {
         try {
-          const diffOutput = await doDiffCapture(worktree_path);
+          const diffOutput = await doDiffCapture(worktree_path, diffBaseSha);
           if (diffOutput.trim()) {
             diff_hash = bs.putBlob(diffOutput).hash;
             anyPhaseProducedDiff = true;
+
+            // Emit phase.diff_snapshotted with the diff hash and base SHA
+            appendAndProject(db, {
+              type: "phase.diff_snapshotted",
+              aggregate_type: "attempt",
+              aggregate_id: attempt_id,
+              actor: systemActor,
+              correlation_id: attempt_id,
+              payload: {
+                attempt_id,
+                phase_name: phase.name,
+                diff_hash,
+                base_sha: diffBaseSha,
+              },
+            });
           }
         } catch {
           // Diff capture is best-effort — don't fail the phase

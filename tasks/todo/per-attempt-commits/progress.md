@@ -45,3 +45,16 @@ Replaced inline commit logic in `server/phaseRunner.ts` with injectable `committ
 - Added `noopCommitter` to `makeTestDeps` to eliminate stderr noise from fake worktree paths
 
 PRD items 5, 6, and 14 completed.
+
+## 2026-04-23: Anchored diff capture + phase.diff_snapshotted emission
+
+Anchored per-phase diff capture to `base_sha` and added `phase.diff_snapshotted` event emission.
+
+- `diffCapturer` signature changed to `(worktree_path, base_sha) => string` — diffs against a specific base instead of HEAD
+- Diff base resolution: attempt 1 uses `base_sha` from `task.worktree_created`, attempt 2+ uses previous attempt's `commit_sha` from `attempt.committed` event
+- `base_sha` added to `TaskDetailRow` and `proj_task_detail` table, populated by `reduceTaskDetail` on `task.worktree_created`
+- `phase.diff_snapshotted` event emitted after each non-empty diff capture with `{ attempt_id, phase_name, diff_hash, base_sha }`
+- `diff_hash` on `phase.completed` preserved unchanged — matches the snapshotted hash
+- 3 TDD tests: attempt 1 uses base_sha, attempt 2 uses previous commit SHA, phase.diff_snapshotted emitted with correct payload
+
+PRD items 7, 8, and 15 completed.

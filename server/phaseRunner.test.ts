@@ -204,9 +204,9 @@ function makeSlowCliInvoker(signal: Promise<void>): AdapterInvokeFn {
 }
 
 /** Fake diff capturer — returns empty diff by default. */
-const noDiffCapturer = async () => "";
+const noDiffCapturer = async (_wp: string, _baseSha: string) => "";
 /** Fake diff capturer that simulates changes being present. */
-const hasDiffCapturer = async () => "diff --git a/foo.ts b/foo.ts\n--- a/foo.ts\n+++ b/foo.ts\n@@ -1 +1 @@\n-old\n+new\n";
+const hasDiffCapturer = async (_wp: string, _baseSha: string) => "diff --git a/foo.ts b/foo.ts\n--- a/foo.ts\n+++ b/foo.ts\n@@ -1 +1 @@\n-old\n+new\n";
 
 /** Fake gate runner that emits gate events (like the real runner) without executing commands. */
 function makeFakeGateRunner(
@@ -1214,6 +1214,160 @@ describe("runAttempt", () => {
     expect(capturedMessage).toMatch(/config: [0-9a-f]{12}/);
     expect(capturedMessage).toMatch(/cost: \$[\d.]+/);
     expect(capturedMessage).toMatch(/duration: \d+ms/);
+  });
+
+  // --------------------------------------------------------------------------
+  // Anchored diff capture
+  // --------------------------------------------------------------------------
+
+  it("attempt 1 diff uses base_sha from worktree creation as the diff base", async () => {
+    const taskId = createTask(db);
+    const fakeBaseSha = "a".repeat(40);
+
+    // Pre-emit task.worktree_created with base_sha so the projection has it
+    appendAndProject(db, {
+      type: "task.worktree_created",
+      aggregate_type: "task",
+      aggregate_id: taskId,
+      actor: testActor,
+      payload: {
+        task_id: taskId,
+        path: `/tmp/fake-wt/${taskId}`,
+        branch: `wt/${taskId}`,
+        base_ref: "main",
+        base_sha: fakeBaseSha,
+      },
+    });
+
+    // Track what base_sha the diff capturer receives
+    let capturedBaseSha = "";
+    const trackingDiffCapturer = async (_wp: string, baseSha: string) => {
+      capturedBaseSha = baseSha;
+      return "diff --git a/foo.ts b/foo.ts\n-old\n+new\n";
+    };
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        // worktree already exists (from the event above), so worktreeCreator won't be called
+        diffCapturer: trackingDiffCapturer,
+        committer: async () => ({ sha: "commit1sha12", empty: false }),
+      },
+    });
+
+    expect(capturedBaseSha).toBe(fakeBaseSha);
+  });
+
+  it("attempt 2 diff uses attempt 1's commit_sha as the diff base", async () => {
+    const taskId = createTask(db);
+    const fakeBaseSha = "b".repeat(40);
+    const attempt1CommitSha = "c".repeat(12);
+
+    // Pre-emit task.worktree_created
+    appendAndProject(db, {
+      type: "task.worktree_created",
+      aggregate_type: "task",
+      aggregate_id: taskId,
+      actor: testActor,
+      payload: {
+        task_id: taskId,
+        path: `/tmp/fake-wt/${taskId}`,
+        branch: `wt/${taskId}`,
+        base_ref: "main",
+        base_sha: fakeBaseSha,
+      },
+    });
+
+    // Run attempt 1
+    const attempt1Id = "A-attempt1-test";
+    await runAttempt(db, taskId, {
+      attempt_id: attempt1Id,
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: async () => "diff output",
+        committer: async () => ({ sha: attempt1CommitSha, empty: false }),
+      },
+    });
+
+    // Reset task status back to queued so attempt 2 can run
+    appendAndProject(db, {
+      type: "task.status_changed",
+      aggregate_type: "task",
+      aggregate_id: taskId,
+      actor: testActor,
+      payload: { task_id: taskId, from: "awaiting_review", to: "queued" },
+    });
+
+    // Track what base_sha attempt 2's diff capturer receives
+    let capturedBaseSha = "";
+    const trackingDiffCapturer = async (_wp: string, baseSha: string) => {
+      capturedBaseSha = baseSha;
+      return "diff --git a/bar.ts b/bar.ts\n-old\n+new\n";
+    };
+
+    await runAttempt(db, taskId, {
+      previous_attempt_id: attempt1Id,
+      triggered_by: "retry",
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: trackingDiffCapturer,
+        committer: async () => ({ sha: "commit2sha12", empty: false }),
+      },
+    });
+
+    expect(capturedBaseSha).toBe(attempt1CommitSha);
+  });
+
+  it("emits phase.diff_snapshotted with correct diff_hash and base_sha after diff capture", async () => {
+    const taskId = createTask(db);
+    const fakeBaseSha = "d".repeat(40);
+
+    // Pre-emit task.worktree_created
+    appendAndProject(db, {
+      type: "task.worktree_created",
+      aggregate_type: "task",
+      aggregate_id: taskId,
+      actor: testActor,
+      payload: {
+        task_id: taskId,
+        path: `/tmp/fake-wt/${taskId}`,
+        branch: `wt/${taskId}`,
+        base_ref: "main",
+        base_sha: fakeBaseSha,
+      },
+    });
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: async () => "diff --git a/foo.ts b/foo.ts\n-old\n+new\n",
+        committer: async () => ({ sha: "snap1234sha0", empty: false }),
+      },
+    });
+
+    const snapshotRows = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'phase.diff_snapshotted'")
+      .all() as { payload_json: string }[];
+
+    expect(snapshotRows).toHaveLength(1);
+    const payload = JSON.parse(snapshotRows[0].payload_json) as {
+      attempt_id: string;
+      phase_name: string;
+      diff_hash: string;
+      base_sha: string;
+    };
+    expect(payload.phase_name).toBe("implementer");
+    expect(payload.base_sha).toBe(fakeBaseSha);
+    expect(payload.diff_hash).toBeTruthy();
+
+    // diff_hash on phase.completed should match
+    const completedRow = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'phase.completed'")
+      .get() as { payload_json: string };
+    const completedPayload = JSON.parse(completedRow.payload_json) as {
+      diff_hash?: string;
+    };
+    expect(completedPayload.diff_hash).toBe(payload.diff_hash);
   });
 
   it("does not commit during the phase loop — only after all phases complete", async () => {

@@ -75,7 +75,7 @@
       "phase.diff_snapshotted event is emitted with the diff_hash and base_sha",
       "Diff blob is stored in the blob store"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 3
   },
   {
@@ -86,7 +86,7 @@
       "diff_hash value matches the hash from the corresponding phase.diff_snapshotted event",
       "Review UI continues to work unchanged reading diff_hash from phase.completed"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 3
   },
   {
@@ -178,7 +178,7 @@
       "Test that attempt 2 diff uses attempt 1's commit_sha as the base",
       "Test that phase.diff_snapshotted event is emitted with correct diff_hash and base_sha"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 1
   },
   {
