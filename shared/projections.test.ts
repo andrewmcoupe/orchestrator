@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { AnyEvent, EventEnvelope, TaskConfig } from "./events.js";
-import { reduceTaskList, reduceTaskDetail, reduceSettings, DEFAULT_TASK_CONFIG, type TaskListRow, PROJECTION_SUBSCRIPTIONS } from "./projections.js";
+import { reduceTaskList, reduceTaskDetail, reduceSettings, reduceAttempt, DEFAULT_TASK_CONFIG, type TaskListRow, PROJECTION_SUBSCRIPTIONS } from "./projections.js";
 import { eventPayloadSchemas } from "./eventSchemas.js";
 
 // Helper to build a typed event envelope
@@ -745,5 +745,53 @@ describe("Auto-Merge Policy — schema and projections", () => {
       config: testConfig, // no auto_merge_policy
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("phase.diff_snapshotted", () => {
+  it("PROJECTION_SUBSCRIPTIONS includes attempt projection", () => {
+    expect(PROJECTION_SUBSCRIPTIONS["phase.diff_snapshotted"]).toContain("attempt");
+  });
+
+  it("reduceAttempt stores diff_hash on the phase entry", () => {
+    // Set up an attempt with a started phase
+    const started = makeEvent("attempt.started", {
+      attempt_id: "A-001",
+      task_id: "T-001",
+      attempt_number: 1,
+      config_snapshot: testConfig,
+      triggered_by: "user_start",
+    }, { aggregate_type: "attempt" as never, aggregate_id: "A-001" });
+    let row = reduceAttempt(null, started)!;
+
+    const phaseStarted = makeEvent("phase.started", {
+      attempt_id: "A-001",
+      phase_name: "implementer",
+      transport: "claude-code",
+      model: "sonnet-4-6",
+      prompt_version_id: "pv-001",
+    } as never, { id: "evt-002" });
+    row = reduceAttempt(row, phaseStarted)!;
+
+    const snapshotted = makeEvent("phase.diff_snapshotted", {
+      attempt_id: "A-001",
+      phase_name: "implementer",
+      diff_hash: "d".repeat(64),
+      base_sha: "e".repeat(40),
+    } as never, { id: "evt-003" });
+    row = reduceAttempt(row, snapshotted)!;
+
+    expect(row.phases["implementer"].diff_hash).toBe("d".repeat(64));
+    expect(row.last_event_id).toBe("evt-003");
+  });
+
+  it("reduceAttempt returns null when no current row exists", () => {
+    const snapshotted = makeEvent("phase.diff_snapshotted", {
+      attempt_id: "A-001",
+      phase_name: "implementer",
+      diff_hash: "d".repeat(64),
+      base_sha: "e".repeat(40),
+    } as never, { id: "evt-003" });
+    expect(reduceAttempt(null, snapshotted)).toBeNull();
   });
 });

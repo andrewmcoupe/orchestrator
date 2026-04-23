@@ -185,6 +185,10 @@ export interface TaskListRow {
   phase_models: Record<string, string>;
   /** True if this task was auto-merged (vs manual merge). */
   auto_merged?: boolean;
+  /** Task IDs this task depends on. Empty array means no dependencies. */
+  depends_on?: string[];
+  /** True if this task has unmet dependencies. */
+  blocked?: boolean;
   last_event_ts: string;
   updated_at: string;
 }
@@ -227,6 +231,8 @@ export interface TaskDetailRow {
   proposition_ids: string[];
   worktree_path?: string;
   worktree_branch?: string;
+  /** Resolved commit SHA from task.worktree_created — immutable diff anchor for attempt 1. */
+  base_sha?: string;
   current_attempt_id?: string;
   /** Set after a successful merge — the resulting commit sha */
   merge_commit_sha?: string;
@@ -312,7 +318,7 @@ export interface AttemptRow {
   task_id: string;
   attempt_number: number;
   status: AttemptStatus;
-  outcome?: "approved" | "rejected" | "revised" | "escalated" | "failed";
+  outcome?: "approved" | "rejected" | "revised" | "escalated" | "failed" | "no_changes";
   started_at: string;
   completed_at?: string;
   duration_ms?: number;
@@ -325,6 +331,9 @@ export interface AttemptRow {
   files_changed: FileChangeSummary[];
   config_snapshot: TaskConfig;
   previous_attempt_id?: string;
+  commit_sha?: string;
+  empty?: boolean;
+  effective_diff_attempt_id?: string;
   last_event_id: string;
 }
 
@@ -651,6 +660,26 @@ export function reduceTaskList(
       };
     }
 
+    case "task.dependency.set": {
+      if (!current) return null;
+      const deps = event.payload.depends_on;
+      return {
+        ...current,
+        depends_on: deps,
+        blocked: deps.length > 0,
+        updated_at: event.ts,
+      };
+    }
+
+    case "task.unblocked":
+      if (!current) return null;
+      return {
+        ...current,
+        blocked: false,
+        status: "queued",
+        updated_at: event.ts,
+      };
+
     case "task.auto_approved":
       if (!current) return null;
       return { ...current, status: "approved", updated_at: event.ts };
@@ -814,6 +843,7 @@ export function reduceTaskDetail(
         ...current,
         worktree_path: event.payload.path,
         worktree_branch: event.payload.branch,
+        base_sha: event.payload.base_sha,
         last_event_id: event.id,
         updated_at: event.ts,
       };
@@ -1142,6 +1172,9 @@ export const PROJECTION_SUBSCRIPTIONS: Record<EventType, ProjectionName[]> = {
   "task.archived": ["task_list", "task_detail"],
   "task.worktree_created": ["task_detail"],
   "task.worktree_deleted": ["task_detail"],
+  "task.dependency.set": ["task_list"],
+  "task.unblocked": ["task_list"],
+  "task.dependency.warning": [],
 
   // Attempt
   "attempt.started": ["task_list", "task_detail", "attempt"],
@@ -1152,12 +1185,14 @@ export const PROJECTION_SUBSCRIPTIONS: Record<EventType, ProjectionName[]> = {
   "attempt.approved": ["task_list", "attempt"],
   "attempt.rejected": ["task_list", "attempt"],
   "attempt.retry_requested": ["task_list", "attempt"],
+  "attempt.committed": ["attempt"],
 
   // Phase
   "phase.started": ["task_list", "attempt"],
   "phase.context_packed": ["attempt"],
   "phase.completed": ["attempt"],
   "phase.failed": ["attempt"],
+  "phase.diff_snapshotted": ["attempt"],
 
   // Invocation
   "invocation.started": ["attempt"],
@@ -1328,6 +1363,17 @@ export function reduceAttempt(
       if (!current) return null;
       return { ...current, outcome: "revised", last_event_id: event.id };
 
+    case "attempt.committed":
+      if (!current) return null;
+      return {
+        ...current,
+        commit_sha: event.payload.commit_sha,
+        empty: event.payload.empty,
+        // Non-empty: point to self. Empty: leave undefined for write-time resolution.
+        effective_diff_attempt_id: event.payload.empty ? undefined : current.attempt_id,
+        last_event_id: event.id,
+      };
+
     // ------------------------------------------------------------------
     // Phase lifecycle
     // ------------------------------------------------------------------
@@ -1381,6 +1427,21 @@ export function reduceAttempt(
             duration_ms: p.duration_ms,
             diff_hash: p.diff_hash,
           },
+        },
+        last_event_id: event.id,
+      };
+    }
+
+    case "phase.diff_snapshotted": {
+      if (!current) return null;
+      const p = event.payload;
+      const existing = current.phases[p.phase_name];
+      if (!existing) return { ...current, last_event_id: event.id };
+      return {
+        ...current,
+        phases: {
+          ...current.phases,
+          [p.phase_name]: { ...existing, diff_hash: p.diff_hash },
         },
         last_event_id: event.id,
       };

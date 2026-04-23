@@ -1,6 +1,7 @@
 // @ts-check
 import { useState, useCallback } from "react";
 import { ArrowLeft, RefreshCw, CheckCircle, AlertCircle, HelpCircle, FileText } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsPanel } from "@web/src/components/ui/tabs.js";
 import type { PropositionRow } from "@shared/projections.js";
 import type { AnyEvent } from "@shared/events.js";
 
@@ -341,6 +342,8 @@ type IngestProps = {
 export function Ingest({ onBack }: IngestProps) {
   const [state, setState] = useState<IngestPhase>({ phase: "idle" });
   const [pathInput, setPathInput] = useState("");
+  const [prdContent, setPrdContent] = useState("");
+  const [activeTab, setActiveTab] = useState<"path" | "content">("path");
   const [error, setError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
   // Track which pushbacks have been resolved locally (for re-ingest recovery)
@@ -350,17 +353,23 @@ export function Ingest({ onBack }: IngestProps) {
   // Ingest action
   // --------------------------------------------------------------------------
 
-  const handleIngest = useCallback(async (path: string) => {
-    if (!path.trim()) return;
+  const handleIngest = useCallback(async () => {
+    const isContentMode = activeTab === "content";
+    const value = isContentMode ? prdContent.trim() : pathInput.trim();
+    if (!value) return;
     setError(null);
-    setState({ phase: "loading", path });
+    const label = isContentMode ? "pasted content" : pathInput;
+    setState({ phase: "loading", path: label });
 
     try {
       // 1. Call ingest command
+      const body = isContentMode
+        ? JSON.stringify({ content: value })
+        : JSON.stringify({ path: value });
       const ingestRes = await fetch("/api/commands/prd/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: path.trim() }),
+        body,
       });
 
       if (!ingestRes.ok) {
@@ -386,13 +395,13 @@ export function Ingest({ onBack }: IngestProps) {
           suggested_resolutions: e.payload.suggested_resolutions,
         }));
 
-      setState({ phase: "review", result, pushbacks, path });
+      setState({ phase: "review", result, pushbacks, path: label });
       setResolvedPushbacks(new Set());
     } catch (err) {
       setError((err as Error).message);
       setState({ phase: "idle" });
     }
-  }, []);
+  }, [activeTab, prdContent, pathInput]);
 
   // --------------------------------------------------------------------------
   // Pushback resolution
@@ -480,26 +489,52 @@ export function Ingest({ onBack }: IngestProps) {
               </div>
             )}
 
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={pathInput}
-                onChange={(e) => setPathInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !isLoading) void handleIngest(pathInput);
-                }}
-                placeholder="/absolute/path/to/your-prd.md"
-                disabled={isLoading}
-                className="flex-1 border border-border-default bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-text-secondary transition-colors font-mono disabled:opacity-50"
-              />
+            <Tabs
+              value={activeTab}
+              onValueChange={(value) => setActiveTab(value as "path" | "content")}
+            >
+              <TabsList>
+                <TabsTrigger value="path">File Path</TabsTrigger>
+                <TabsTrigger value="content">Paste Content</TabsTrigger>
+              </TabsList>
+
+              <TabsPanel value="path">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={pathInput}
+                    onChange={(e) => setPathInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !isLoading) void handleIngest();
+                    }}
+                    placeholder="/absolute/path/to/your-prd.md"
+                    disabled={isLoading}
+                    className="flex-1 border border-border-default bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-text-secondary transition-colors font-mono disabled:opacity-50"
+                  />
+                </div>
+              </TabsPanel>
+
+              <TabsPanel value="content">
+                <textarea
+                  value={prdContent}
+                  onChange={(e) => setPrdContent(e.target.value)}
+                  placeholder="Paste your PRD markdown here…"
+                  disabled={isLoading}
+                  rows={6}
+                  className="w-full border border-border-default bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-text-secondary transition-colors resize-y disabled:opacity-50"
+                />
+              </TabsPanel>
+            </Tabs>
+
+            <div className="mt-4">
               <button
                 type="button"
-                onClick={() => void handleIngest(pathInput)}
-                disabled={isLoading || !pathInput.trim()}
-                className="border border-transparent bg-bg-inverse px-5 py-2.5 text-sm font-medium text-text-inverse hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer disabled:cursor-default"
+                onClick={() => void handleIngest()}
+                disabled={isLoading || (activeTab === "path" ? !pathInput.trim() : !prdContent.trim())}
+                className="w-full border border-transparent bg-bg-inverse px-5 py-2.5 text-sm font-medium text-text-inverse hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer disabled:cursor-default"
               >
                 {isLoading ? (
-                  <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-2 justify-center">
                     <RefreshCw size={14} className="animate-spin" />
                     Ingesting…
                   </span>
@@ -573,7 +608,7 @@ export function Ingest({ onBack }: IngestProps) {
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => void handleIngest(path)}
+            onClick={() => void handleIngest()}
             className="flex items-center gap-1.5 border border-border-default px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
           >
             <RefreshCw size={13} />

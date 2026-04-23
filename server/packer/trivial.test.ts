@@ -339,6 +339,79 @@ describe("pack — implementer phase", () => {
     expect(result.prompt).toContain("[BLOCKING]");
   });
 
+  it("includes previous attempt diff in prompt for retry attempts", async () => {
+    const fakePrevDiff = `diff --git a/src/auth/login.ts b/src/auth/login.ts
+index 1234567..abcdefg 100644
+--- a/src/auth/login.ts
++++ b/src/auth/login.ts
+@@ -10,6 +10,8 @@
++  const hashedPassword = await bcrypt.hash(password, 10);`;
+
+    const concerns: AuditConcern[] = [
+      {
+        category: "security",
+        severity: "blocking",
+        rationale: "Password is stored in plain text",
+      },
+    ];
+    const attempt = makeAttempt({ attempt_id: "att-retry", attempt_number: 2 });
+    insertEvent(
+      db,
+      "attempt.started",
+      {
+        attempt_id: "att-retry",
+        task_id: "T-001",
+        attempt_number: 2,
+        config_snapshot: minimalConfig,
+        triggered_by: "retry",
+        retry_feedback: concerns,
+        previous_attempt_id: "att-prev",
+      },
+      { aggregate_id: "att-retry" },
+    );
+
+    const result = await pack(
+      {
+        db,
+        phase_name: "implementer",
+        task: makeTask(),
+        attempt,
+        worktree_path: "/tmp/wt",
+        policy: testPolicy,
+        blobStore: createBlobStore(blobDir),
+      },
+      {
+        gitDiff: noGitDiff,
+        findTestFiles: noTestFiles,
+        gitDiffPrevAttempt: async () => fakePrevDiff,
+      },
+    );
+
+    expect(result.prompt).toContain("Previous Attempt Changes");
+    expect(result.prompt).toContain("bcrypt.hash");
+  });
+
+  it("does not include previous attempt diff block for first attempt", async () => {
+    const result = await pack(
+      {
+        db,
+        phase_name: "implementer",
+        task: makeTask(),
+        attempt: makeAttempt({ attempt_number: 1 }),
+        worktree_path: "/tmp/wt",
+        policy: testPolicy,
+        blobStore: createBlobStore(blobDir),
+      },
+      {
+        gitDiff: noGitDiff,
+        findTestFiles: noTestFiles,
+        gitDiffPrevAttempt: async () => "should not appear",
+      },
+    );
+
+    expect(result.prompt).not.toContain("Previous Attempt Changes");
+  });
+
   it("includes files written by test-author in the manifest", async () => {
     const attempt = makeAttempt({ attempt_id: "att-004" });
 

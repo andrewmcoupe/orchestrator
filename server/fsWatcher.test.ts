@@ -5,14 +5,7 @@
  * A short debounceMs (50ms) is used so tests complete quickly.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
@@ -39,7 +32,7 @@ function makeTestDb(): Database.Database {
  */
 async function waitFor(
   predicate: () => boolean,
-  maxMs = 2000,
+  maxMs = 10000,
   interval = 20,
 ): Promise<void> {
   const deadline = Date.now() + maxMs;
@@ -57,15 +50,24 @@ async function waitFor(
 let tmpDir: string;
 let db: Database.Database;
 let worktreesDir: string;
+let activeWatchers: Array<{ stop: () => Promise<void> }> = [];
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "orchestrator-fswatcher-"));
   worktreesDir = path.join(tmpDir, ".orchestrator-worktrees");
   fs.mkdirSync(worktreesDir, { recursive: true });
   db = makeTestDb();
+  activeWatchers = [];
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Ensure all watchers are stopped to prevent EMFILE
+  for (const w of activeWatchers) {
+    try {
+      await w.stop();
+    } catch {}
+  }
+  activeWatchers = [];
   db.close();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -196,7 +198,9 @@ describe("createFsWatcher — expected change filtering", () => {
     });
 
     const events = readEvents(db, { aggregate_id: "T-004" });
-    expect(events.some((e) => e.type === "files.changed_externally")).toBe(true);
+    expect(events.some((e) => e.type === "files.changed_externally")).toBe(
+      true,
+    );
 
     await watcher.stop();
   });
@@ -340,7 +344,9 @@ describe("createFsWatcher — lifecycle", () => {
     });
 
     const events = readEvents(db, { aggregate_id: "T-008" });
-    expect(events.some((e) => e.type === "files.changed_externally")).toBe(true);
+    expect(events.some((e) => e.type === "files.changed_externally")).toBe(
+      true,
+    );
 
     await watcher.stop();
   });

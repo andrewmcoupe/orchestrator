@@ -60,11 +60,22 @@ function safeGet<T>(db: Database.Database, sql: string, params: unknown[] = []):
 // Row parsers — convert raw SQLite rows (JSON text) to typed objects
 // ============================================================================
 
-type RawTaskListRow = Omit<TaskListRow, "phase_models"> & { phase_models_json: string | null };
+type RawTaskListRow = Omit<TaskListRow, "phase_models" | "auto_merged" | "depends_on" | "blocked"> & {
+  phase_models_json: string | null;
+  auto_merged: number;
+  depends_on_json: string | null;
+  blocked: number;
+};
 
 function parseTaskListRow(raw: RawTaskListRow): TaskListRow {
-  const { phase_models_json, ...rest } = raw;
-  return { ...rest, phase_models: phase_models_json ? JSON.parse(phase_models_json) : {} };
+  const { phase_models_json, auto_merged: autoMergedInt, depends_on_json, blocked: blockedInt, ...rest } = raw;
+  return {
+    ...rest,
+    phase_models: phase_models_json ? JSON.parse(phase_models_json) : {},
+    auto_merged: autoMergedInt === 1,
+    depends_on: depends_on_json ? JSON.parse(depends_on_json) : [],
+    blocked: blockedInt === 1,
+  };
 }
 
 type RawTaskDetailRow = {
@@ -149,6 +160,9 @@ type RawAttemptRow = {
   files_changed_json: string;
   config_snapshot_json: string;
   previous_attempt_id: string | null;
+  commit_sha: string | null;
+  empty: number | null;
+  effective_diff_attempt_id: string | null;
   last_event_id: string;
 };
 
@@ -171,6 +185,9 @@ function parseAttemptRow(raw: RawAttemptRow): AttemptRow {
     files_changed: JSON.parse(raw.files_changed_json),
     config_snapshot: JSON.parse(raw.config_snapshot_json),
     previous_attempt_id: raw.previous_attempt_id ?? undefined,
+    commit_sha: raw.commit_sha ?? undefined,
+    empty: raw.empty != null ? Boolean(raw.empty) : undefined,
+    effective_diff_attempt_id: raw.effective_diff_attempt_id ?? undefined,
     last_event_id: raw.last_event_id,
   };
 }

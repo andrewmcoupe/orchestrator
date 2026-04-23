@@ -72,7 +72,8 @@ export type Actor =
         | "scheduler"
         | "watcher"
         | "classifier"
-        | "gate_runner";
+        | "gate_runner"
+        | "dependency_reactor";
     }
   | { kind: "cli"; transport: Transport; invocation_id: string };
 
@@ -155,6 +156,9 @@ export interface PhaseConfig {
   ab_experiment_id?: string;
   transport_options: TransportOptions;
   context_policy: ContextPolicy;
+  /** Gate names to skip after this phase completes. Useful for phases
+   *  like test-author where certain gates (e.g. "test") are expected to fail. */
+  skip_gates?: string[];
 }
 
 export type TransportOptions =
@@ -166,6 +170,7 @@ export type TransportOptions =
       permission_mode: "default" | "plan" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "auto";
       allowed_tools?: string[];
       append_system_prompt_path?: string;
+      schema?: object; // JSON Schema for structured output via --json-schema
     }
   | {
       kind: "api";
@@ -232,12 +237,13 @@ export interface ContextManifest {
 
 export interface PrdIngested {
   prd_id: string;
-  path: string;
+  path: string | null;
   size_bytes: number;
   lines: number;
   extractor_model: string;
   extractor_prompt_version_id: string;
   content_hash: string;
+  content: string;
 }
 
 // ============================================================================
@@ -344,11 +350,28 @@ export interface TaskWorktreeCreated {
   path: string;
   branch: string;
   base_ref: string;
+  base_sha: string;
 }
 
 export interface TaskWorktreeDeleted {
   task_id: string;
   path: string;
+}
+
+export interface TaskDependencySet {
+  task_id: string;
+  depends_on: string[];
+}
+
+export interface TaskUnblocked {
+  task_id: string;
+}
+
+export interface TaskDependencyWarning {
+  task_id: string;
+  dependency_id: string;
+  dependency_status: TaskStatus;
+  message: string;
 }
 
 // ============================================================================
@@ -383,7 +406,7 @@ export interface AttemptKilled {
 
 export interface AttemptCompleted {
   attempt_id: string;
-  outcome: "approved" | "rejected" | "revised" | "escalated" | "failed";
+  outcome: "approved" | "rejected" | "revised" | "escalated" | "failed" | "no_changes";
   tokens_in_total: number;
   tokens_out_total: number;
   cost_usd_total: number;
@@ -407,6 +430,23 @@ export interface AttemptRetryRequested {
   with_feedback: boolean;
   new_attempt_id: string;
   strategy: RetryStrategy;
+}
+
+export interface AttemptCommitted {
+  attempt_id: string;
+  commit_sha: string;
+  empty: boolean;
+}
+
+// ============================================================================
+// Phase diff snapshot events
+// ============================================================================
+
+export interface PhaseDiffSnapshotted {
+  attempt_id: string;
+  phase_name: string;
+  diff_hash: string;
+  base_sha: string;
 }
 
 // ============================================================================
@@ -874,6 +914,9 @@ export interface EventMap {
   "task.archived": TaskArchived;
   "task.worktree_created": TaskWorktreeCreated;
   "task.worktree_deleted": TaskWorktreeDeleted;
+  "task.dependency.set": TaskDependencySet;
+  "task.unblocked": TaskUnblocked;
+  "task.dependency.warning": TaskDependencyWarning;
 
   // Attempt
   "attempt.started": AttemptStarted;
@@ -884,12 +927,14 @@ export interface EventMap {
   "attempt.approved": AttemptApproved;
   "attempt.rejected": AttemptRejected;
   "attempt.retry_requested": AttemptRetryRequested;
+  "attempt.committed": AttemptCommitted;
 
   // Phase
   "phase.started": PhaseStarted;
   "phase.context_packed": PhaseContextPacked;
   "phase.completed": PhaseCompleted;
   "phase.failed": PhaseFailed;
+  "phase.diff_snapshotted": PhaseDiffSnapshotted;
 
   // Invocation
   "invocation.started": InvocationStarted;

@@ -26,7 +26,7 @@ import type { MergeResult } from "./merge.js";
 export type AutoMergeInput = {
   policy: AutoMergePolicy;
   shadow_mode: boolean;
-  attempt_outcome: "approved" | "rejected" | "revised" | "escalated" | "failed";
+  attempt_outcome: "approved" | "rejected" | "revised" | "escalated" | "failed" | "no_changes";
   auditor_verdict?: "approve" | "revise" | "reject";
   has_blocking_concerns: boolean;
   all_required_gates_passed: boolean;
@@ -43,7 +43,7 @@ export type HandleAutoMergeInput = {
   task_id: string;
   attempt_id: string;
   config: TaskConfig;
-  attempt_outcome: "approved" | "rejected" | "revised" | "escalated" | "failed";
+  attempt_outcome: "approved" | "rejected" | "revised" | "escalated" | "failed" | "no_changes";
   auditor_verdict?: "approve" | "revise" | "reject";
   has_blocking_concerns: boolean;
   all_required_gates_passed: boolean;

@@ -7,15 +7,11 @@
  */
 
 import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import type { GateConfig } from "@shared/events.js";
+import { getConfigPath } from "../paths.js";
 
-const CONFIG_PATH = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../config.yaml",
-);
+const CONFIG_PATH = getConfigPath();
 
 type OrchestratorConfig = {
   project_name?: string;

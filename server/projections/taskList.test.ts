@@ -11,6 +11,7 @@ import {
   initProjections,
   eventBus,
 } from "../projectionRunner.js";
+import { registerDependencyReactor } from "../dependencyReactor.js";
 
 // Register projections
 import "./register.js";
@@ -112,6 +113,7 @@ describe("TaskList projection", () => {
     db.pragma("foreign_keys = ON");
     runMigrations(db);
     initProjections(db);
+    registerDependencyReactor(db);
   });
 
   afterEach(() => {
@@ -359,5 +361,342 @@ describe("TaskList projection", () => {
       .prepare("SELECT * FROM proj_task_list WHERE task_id = ?")
       .get("T-001") as RawTaskListRow;
     expect(raw.pushback_count).toBe(0);
+  });
+
+  // ==========================================================================
+  // Dependency projection tests
+  // ==========================================================================
+
+  describe("dependency wiring", () => {
+    it("proj_task_list has depends_on_json column storing JSON array of task IDs", () => {
+      appendAndProject(db, taskCreated("T-001"));
+
+      // Set dependencies
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-001",
+        actor: testActor,
+        payload: { task_id: "T-001", depends_on: ["T-002", "T-003"] },
+      });
+
+      const raw = db
+        .prepare("SELECT depends_on_json, blocked FROM proj_task_list WHERE task_id = ?")
+        .get("T-001") as { depends_on_json: string; blocked: number };
+
+      expect(raw).toBeDefined();
+      expect(JSON.parse(raw.depends_on_json)).toEqual(["T-002", "T-003"]);
+    });
+
+    it("proj_task_list has blocked column computed from dependency status", () => {
+      appendAndProject(db, taskCreated("T-001"));
+
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-001",
+        actor: testActor,
+        payload: { task_id: "T-001", depends_on: ["T-002"] },
+      });
+
+      const raw = db
+        .prepare("SELECT blocked FROM proj_task_list WHERE task_id = ?")
+        .get("T-001") as { blocked: number };
+
+      expect(raw.blocked).toBe(1);
+    });
+
+    it("task.dependency.set event updates depends_on for the target task", () => {
+      appendAndProject(db, taskCreated("T-001"));
+
+      // First set
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-001",
+        actor: testActor,
+        payload: { task_id: "T-001", depends_on: ["T-002"] },
+      });
+
+      let raw = db
+        .prepare("SELECT depends_on_json FROM proj_task_list WHERE task_id = ?")
+        .get("T-001") as { depends_on_json: string };
+      expect(JSON.parse(raw.depends_on_json)).toEqual(["T-002"]);
+
+      // Update to different deps
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-001",
+        actor: testActor,
+        payload: { task_id: "T-001", depends_on: ["T-003", "T-004"] },
+      });
+
+      raw = db
+        .prepare("SELECT depends_on_json FROM proj_task_list WHERE task_id = ?")
+        .get("T-001") as { depends_on_json: string };
+      expect(JSON.parse(raw.depends_on_json)).toEqual(["T-003", "T-004"]);
+    });
+
+    it("task.unblocked event sets blocked to false for the target task", () => {
+      appendAndProject(db, taskCreated("T-001"));
+
+      // Block it
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-001",
+        actor: testActor,
+        payload: { task_id: "T-001", depends_on: ["T-002"] },
+      });
+
+      let raw = db
+        .prepare("SELECT blocked, status FROM proj_task_list WHERE task_id = ?")
+        .get("T-001") as { blocked: number; status: string };
+      expect(raw.blocked).toBe(1);
+
+      // Unblock it
+      appendAndProject(db, {
+        type: "task.unblocked",
+        aggregate_type: "task",
+        aggregate_id: "T-001",
+        actor: testActor,
+        payload: { task_id: "T-001" },
+      });
+
+      raw = db
+        .prepare("SELECT blocked, status FROM proj_task_list WHERE task_id = ?")
+        .get("T-001") as { blocked: number; status: string };
+      expect(raw.blocked).toBe(0);
+      expect(raw.status).toBe("queued");
+    });
+
+    it("task.merged event recalculates blocked status — unblocks dependent when all deps merged", () => {
+      // Create two tasks: T-DEP (dependency) and T-CHILD (depends on T-DEP)
+      appendAndProject(db, taskCreated("T-DEP", "Dependency task"));
+      appendAndProject(db, taskCreated("T-CHILD", "Child task"));
+
+      // Set T-CHILD depends on T-DEP
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-CHILD",
+        actor: testActor,
+        payload: { task_id: "T-CHILD", depends_on: ["T-DEP"] },
+      });
+
+      const raw1 = db
+        .prepare("SELECT blocked FROM proj_task_list WHERE task_id = ?")
+        .get("T-CHILD") as { blocked: number };
+      expect(raw1.blocked).toBe(1);
+
+      // Merge the dependency — reactor should emit task.unblocked for T-CHILD
+      appendAndProject(db, {
+        type: "task.merged",
+        aggregate_type: "task",
+        aggregate_id: "T-DEP",
+        actor: testActor,
+        payload: {
+          task_id: "T-DEP",
+          attempt_id: "att-001",
+          merge_commit_sha: "abc123",
+          into_branch: "main",
+          strategy: "squash",
+          advanced_by_commits: 1,
+        },
+      });
+
+      // The reactor fires synchronously via eventBus — T-CHILD should now be unblocked
+      const raw2 = db
+        .prepare("SELECT blocked, status FROM proj_task_list WHERE task_id = ?")
+        .get("T-CHILD") as { blocked: number; status: string };
+      expect(raw2.blocked).toBe(0);
+      expect(raw2.status).toBe("queued");
+    });
+
+    it("task.merged on one of multiple deps does NOT unblock if others remain", () => {
+      appendAndProject(db, taskCreated("T-DEP1", "Dep 1"));
+      appendAndProject(db, taskCreated("T-DEP2", "Dep 2"));
+      appendAndProject(db, taskCreated("T-CHILD", "Child"));
+
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-CHILD",
+        actor: testActor,
+        payload: { task_id: "T-CHILD", depends_on: ["T-DEP1", "T-DEP2"] },
+      });
+
+      // Merge only T-DEP1
+      appendAndProject(db, {
+        type: "task.merged",
+        aggregate_type: "task",
+        aggregate_id: "T-DEP1",
+        actor: testActor,
+        payload: {
+          task_id: "T-DEP1",
+          attempt_id: "att-001",
+          merge_commit_sha: "abc123",
+          into_branch: "main",
+          strategy: "squash",
+          advanced_by_commits: 1,
+        },
+      });
+
+      const raw = db
+        .prepare("SELECT blocked FROM proj_task_list WHERE task_id = ?")
+        .get("T-CHILD") as { blocked: number };
+      expect(raw.blocked).toBe(1);
+    });
+
+    it("emits task.dependency.warning when a dependency reaches rejected status", () => {
+      // Create parent and child
+      appendAndProject(db, taskCreated("T-PARENT"));
+      appendAndProject(db, taskCreated("T-CHILD"));
+
+      // Set dependency
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-CHILD",
+        actor: testActor,
+        payload: { task_id: "T-CHILD", depends_on: ["T-PARENT"] },
+      });
+
+      // Listen for warning events
+      const warnings: import("@shared/events.js").AnyEvent[] = [];
+      const listener = (e: import("@shared/events.js").AnyEvent) => {
+        if (e.type === "task.dependency.warning") warnings.push(e);
+      };
+      eventBus.on("event.committed", listener);
+
+      try {
+        // Reject the parent task
+        appendAndProject(db, {
+          type: "task.status_changed",
+          aggregate_type: "task",
+          aggregate_id: "T-PARENT",
+          actor: testActor,
+          payload: { task_id: "T-PARENT", from: "queued", to: "rejected" },
+        });
+
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0].payload).toMatchObject({
+          task_id: "T-CHILD",
+          dependency_id: "T-PARENT",
+          dependency_status: "rejected",
+        });
+      } finally {
+        eventBus.off("event.committed", listener);
+      }
+    });
+
+    it("emits task.dependency.warning when a dependency reaches archived status", () => {
+      appendAndProject(db, taskCreated("T-PARENT"));
+      appendAndProject(db, taskCreated("T-CHILD"));
+
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-CHILD",
+        actor: testActor,
+        payload: { task_id: "T-CHILD", depends_on: ["T-PARENT"] },
+      });
+
+      const warnings: import("@shared/events.js").AnyEvent[] = [];
+      const listener = (e: import("@shared/events.js").AnyEvent) => {
+        if (e.type === "task.dependency.warning") warnings.push(e);
+      };
+      eventBus.on("event.committed", listener);
+
+      try {
+        appendAndProject(db, {
+          type: "task.status_changed",
+          aggregate_type: "task",
+          aggregate_id: "T-PARENT",
+          actor: testActor,
+          payload: { task_id: "T-PARENT", from: "queued", to: "archived" },
+        });
+
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0].payload).toMatchObject({
+          dependency_status: "archived",
+        });
+      } finally {
+        eventBus.off("event.committed", listener);
+      }
+    });
+
+    it("does not emit warning for non-terminal status changes", () => {
+      appendAndProject(db, taskCreated("T-PARENT"));
+      appendAndProject(db, taskCreated("T-CHILD"));
+
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-CHILD",
+        actor: testActor,
+        payload: { task_id: "T-CHILD", depends_on: ["T-PARENT"] },
+      });
+
+      const warnings: import("@shared/events.js").AnyEvent[] = [];
+      const listener = (e: import("@shared/events.js").AnyEvent) => {
+        if (e.type === "task.dependency.warning") warnings.push(e);
+      };
+      eventBus.on("event.committed", listener);
+
+      try {
+        // Running is not terminal — no warning
+        appendAndProject(db, {
+          type: "task.status_changed",
+          aggregate_type: "task",
+          aggregate_id: "T-PARENT",
+          actor: testActor,
+          payload: { task_id: "T-PARENT", from: "queued", to: "running" },
+        });
+
+        expect(warnings).toHaveLength(0);
+      } finally {
+        eventBus.off("event.committed", listener);
+      }
+    });
+
+    it("keeps dependents blocked when dependency fails", () => {
+      appendAndProject(db, taskCreated("T-PARENT"));
+      appendAndProject(db, taskCreated("T-CHILD"));
+
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-CHILD",
+        actor: testActor,
+        payload: { task_id: "T-CHILD", depends_on: ["T-PARENT"] },
+      });
+
+      // Reject the parent
+      appendAndProject(db, {
+        type: "task.status_changed",
+        aggregate_type: "task",
+        aggregate_id: "T-PARENT",
+        actor: testActor,
+        payload: { task_id: "T-PARENT", from: "queued", to: "rejected" },
+      });
+
+      const raw = db
+        .prepare("SELECT blocked FROM proj_task_list WHERE task_id = ?")
+        .get("T-CHILD") as { blocked: number };
+      expect(raw.blocked).toBe(1);
+    });
+
+    it("defaults depends_on_json to '[]' and blocked to 0 for new tasks", () => {
+      appendAndProject(db, taskCreated("T-001"));
+
+      const raw = db
+        .prepare("SELECT depends_on_json, blocked FROM proj_task_list WHERE task_id = ?")
+        .get("T-001") as { depends_on_json: string; blocked: number };
+
+      expect(JSON.parse(raw.depends_on_json)).toEqual([]);
+      expect(raw.blocked).toBe(0);
+    });
   });
 });

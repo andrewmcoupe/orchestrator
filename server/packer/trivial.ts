@@ -47,6 +47,7 @@ export type PackResult = {
 /** Injectable dependencies — swap out for tests without touching the FS. */
 export type TrivialPackerDeps = {
   gitDiff?: (worktreePath: string) => Promise<string>;
+  gitDiffPrevAttempt?: (worktreePath: string) => Promise<string>;
   findTestFiles?: (worktreePath: string) => Promise<string[]>;
 };
 
@@ -113,6 +114,15 @@ async function defaultGitDiff(worktreePath: string): Promise<string> {
   }
 }
 
+async function defaultGitDiffPrevAttempt(worktreePath: string): Promise<string> {
+  try {
+    const result = await execa("git", ["diff", "HEAD~1", "HEAD"], { cwd: worktreePath });
+    return result.stdout;
+  } catch {
+    return "";
+  }
+}
+
 async function defaultFindTestFiles(worktreePath: string): Promise<string[]> {
   return walkForTestFiles(worktreePath, worktreePath);
 }
@@ -156,6 +166,25 @@ function getRetryFeedback(
     retry_feedback?: AuditConcern[];
   };
   return payload.retry_feedback ?? [];
+}
+
+function isRetryAttempt(
+  db: Database.Database,
+  attempt_id: string,
+): boolean {
+  const row = db
+    .prepare(
+      `SELECT payload_json FROM events
+       WHERE type = 'attempt.started'
+       AND json_extract(payload_json, '$.attempt_id') = ?
+       LIMIT 1`,
+    )
+    .get(attempt_id) as { payload_json: string } | undefined;
+  if (!row) return false;
+  const payload = JSON.parse(row.payload_json) as {
+    previous_attempt_id?: string;
+  };
+  return !!payload.previous_attempt_id;
 }
 
 function getGateFailures(db: Database.Database, attempt_id: string): string {
@@ -250,6 +279,7 @@ export async function pack(
     input;
 
   const gitDiff = deps?.gitDiff ?? defaultGitDiff;
+  const gitDiffPrevAttempt = deps?.gitDiffPrevAttempt ?? defaultGitDiffPrevAttempt;
   const findTestFiles = deps?.findTestFiles ?? defaultFindTestFiles;
 
   const propTexts = getPropositionTexts(db, task.proposition_ids);
@@ -298,6 +328,9 @@ export async function pack(
       const testAuthorFiles = attempt
         ? getTestAuthorFiles(db, attempt.attempt_id)
         : [];
+      const isRetry = attempt
+        ? isRetryAttempt(db, attempt.attempt_id)
+        : false;
 
       for (const f of testAuthorFiles) {
         files.push({ path: f, bytes: 0 });
@@ -307,6 +340,15 @@ export async function pack(
         ? `\n\n## Failing Gates\n\n\`\`\`\n${gateFailures}\n\`\`\``
         : "";
       const feedbackBlock = formatRetryFeedback(retryFeedback);
+
+      let prevDiffBlock = "";
+      if (isRetry) {
+        const prevDiff = await gitDiffPrevAttempt(worktree_path);
+        if (prevDiff) {
+          prevDiffBlock = `\n\n## Previous Attempt Changes\n\n\`\`\`diff\n${prevDiff}\n\`\`\``;
+        }
+      }
+
       const fileList =
         testAuthorFiles.length > 0
           ? "\n\n## Test Files to Make Pass\n\n" +
@@ -314,7 +356,7 @@ export async function pack(
           : "";
 
       prompt =
-        `${reqs}${gateBlock}${feedbackBlock}${fileList}\n\n` +
+        `${reqs}${gateBlock}${feedbackBlock}${prevDiffBlock}${fileList}\n\n` +
         "Implement the requirements. Make the failing tests pass. " +
         "Keep changes focused and minimal. " +
         "Claude Code will explore the repo for additional context.";

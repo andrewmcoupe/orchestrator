@@ -104,6 +104,14 @@ function setupFetch(options: {
 } = {}) {
   const { detail = mockDetail, presets = [mockPreset] } = options;
 
+  // Build gate library from config gates
+  const configGates = (detail ?? mockDetail)?.config?.gates ?? baseConfig.gates;
+  const gateLibrary = {
+    library_gates: configGates,
+    all_gates: configGates.map((g) => ({ ...g, source: "library" as const })),
+    config_gate_names: configGates.map((g) => g.name),
+  };
+
   return vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
     const u = url.toString();
 
@@ -115,6 +123,9 @@ function setupFetch(options: {
     }
     if (u.includes("/api/projections/preset")) {
       return Promise.resolve(new Response(JSON.stringify(presets), { status: 200 }));
+    }
+    if (u.includes("/api/settings/gates")) {
+      return Promise.resolve(new Response(JSON.stringify(gateLibrary), { status: 200 }));
     }
     if (u.includes("/api/commands/task/") && u.includes("/config")) {
       return Promise.resolve(new Response(JSON.stringify(options.configResult ?? { ok: true }), { status: 200 }));
@@ -236,9 +247,12 @@ describe("TaskConfig — phases section", () => {
     withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
     await waitFor(() => screen.getByText("Add login feature"));
 
-    // Toggle auditor phase enabled (it's currently false in the config)
-    const checkboxes = screen.getAllByRole("checkbox");
-    fireEvent.click(checkboxes[1]); // auditor enabled checkbox
+    // Find the "enabled" label checkboxes — each phase card has one
+    const enabledLabels = screen.getAllByText("enabled");
+    // Click the second "enabled" checkbox (auditor phase, currently false)
+    const auditorEnabledCheckbox = enabledLabels[1].closest("label")?.querySelector("input[type='checkbox']");
+    expect(auditorEnabledCheckbox).toBeTruthy();
+    fireEvent.click(auditorEnabledCheckbox!);
 
     expect(screen.getByText(/1 override/i)).toBeTruthy();
   });
@@ -267,7 +281,7 @@ describe("TaskConfig — gates section", () => {
     withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
     await waitFor(() => screen.getByText("Add login feature"));
 
-    expect(screen.getByText("typecheck")).toBeTruthy();
+    expect(screen.getAllByText("typecheck").length).toBeGreaterThan(0);
   });
 
   it("changing gate timeout increments override count", async () => {
@@ -275,6 +289,8 @@ describe("TaskConfig — gates section", () => {
     withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
     await waitFor(() => screen.getByText("Add login feature"));
 
+    // Wait for gate library to load and render the timeout input
+    await waitFor(() => expect(screen.getAllByDisplayValue("60").length).toBeGreaterThan(0));
     const timeoutInputs = screen.getAllByDisplayValue("60");
     fireEvent.change(timeoutInputs[0], { target: { value: "120" } });
 

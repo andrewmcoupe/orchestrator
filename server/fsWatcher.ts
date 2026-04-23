@@ -20,6 +20,7 @@ import chokidar, { type FSWatcher } from "chokidar";
 import path from "node:path";
 import fs from "node:fs";
 import { appendAndProject } from "./projectionRunner.js";
+import { getWorktreesDir } from "./paths.js";
 
 // ============================================================================
 // Types
@@ -241,11 +242,5 @@ export function createFsWatcher(
  * location (orchestrator/server/ → orchestrator/../.orchestrator-worktrees/).
  */
 function resolveDefaultWorktreesDir(): string {
-  // Walk up from orchestrator/server/ to find the host repo root, then append
-  // the conventional worktrees dir name.
-  // import.meta.dirname is the compiled server/ directory.
-  const serverDir = import.meta.dirname;
-  const orchestratorDir = path.resolve(serverDir, "..");
-  const repoRoot = path.resolve(orchestratorDir, "..");
-  return path.join(repoRoot, ".orchestrator-worktrees");
+  return getWorktreesDir();
 }

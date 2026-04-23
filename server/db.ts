@@ -8,6 +8,7 @@
 import Database from "better-sqlite3";
 import path from "node:path";
 import fs from "node:fs";
+import { getDbPath } from "./paths.js";
 
 let instance: Database.Database | null = null;
 
@@ -18,8 +19,7 @@ let instance: Database.Database | null = null;
 export function getDb(dbPath?: string): Database.Database {
   if (instance) return instance;
 
-  const resolvedPath =
-    dbPath ?? path.resolve(import.meta.dirname, "..", ".data", "events.db");
+  const resolvedPath = dbPath ?? getDbPath();
 
   // Ensure parent directory exists
   const dir = path.dirname(resolvedPath);

@@ -29,6 +29,24 @@ async function postCommand<T = unknown>(
 }
 
 // ============================================================================
+// Set dependencies
+// ============================================================================
+
+type SetDependenciesInput = {
+  taskId: string;
+  depends_on: string[];
+};
+
+export function useSetDependencies() {
+  return useMutation({
+    mutationFn: (input: SetDependenciesInput) =>
+      postCommand(`/api/commands/task/${input.taskId}/dependencies`, {
+        depends_on: input.depends_on,
+      }),
+  });
+}
+
+// ============================================================================
 // Create task
 // ============================================================================
 

@@ -203,6 +203,65 @@ function makeSlowCliInvoker(signal: Promise<void>): AdapterInvokeFn {
   };
 }
 
+/** Fake diff capturer — returns empty diff by default. */
+const noDiffCapturer = async (_wp: string, _baseSha: string) => "";
+/** Fake diff capturer that simulates changes being present. */
+const hasDiffCapturer = async (_wp: string, _baseSha: string) => "diff --git a/foo.ts b/foo.ts\n--- a/foo.ts\n+++ b/foo.ts\n@@ -1 +1 @@\n-old\n+new\n";
+
+/** Fake gate runner that emits gate events (like the real runner) without executing commands. */
+function makeFakeGateRunner(
+  status: "passed" | "failed" = "passed",
+): PhaseRunnerDeps["gateRunner"] {
+  return async (db, gate, attempt_id) => {
+    const gate_run_id = `GR-${Date.now()}`;
+    const actor = { kind: "system" as const, component: "gate_runner" as const };
+    const aggregate_id = `gate-run:${gate_run_id}`;
+
+    appendAndProject(db, {
+      type: "gate.started",
+      aggregate_type: "gate",
+      aggregate_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: { gate_run_id, gate_name: gate.name, attempt_id },
+    });
+
+    if (status === "passed") {
+      appendAndProject(db, {
+        type: "gate.passed",
+        aggregate_type: "gate",
+        aggregate_id,
+        actor,
+        correlation_id: attempt_id,
+        payload: { gate_run_id, gate_name: gate.name, duration_ms: 50 },
+      });
+      return { status: "passed" as const, failures: [], duration_ms: 50 };
+    }
+
+    appendAndProject(db, {
+      type: "gate.failed",
+      aggregate_type: "gate",
+      aggregate_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: {
+        gate_run_id,
+        gate_name: gate.name,
+        duration_ms: 50,
+        failures: [{ category: "test", excerpt: "Test failed" }],
+      },
+    });
+    return {
+      status: "failed" as const,
+      failures: [{ category: "test", excerpt: "Test failed" }],
+      duration_ms: 50,
+    };
+  };
+}
+
+/** No-op committer for tests that don't care about commit behavior. */
+const noopCommitter = async () => ({ sha: "0".repeat(12), empty: true });
+
 /** Standard test deps. */
 function makeTestDeps(invoker?: AdapterInvokeFn): PhaseRunnerDeps {
   return {
@@ -210,6 +269,8 @@ function makeTestDeps(invoker?: AdapterInvokeFn): PhaseRunnerDeps {
     worktreeCreator: fakeWorktreeCreator,
     packer: fakePacker,
     cliInvoker: invoker ?? makeFakeCliInvoker(),
+    diffCapturer: noDiffCapturer,
+    committer: noopCommitter,
   };
 }
 
@@ -293,6 +354,7 @@ describe("runAttempt", () => {
       "invocation.assistant_message",
       "invocation.completed",
       "phase.completed",
+      "attempt.committed",
       "attempt.completed",
       "task.status_changed",
     ]);
@@ -493,10 +555,7 @@ describe("runAttempt", () => {
 
     const runPromise = runAttempt(db, taskId, {
       deps: {
-        blobStore: fakeBlobStore,
-        worktreeCreator: fakeWorktreeCreator,
-        packer: fakePacker,
-        cliInvoker: countingInvoker,
+        ...makeTestDeps(countingInvoker),
       },
     });
 
@@ -598,20 +657,11 @@ describe("runAttempt", () => {
       ],
     };
 
-    const failingGateRunner = async (
-      _db: Database.Database,
-      gate: { name: string },
-    ): Promise<{ status: "failed"; failures: Array<{ category: string; excerpt: string }>; duration_ms: number }> => ({
-      status: "failed",
-      failures: [{ category: "type", excerpt: "Type error" }],
-      duration_ms: 100,
-    });
-
     const taskId = createTask(db, configWithGate);
     await runAttempt(db, taskId, {
       deps: {
         ...makeTestDeps(),
-        gateRunner: failingGateRunner as PhaseRunnerDeps["gateRunner"],
+        gateRunner: makeFakeGateRunner("failed"),
       },
     });
 
@@ -741,6 +791,7 @@ describe("runAttempt", () => {
       deps: {
         ...makeTestDeps(),
         apiInvoker: makeAuditorInvoker(approveVerdict),
+        diffCapturer: hasDiffCapturer,
       },
     });
 
@@ -781,6 +832,7 @@ describe("runAttempt", () => {
       deps: {
         ...makeTestDeps(),
         apiInvoker: makeAuditorInvoker(rejectVerdict),
+        diffCapturer: hasDiffCapturer,
       },
     });
 
@@ -813,6 +865,7 @@ describe("runAttempt", () => {
       deps: {
         ...makeTestDeps(),
         apiInvoker: makeAuditorInvoker(reviseVerdict),
+        diffCapturer: hasDiffCapturer,
       },
     });
 
@@ -844,6 +897,7 @@ describe("runAttempt", () => {
       deps: {
         ...makeTestDeps(),
         apiInvoker: makeAuditorInvoker(approveVerdict),
+        diffCapturer: hasDiffCapturer,
       },
     });
 
@@ -856,5 +910,493 @@ describe("runAttempt", () => {
     const audit = JSON.parse(attemptRow!.audit_json!) as { verdict: string; confidence: number };
     expect(audit.verdict).toBe("approve");
     expect(audit.confidence).toBeCloseTo(0.98);
+  });
+
+  // --------------------------------------------------------------------------
+  // Gates run after phase.completed
+  // --------------------------------------------------------------------------
+
+  it("emits phase.completed before gate events in the timeline", async () => {
+    const configWithGate: TaskConfig = {
+      ...minimalCliConfig,
+      gates: [
+        {
+          name: "test",
+          command: "pnpm test",
+          required: true,
+          timeout_seconds: 30,
+          on_fail: "fail_task",
+        },
+      ],
+    };
+
+    const taskId = createTask(db, configWithGate);
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        gateRunner: makeFakeGateRunner("passed"),
+      },
+    });
+
+    const types = getEventTypes(db);
+    const runnerEvents = types.slice(1); // skip task.created
+
+    const phaseCompletedIdx = runnerEvents.indexOf("phase.completed");
+    const gateStartedIdx = runnerEvents.indexOf("gate.started");
+
+    expect(phaseCompletedIdx).toBeGreaterThan(-1);
+    expect(gateStartedIdx).toBeGreaterThan(-1);
+    expect(phaseCompletedIdx).toBeLessThan(gateStartedIdx);
+  });
+
+  it("emits gate events between phase.completed events in a multi-phase config", async () => {
+    const twoPhaseWithGate: TaskConfig = {
+      ...minimalCliConfig,
+      phases: [
+        { ...minimalCliConfig.phases[0], name: "test-author" },
+        { ...minimalCliConfig.phases[0], name: "implementer" },
+      ],
+      gates: [
+        {
+          name: "test",
+          command: "pnpm test",
+          required: false,
+          timeout_seconds: 30,
+          on_fail: "skip",
+        },
+      ],
+    };
+
+    const taskId = createTask(db, twoPhaseWithGate);
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        gateRunner: makeFakeGateRunner("passed"),
+      },
+    });
+
+    const types = getEventTypes(db);
+    const runnerEvents = types.slice(1);
+
+    // Expected order: phase.completed (test-author) → gate events → phase.started (implementer)
+    const firstPhaseCompleted = runnerEvents.indexOf("phase.completed");
+    const firstGateStarted = runnerEvents.indexOf("gate.started");
+    const secondPhaseStarted = runnerEvents.lastIndexOf("phase.started");
+
+    expect(firstPhaseCompleted).toBeLessThan(firstGateStarted);
+    expect(firstGateStarted).toBeLessThan(secondPhaseStarted);
+  });
+
+  // --------------------------------------------------------------------------
+  // skip_gates per phase
+  // --------------------------------------------------------------------------
+
+  it("skips gates listed in phase.skip_gates", async () => {
+    const configWithSkip: TaskConfig = {
+      ...minimalCliConfig,
+      phases: [
+        {
+          ...minimalCliConfig.phases[0],
+          name: "test-author",
+          skip_gates: ["test"],
+        },
+      ],
+      gates: [
+        {
+          name: "test",
+          command: "pnpm test",
+          required: true,
+          timeout_seconds: 30,
+          on_fail: "fail_task",
+        },
+      ],
+    };
+
+    let gateRunnerCalled = false;
+    const trackingGateRunner = async () => {
+      gateRunnerCalled = true;
+      return { status: "passed" as const, failures: [], duration_ms: 50 };
+    };
+
+    const taskId = createTask(db, configWithSkip);
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        gateRunner: trackingGateRunner as PhaseRunnerDeps["gateRunner"],
+      },
+    });
+
+    expect(gateRunnerCalled).toBe(false);
+
+    const types = getEventTypes(db);
+    expect(types).not.toContain("gate.started");
+
+    // Task should still complete successfully
+    const completedRow = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'attempt.completed'")
+      .get() as { payload_json: string } | undefined;
+    const payload = JSON.parse(completedRow!.payload_json) as { outcome: string };
+    expect(payload.outcome).toBe("approved");
+  });
+
+  it("runs non-skipped gates even when some are skipped", async () => {
+    const configWithPartialSkip: TaskConfig = {
+      ...minimalCliConfig,
+      phases: [
+        {
+          ...minimalCliConfig.phases[0],
+          name: "test-author",
+          skip_gates: ["test"],
+        },
+      ],
+      gates: [
+        {
+          name: "test",
+          command: "pnpm test",
+          required: true,
+          timeout_seconds: 30,
+          on_fail: "fail_task",
+        },
+        {
+          name: "lint",
+          command: "pnpm lint",
+          required: false,
+          timeout_seconds: 30,
+          on_fail: "skip",
+        },
+      ],
+    };
+
+    const gatesRun: string[] = [];
+    const trackingGateRunner = async (
+      _db: Database.Database,
+      gate: { name: string },
+    ) => {
+      gatesRun.push(gate.name);
+      return { status: "passed" as const, failures: [], duration_ms: 50 };
+    };
+
+    const taskId = createTask(db, configWithPartialSkip);
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        gateRunner: trackingGateRunner as PhaseRunnerDeps["gateRunner"],
+      },
+    });
+
+    // "test" should be skipped, "lint" should run
+    expect(gatesRun).toEqual(["lint"]);
+  });
+
+  // --------------------------------------------------------------------------
+  // no_changes outcome
+  // --------------------------------------------------------------------------
+
+  it("skips auditor and returns no_changes when no phase produces a diff", async () => {
+    const taskId = createTask(db, auditorConfig);
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: noDiffCapturer,
+      },
+    });
+
+    // Auditor should not have run
+    const judgedRow = db
+      .prepare("SELECT COUNT(*) as n FROM events WHERE type = 'auditor.judged'")
+      .get() as { n: number };
+    expect(judgedRow.n).toBe(0);
+
+    // Only one phase.started (implementer) — auditor was skipped
+    const phaseStartedRows = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'phase.started'")
+      .all() as { payload_json: string }[];
+    const phaseNames = phaseStartedRows.map(
+      (r) => (JSON.parse(r.payload_json) as { phase_name: string }).phase_name,
+    );
+    expect(phaseNames).toEqual(["implementer"]);
+
+    // attempt.completed with no_changes
+    const completedRow = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'attempt.completed'")
+      .get() as { payload_json: string } | undefined;
+    const payload = JSON.parse(completedRow!.payload_json) as { outcome: string };
+    expect(payload.outcome).toBe("no_changes");
+
+    // Task moves to awaiting_review — user decides what to do
+    const taskRow = db
+      .prepare("SELECT status FROM proj_task_list WHERE task_id = ?")
+      .get(taskId) as { status: string } | undefined;
+    expect(taskRow?.status).toBe("awaiting_review");
+  });
+
+  // --------------------------------------------------------------------------
+  // Per-attempt commit lifecycle
+  // --------------------------------------------------------------------------
+
+  it("emits attempt.committed with correct commit_sha after a successful attempt", async () => {
+    const taskId = createTask(db);
+    const fakeCommitter = async (_wp: string, _msg: string) => ({
+      sha: "abc123def456",
+      empty: false,
+    });
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: hasDiffCapturer,
+        committer: fakeCommitter,
+      },
+    });
+
+    const committedRow = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'attempt.committed'")
+      .get() as { payload_json: string } | undefined;
+    expect(committedRow).toBeDefined();
+    const payload = JSON.parse(committedRow!.payload_json) as {
+      attempt_id: string;
+      commit_sha: string;
+      empty: boolean;
+    };
+    expect(payload.commit_sha).toBe("abc123def456");
+    expect(payload.empty).toBe(false);
+  });
+
+  it("emits attempt.committed with empty: true when no file changes were produced", async () => {
+    const taskId = createTask(db, auditorConfig);
+    const fakeCommitter = async (_wp: string, _msg: string) => ({
+      sha: "empty0000000",
+      empty: true,
+    });
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: noDiffCapturer,
+        committer: fakeCommitter,
+      },
+    });
+
+    const committedRow = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'attempt.committed'")
+      .get() as { payload_json: string } | undefined;
+    expect(committedRow).toBeDefined();
+    const payload = JSON.parse(committedRow!.payload_json) as {
+      attempt_id: string;
+      commit_sha: string;
+      empty: boolean;
+    };
+    expect(payload.commit_sha).toBe("empty0000000");
+    expect(payload.empty).toBe(true);
+  });
+
+  it("commit message follows the required format with outcome, config hash, cost, and duration", async () => {
+    const taskId = createTask(db);
+    let capturedMessage = "";
+    const fakeCommitter = async (_wp: string, msg: string) => {
+      capturedMessage = msg;
+      return { sha: "aaa111bbb222", empty: false };
+    };
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: hasDiffCapturer,
+        committer: fakeCommitter,
+      },
+    });
+
+    // First line: Attempt <N> of <task_id> — <outcome>
+    const lines = capturedMessage.split("\n");
+    expect(lines[0]).toMatch(/^Attempt 1 of .+ — approved$/);
+    // Body contains config hash, cost, duration
+    expect(capturedMessage).toMatch(/config: [0-9a-f]{12}/);
+    expect(capturedMessage).toMatch(/cost: \$[\d.]+/);
+    expect(capturedMessage).toMatch(/duration: \d+ms/);
+  });
+
+  // --------------------------------------------------------------------------
+  // Anchored diff capture
+  // --------------------------------------------------------------------------
+
+  it("attempt 1 diff uses base_sha from worktree creation as the diff base", async () => {
+    const taskId = createTask(db);
+    const fakeBaseSha = "a".repeat(40);
+
+    // Pre-emit task.worktree_created with base_sha so the projection has it
+    appendAndProject(db, {
+      type: "task.worktree_created",
+      aggregate_type: "task",
+      aggregate_id: taskId,
+      actor: testActor,
+      payload: {
+        task_id: taskId,
+        path: `/tmp/fake-wt/${taskId}`,
+        branch: `wt/${taskId}`,
+        base_ref: "main",
+        base_sha: fakeBaseSha,
+      },
+    });
+
+    // Track what base_sha the diff capturer receives
+    let capturedBaseSha = "";
+    const trackingDiffCapturer = async (_wp: string, baseSha: string) => {
+      capturedBaseSha = baseSha;
+      return "diff --git a/foo.ts b/foo.ts\n-old\n+new\n";
+    };
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        // worktree already exists (from the event above), so worktreeCreator won't be called
+        diffCapturer: trackingDiffCapturer,
+        committer: async () => ({ sha: "commit1sha12", empty: false }),
+      },
+    });
+
+    expect(capturedBaseSha).toBe(fakeBaseSha);
+  });
+
+  it("attempt 2 diff uses attempt 1's commit_sha as the diff base", async () => {
+    const taskId = createTask(db);
+    const fakeBaseSha = "b".repeat(40);
+    const attempt1CommitSha = "c".repeat(12);
+
+    // Pre-emit task.worktree_created
+    appendAndProject(db, {
+      type: "task.worktree_created",
+      aggregate_type: "task",
+      aggregate_id: taskId,
+      actor: testActor,
+      payload: {
+        task_id: taskId,
+        path: `/tmp/fake-wt/${taskId}`,
+        branch: `wt/${taskId}`,
+        base_ref: "main",
+        base_sha: fakeBaseSha,
+      },
+    });
+
+    // Run attempt 1
+    const attempt1Id = "A-attempt1-test";
+    await runAttempt(db, taskId, {
+      attempt_id: attempt1Id,
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: async () => "diff output",
+        committer: async () => ({ sha: attempt1CommitSha, empty: false }),
+      },
+    });
+
+    // Reset task status back to queued so attempt 2 can run
+    appendAndProject(db, {
+      type: "task.status_changed",
+      aggregate_type: "task",
+      aggregate_id: taskId,
+      actor: testActor,
+      payload: { task_id: taskId, from: "awaiting_review", to: "queued" },
+    });
+
+    // Track what base_sha attempt 2's diff capturer receives
+    let capturedBaseSha = "";
+    const trackingDiffCapturer = async (_wp: string, baseSha: string) => {
+      capturedBaseSha = baseSha;
+      return "diff --git a/bar.ts b/bar.ts\n-old\n+new\n";
+    };
+
+    await runAttempt(db, taskId, {
+      previous_attempt_id: attempt1Id,
+      triggered_by: "retry",
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: trackingDiffCapturer,
+        committer: async () => ({ sha: "commit2sha12", empty: false }),
+      },
+    });
+
+    expect(capturedBaseSha).toBe(attempt1CommitSha);
+  });
+
+  it("emits phase.diff_snapshotted with correct diff_hash and base_sha after diff capture", async () => {
+    const taskId = createTask(db);
+    const fakeBaseSha = "d".repeat(40);
+
+    // Pre-emit task.worktree_created
+    appendAndProject(db, {
+      type: "task.worktree_created",
+      aggregate_type: "task",
+      aggregate_id: taskId,
+      actor: testActor,
+      payload: {
+        task_id: taskId,
+        path: `/tmp/fake-wt/${taskId}`,
+        branch: `wt/${taskId}`,
+        base_ref: "main",
+        base_sha: fakeBaseSha,
+      },
+    });
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: async () => "diff --git a/foo.ts b/foo.ts\n-old\n+new\n",
+        committer: async () => ({ sha: "snap1234sha0", empty: false }),
+      },
+    });
+
+    const snapshotRows = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'phase.diff_snapshotted'")
+      .all() as { payload_json: string }[];
+
+    expect(snapshotRows).toHaveLength(1);
+    const payload = JSON.parse(snapshotRows[0].payload_json) as {
+      attempt_id: string;
+      phase_name: string;
+      diff_hash: string;
+      base_sha: string;
+    };
+    expect(payload.phase_name).toBe("implementer");
+    expect(payload.base_sha).toBe(fakeBaseSha);
+    expect(payload.diff_hash).toBeTruthy();
+
+    // diff_hash on phase.completed should match
+    const completedRow = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'phase.completed'")
+      .get() as { payload_json: string };
+    const completedPayload = JSON.parse(completedRow.payload_json) as {
+      diff_hash?: string;
+    };
+    expect(completedPayload.diff_hash).toBe(payload.diff_hash);
+  });
+
+  it("does not commit during the phase loop — only after all phases complete", async () => {
+    const taskId = createTask(db);
+    const commitCalls: number[] = [];
+    const fakeCommitter = async (_wp: string, _msg: string) => {
+      commitCalls.push(Date.now());
+      return { sha: "bbb222ccc333", empty: false };
+    };
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: hasDiffCapturer,
+        committer: fakeCommitter,
+      },
+    });
+
+    // Exactly one commit call (per-attempt, not per-phase)
+    expect(commitCalls).toHaveLength(1);
+
+    // attempt.committed appears after attempt.completed in event sequence
+    // (actually it appears before attempt.completed since commit happens in step 3b)
+    const types = getEventTypes(db);
+    const committedIdx = types.indexOf("attempt.committed");
+    const completedIdx = types.indexOf("attempt.completed");
+    expect(committedIdx).toBeGreaterThan(-1);
+    expect(completedIdx).toBeGreaterThan(-1);
+    // Committed before completed (commit is step 3b, completed is step 4)
+    expect(committedIdx).toBeLessThan(completedIdx);
   });
 });

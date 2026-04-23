@@ -15,8 +15,7 @@ import {
   type ProbeScheduler,
 } from "./providers/probeScheduler.js";
 import { loadGateRegistry } from "./gates/registry.js";
-import { seedIngestPromptVersion } from "./ingest.js";
-import { seedAuditorPromptVersion } from "./auditor.js";
+import { seedPrompts } from "./seedPrompts.js";
 import { seedBuiltinPresets } from "./presets.js";
 import { createPresetCommandRoutes } from "./routes/presetCommands.js";
 import { createPromptCommandRoutes } from "./routes/promptCommands.js";
@@ -24,6 +23,8 @@ import { createMeasurementRoutes } from "./routes/measurement.js";
 import { createSettingsRoutes } from "./routes/settings.js";
 import { createRepoRoutes } from "./routes/repo.js";
 import { createWorktreeRoutes } from "./routes/worktrees.js";
+import { addStaticMiddleware } from "./staticFiles.js";
+import { recoverWorktrees } from "./crashRecovery.js";
 
 const app = new Hono();
 
@@ -35,17 +36,17 @@ const db = getDb();
 runMigrations(db);
 initProjections(db);
 
+// Discard uncommitted worktree changes left by interrupted attempts
+await recoverWorktrees(db);
+
 // Load gate definitions from config.yaml
 loadGateRegistry();
 
 // Seed provider.configured events for all known providers (idempotent)
 await configureProviders(db);
 
-// Seed the ingest prompt version (idempotent — checks event log first)
-seedIngestPromptVersion(db);
-
-// Seed the auditor prompt version (idempotent — checks event log first)
-seedAuditorPromptVersion(db);
+// Seed all bundled prompts (idempotent — checks event log first)
+seedPrompts(db);
 
 // Seed 4 built-in presets (idempotent — checks event log first)
 seedBuiltinPresets(db);
@@ -65,5 +66,8 @@ app.route("/", createMeasurementRoutes(db));
 app.route("/", createSettingsRoutes(db));
 app.route("/", createRepoRoutes(db));
 app.route("/", createWorktreeRoutes(db));
+
+// Serve pre-built frontend (after API routes so they take precedence)
+addStaticMiddleware(app);
 
 export { app, probeScheduler };

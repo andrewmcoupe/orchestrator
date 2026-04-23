@@ -168,12 +168,13 @@ const errorCategorySchema = z.enum([
 
 const prdIngestedSchema = z.object({
   prd_id: z.string(),
-  path: z.string(),
+  path: z.string().nullable(),
   size_bytes: z.number(),
   lines: z.number(),
   extractor_model: z.string(),
   extractor_prompt_version_id: z.string(),
   content_hash: z.string(),
+  content: z.string(),
 });
 
 const propositionExtractedSchema = z.object({
@@ -269,11 +270,28 @@ const taskWorktreeCreatedSchema = z.object({
   path: z.string(),
   branch: z.string(),
   base_ref: z.string(),
+  base_sha: z.string(),
 });
 
 const taskWorktreeDeletedSchema = z.object({
   task_id: z.string(),
   path: z.string(),
+});
+
+const taskDependencySetSchema = z.object({
+  task_id: z.string(),
+  depends_on: z.array(z.string()),
+});
+
+const taskUnblockedSchema = z.object({
+  task_id: z.string(),
+});
+
+const taskDependencyWarningSchema = z.object({
+  task_id: z.string(),
+  dependency_id: z.string(),
+  dependency_status: z.string(),
+  message: z.string(),
 });
 
 const attemptStartedSchema = z.object({
@@ -308,6 +326,7 @@ const attemptCompletedSchema = z.object({
     "revised",
     "escalated",
     "failed",
+    "no_changes",
   ]),
   tokens_in_total: z.number(),
   tokens_out_total: z.number(),
@@ -331,6 +350,12 @@ const attemptRetryRequestedSchema = z.object({
   with_feedback: z.boolean(),
   new_attempt_id: z.string(),
   strategy: retryStrategySchema,
+});
+
+const attemptCommittedSchema = z.object({
+  attempt_id: z.string(),
+  commit_sha: z.string(),
+  empty: z.boolean(),
 });
 
 const phaseStartedSchema = z.object({
@@ -360,6 +385,13 @@ const phaseCompletedSchema = z.object({
   cost_usd: z.number(),
   duration_ms: z.number(),
   diff_hash: z.string().optional(),
+});
+
+const phaseDiffSnapshottedSchema = z.object({
+  attempt_id: z.string(),
+  phase_name: z.string(),
+  diff_hash: z.string(),
+  base_sha: z.string(),
 });
 
 const phaseFailedSchema = z.object({
@@ -709,6 +741,9 @@ export const eventPayloadSchemas: Record<EventType, z.ZodTypeAny> = {
   "task.archived": taskArchivedSchema,
   "task.worktree_created": taskWorktreeCreatedSchema,
   "task.worktree_deleted": taskWorktreeDeletedSchema,
+  "task.dependency.set": taskDependencySetSchema,
+  "task.unblocked": taskUnblockedSchema,
+  "task.dependency.warning": taskDependencyWarningSchema,
   "attempt.started": attemptStartedSchema,
   "attempt.paused": attemptPausedSchema,
   "attempt.resumed": attemptResumedSchema,
@@ -717,10 +752,12 @@ export const eventPayloadSchemas: Record<EventType, z.ZodTypeAny> = {
   "attempt.approved": attemptApprovedSchema,
   "attempt.rejected": attemptRejectedSchema,
   "attempt.retry_requested": attemptRetryRequestedSchema,
+  "attempt.committed": attemptCommittedSchema,
   "phase.started": phaseStartedSchema,
   "phase.context_packed": phaseContextPackedSchema,
   "phase.completed": phaseCompletedSchema,
   "phase.failed": phaseFailedSchema,
+  "phase.diff_snapshotted": phaseDiffSnapshottedSchema,
   "invocation.started": invocationStartedSchema,
   "invocation.assistant_message": invocationAssistantMessageSchema,
   "invocation.tool_called": invocationToolCalledSchema,

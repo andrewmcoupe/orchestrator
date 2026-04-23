@@ -37,6 +37,7 @@ import type {
   RetryStrategy,
   MergeStrategy,
 } from "@shared/events.js";
+import { canAddDependency, topoSort } from "@shared/dependency.js";
 
 const DEFAULT_ACTOR: Actor = { kind: "user", user_id: "local" };
 
@@ -85,8 +86,13 @@ const rejectBody = z.object({
   rationale: z.string().optional(),
 });
 
-const prdIngestBody = z.object({
-  path: z.string().min(1),
+const prdIngestBody = z.union([
+  z.object({ path: z.string().min(1), content: z.undefined() }),
+  z.object({ content: z.string().min(1), path: z.undefined() }),
+]);
+
+const setDependenciesBody = z.object({
+  depends_on: z.array(z.string()),
 });
 
 const pushbackResolveBody = z.object({
@@ -132,6 +138,7 @@ type TaskListRow = {
   status: TaskStatus;
   current_attempt_id: string | null;
   attempt_count: number;
+  blocked: number;
 };
 
 type TaskDetailRow = {
@@ -268,6 +275,13 @@ export function createCommandRoutes(db: Database.Database) {
     if (!VALID_TRANSITIONS.start.includes(task.status)) {
       return conflict(
         `Cannot start task in status '${task.status}'. Allowed: ${VALID_TRANSITIONS.start.join(", ")}`,
+      );
+    }
+
+    // Blocked tasks cannot be started — dependencies must be merged first
+    if (task.blocked) {
+      return conflict(
+        `Task '${taskId}' is blocked by unmet dependencies`,
       );
     }
 
@@ -942,7 +956,7 @@ export function createCommandRoutes(db: Database.Database) {
     if (!parsed.success) return badRequest(parsed.error);
 
     try {
-      const result = await ingestPrd(db, parsed.data.path);
+      const result = await ingestPrd(db, parsed.data);
       return c.json(result);
     } catch (err) {
       const error = err as Error;
@@ -1009,6 +1023,65 @@ export function createCommandRoutes(db: Database.Database) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ type: "merge_error", status: 500, detail: message }, 500);
     }
+  });
+
+  // --------------------------------------------------------------------------
+  // POST /api/commands/task/:id/dependencies
+  //
+  // Sets the dependency list for a task. Only allowed on draft/queued/blocked
+  // tasks (before execution begins). Validates no cycles would be created.
+  // --------------------------------------------------------------------------
+  app.post("/api/commands/task/:id/dependencies", async (c) => {
+    const taskId = c.req.param("id");
+    const parsed = setDependenciesBody.safeParse(await c.req.json());
+    if (!parsed.success) return badRequest(parsed.error);
+
+    const task = getTaskFromList(db, taskId);
+    if (!task) return notFound(taskId);
+
+    if (!canAddDependency(task.status as TaskStatus)) {
+      return conflict(
+        `Cannot modify dependencies on task in status '${task.status}'. Only draft, queued, or blocked tasks can have dependencies edited.`,
+      );
+    }
+
+    const { depends_on } = parsed.data;
+
+    // Cycle detection: build the full dependency graph from all tasks,
+    // apply the proposed change, and check for cycles
+    if (depends_on.length > 0) {
+      const allRows = db
+        .prepare("SELECT task_id, depends_on_json FROM proj_task_list")
+        .all() as Array<{ task_id: string; depends_on_json: string }>;
+
+      const tasks = allRows.map((r) => ({
+        id: r.task_id,
+        depends_on:
+          r.task_id === taskId
+            ? depends_on
+            : (JSON.parse(r.depends_on_json) as string[]),
+      }));
+
+      const result = topoSort(tasks);
+      if (result.stripped.length > 0) {
+        return conflict(
+          `Adding these dependencies would create a cycle. Edges that would cycle: ${result.stripped.map((e) => `${e.from} → ${e.to}`).join(", ")}`,
+        );
+      }
+    }
+
+    const event = appendAndProject(db, {
+      type: "task.dependency.set",
+      aggregate_type: "task",
+      aggregate_id: taskId,
+      actor: DEFAULT_ACTOR,
+      payload: {
+        task_id: taskId,
+        depends_on,
+      },
+    });
+
+    return c.json(event);
   });
 
   // --------------------------------------------------------------------------

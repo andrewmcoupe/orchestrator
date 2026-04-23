@@ -25,7 +25,6 @@ import {
   ThumbsUp,
   ThumbsDown,
   GitMerge,
-  FolderOpen,
   Undo2,
 } from "lucide-react";
 import type { AttemptRow, AuditSummary, GateRunSummary, PhaseRunSummary } from "@shared/projections.js";
@@ -437,6 +436,10 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
   // Per-file parsed diffs, split from the full worktree diff
   const [fileDiffs, setFileDiffs] = useState<Record<string, DiffLine[]>>({});
   const [diffLoading, setDiffLoading] = useState(false);
+  // Empty-attempt fallback: the attempt number whose diff we're actually showing
+  const [effectiveAttemptNumber, setEffectiveAttemptNumber] = useState<number | null>(null);
+  // null = not determined yet, "none" = no prior non-empty attempt exists
+  const [emptyBannerState, setEmptyBannerState] = useState<"none" | "fallback" | null>(null);
 
   // Current HEAD branch — polled every 3s when task is in 'approved' state
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
@@ -488,24 +491,60 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
         });
       }
 
-      // Find diff_hash from the last phase.completed in the attempt
-      const phaseEntries = Object.values(attempt.phases) as Array<{ diff_hash?: string }>;
-      const diffHash = phaseEntries.reduce<string | undefined>(
-        (acc, p) => p.diff_hash ?? acc,
-        undefined,
-      );
+      // Determine which attempt's diff to show
+      const effectiveId = attempt.effective_diff_attempt_id;
+      const isEmptyAttempt = attempt.empty === true;
 
-      if (diffHash && !cancelled) {
-        setDiffLoading(true);
+      if (isEmptyAttempt && !effectiveId) {
+        // No prior non-empty attempt exists
+        if (!cancelled) setEmptyBannerState("none");
+      } else if (isEmptyAttempt && effectiveId && effectiveId !== attemptId) {
+        // Fetch the effective attempt to get its diff
+        if (!cancelled) setDiffLoading(true);
         try {
-          const diffRes = await fetch(`/api/blobs/${diffHash}`);
-          if (diffRes.ok) {
-            const raw = await diffRes.text();
-            const perFile = splitDiffByFile(raw);
-            if (!cancelled) setFileDiffs(perFile);
+          const effRes = await fetch(`/api/projections/attempt/${effectiveId}`);
+          if (effRes.ok && !cancelled) {
+            const effAttempt: AttemptRow = await effRes.json();
+            setEmptyBannerState("fallback");
+            setEffectiveAttemptNumber(effAttempt.attempt_number);
+
+            const effPhases = Object.values(effAttempt.phases) as Array<{ diff_hash?: string }>;
+            const effDiffHash = effPhases.reduce<string | undefined>(
+              (acc, p) => p.diff_hash ?? acc,
+              undefined,
+            );
+            if (effDiffHash && !cancelled) {
+              const diffRes = await fetch(`/api/blobs/${effDiffHash}`);
+              if (diffRes.ok) {
+                const raw = await diffRes.text();
+                const perFile = splitDiffByFile(raw);
+                if (!cancelled) setFileDiffs(perFile);
+              }
+            }
           }
         } finally {
           if (!cancelled) setDiffLoading(false);
+        }
+      } else {
+        // Non-empty attempt — load diff normally
+        const phaseEntries = Object.values(attempt.phases) as Array<{ diff_hash?: string }>;
+        const diffHash = phaseEntries.reduce<string | undefined>(
+          (acc, p) => p.diff_hash ?? acc,
+          undefined,
+        );
+
+        if (diffHash && !cancelled) {
+          setDiffLoading(true);
+          try {
+            const diffRes = await fetch(`/api/blobs/${diffHash}`);
+            if (diffRes.ok) {
+              const raw = await diffRes.text();
+              const perFile = splitDiffByFile(raw);
+              if (!cancelled) setFileDiffs(perFile);
+            }
+          } finally {
+            if (!cancelled) setDiffLoading(false);
+          }
         }
       }
     }
@@ -601,9 +640,7 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
     setShowMergeDialog(true);
   }, []);
 
-  const handleOpenEditor = useCallback(() => {
-    fetch(`/api/worktree/${taskId}/open`).catch(() => {});
-  }, [taskId]);
+
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -730,6 +767,24 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
         {/* ── Gates strip ───────────────────────────────────────────────── */}
         <GatesStrip gates={attempt.gate_runs} />
 
+        {/* ── Empty-attempt banner ────────────────────────────────────────── */}
+        {emptyBannerState === "fallback" && effectiveAttemptNumber != null && (
+          <div
+            data-testid="empty-attempt-banner"
+            className="border border-status-warning/25 bg-status-warning/5 px-4 py-2.5 text-sm text-status-warning"
+          >
+            This attempt made no changes. Showing diff from attempt #{effectiveAttemptNumber}.
+          </div>
+        )}
+        {emptyBannerState === "none" && (
+          <div
+            data-testid="empty-attempt-banner"
+            className="border border-border-muted bg-bg-secondary px-4 py-2.5 text-sm text-text-secondary"
+          >
+            No attempts have produced changes yet.
+          </div>
+        )}
+
         {/* ── File tabs + diff viewer ────────────────────────────────────── */}
         {fileTabs.length > 0 && (
           <div className="flex flex-col gap-2">
@@ -784,7 +839,6 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
           approvedAt={approvedAt}
           onMerge={handleMerge}
           onUnapprove={handleUnapprove}
-          onOpenEditor={handleOpenEditor}
         />
       ) : taskStatus === "merged" ? (
         <MergedFooter
@@ -799,7 +853,6 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
           onApprove={handleApprove}
           onReject={handleReject}
           onRetryWithFeedback={handleRetryWithFeedback}
-          onOpenEditor={handleOpenEditor}
         />
       )}
     </div>
@@ -865,14 +918,12 @@ function AwaitingReviewFooter({
   onApprove,
   onReject,
   onRetryWithFeedback,
-  onOpenEditor,
 }: {
   verdict?: AuditSummary["verdict"];
   verdictConfig: (typeof VERDICT_CONFIG)[keyof typeof VERDICT_CONFIG] | null;
   onApprove: () => void;
   onReject: () => void;
   onRetryWithFeedback: () => void;
-  onOpenEditor: () => void;
 }) {
   // Accent the recommended action based on the verdict
   const approveAccent =
@@ -904,24 +955,16 @@ function AwaitingReviewFooter({
         Reject task
       </button>
 
-      <button
-        type="button"
-        data-testid="manual-edit-btn"
-        onClick={onOpenEditor}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors bg-bg-secondary text-text-secondary border border-border-muted hover:text-text-primary"
-      >
-        <FolderOpen size={14} />
-        Manual edit
-      </button>
-
-      <button
-        type="button"
-        onClick={onRetryWithFeedback}
-        className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${retryAccent}`}
-      >
-        <RefreshCcw size={14} />
-        Retry with feedback
-      </button>
+{verdict && verdict !== "approve" && (
+        <button
+          type="button"
+          onClick={onRetryWithFeedback}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${retryAccent}`}
+        >
+          <RefreshCcw size={14} />
+          Retry with feedback
+        </button>
+      )}
 
       <button
         type="button"
@@ -945,14 +988,12 @@ function ApprovedFooter({
   approvedAt,
   onMerge,
   onUnapprove,
-  onOpenEditor,
 }: {
   taskId: string;
   currentBranch: string | null;
   approvedAt?: string;
   onMerge: () => void;
   onUnapprove: () => void;
-  onOpenEditor: () => void;
 }) {
   const branchLabel = currentBranch ?? "…";
 
@@ -974,18 +1015,6 @@ function ApprovedFooter({
       </div>
 
       <div className="flex-1" />
-
-      {/* Open in editor */}
-      <button
-        type="button"
-        data-testid="open-in-editor-btn"
-        onClick={onOpenEditor}
-        title={`Open worktree for ${taskId} in editor`}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors bg-bg-secondary text-text-secondary border border-border-muted hover:text-text-primary"
-      >
-        <FolderOpen size={14} />
-        Open in editor
-      </button>
 
       {/* Unapprove (text link) */}
       <button

@@ -10,10 +10,9 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import pino from "pino";
 import { getProviderConfig } from "./registry.js";
+import { getCredentialsPath } from "../paths.js";
 
 const logger = pino({ name: "credentials" });
 
@@ -110,12 +109,7 @@ export function createCredentialStore(envLocalPath: string): CredentialStore {
 // Singleton — loaded once at server boot from the standard path
 // ============================================================================
 
-const defaultEnvLocalPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  ".env.local",
-);
+const defaultEnvLocalPath = getCredentialsPath();
 
 let _singleton: CredentialStore | null = null;
 

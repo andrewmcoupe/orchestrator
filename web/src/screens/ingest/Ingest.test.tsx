@@ -366,6 +366,191 @@ describe("Ingest — accept action", () => {
   });
 });
 
+// ============================================================================
+// Tabs UI — Base UI Tabs with "File Path" (default) and "Paste Content"
+// ============================================================================
+
+describe("Ingest — tabs structure", () => {
+  it("renders Base UI Tabs with 'File Path' as default active tab", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    const filePathTab = screen.getByRole("tab", { name: /file path/i });
+    const pasteTab = screen.getByRole("tab", { name: /paste content/i });
+    expect(filePathTab).toBeTruthy();
+    expect(pasteTab).toBeTruthy();
+    // File Path tab should be selected by default
+    expect(filePathTab.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("File Path tab contains text input for path", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    expect(screen.getByPlaceholderText(/absolute\/path/i)).toBeTruthy();
+  });
+
+  it("Paste Content tab contains textarea for PRD markdown", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    expect(screen.getByPlaceholderText(/paste your prd/i)).toBeTruthy();
+  });
+
+  it("switching tabs preserves input values in both tabs", () => {
+    render(<Ingest onBack={vi.fn()} />);
+
+    // Type in file path (default tab)
+    const pathInput = screen.getByPlaceholderText(/absolute\/path/i);
+    fireEvent.change(pathInput, { target: { value: "/tmp/prd.md" } });
+
+    // Switch to Paste Content tab
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    const textarea = screen.getByPlaceholderText(/paste your prd/i);
+    fireEvent.change(textarea, { target: { value: "# My PRD" } });
+
+    // Switch back to File Path tab — value should be preserved
+    fireEvent.click(screen.getByRole("tab", { name: /file path/i }));
+    expect((screen.getByPlaceholderText(/absolute\/path/i) as HTMLInputElement).value).toBe("/tmp/prd.md");
+
+    // Switch to Paste Content tab — value should be preserved
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    expect((screen.getByPlaceholderText(/paste your prd/i) as HTMLTextAreaElement).value).toBe("# My PRD");
+  });
+
+  it("ingest button is disabled when active tab's field is empty", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    // File Path tab is active, path is empty
+    const btn = screen.getByRole("button", { name: /^ingest$/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+
+    // Switch to Paste Content tab, textarea is empty
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("ingest button is enabled when active tab's field has content", () => {
+    render(<Ingest onBack={vi.fn()} />);
+
+    // File Path tab: fill path → enabled
+    fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), { target: { value: "/tmp/prd.md" } });
+    const btn = screen.getByRole("button", { name: /^ingest$/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+
+    // Switch to Paste Content (empty) → disabled
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+
+    // Fill textarea → enabled
+    fireEvent.change(screen.getByPlaceholderText(/paste your prd/i), { target: { value: "# PRD" } });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("Ingest — File Path tab submission", () => {
+  it("File Path tab submits { path: string }", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Ingest onBack={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
+      target: { value: "/tmp/prd.md" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/commands/prd/ingest",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ path: "/tmp/prd.md" }),
+        }),
+      );
+    });
+
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("Ingest — Paste Content tab submission", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => new Promise(() => {/* never resolves */})),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("Paste Content tab submits { content: string }", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Ingest onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    const textarea = screen.getByPlaceholderText(/paste your prd/i);
+    fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/commands/prd/ingest",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ content: "# My PRD\n\nThe system shall do things." }),
+        }),
+      );
+    });
+  });
+
+  it("shows loading spinner after clicking Ingest with pasted content", async () => {
+    render(<Ingest onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    const textarea = screen.getByPlaceholderText(/paste your prd/i);
+    fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/ingesting/i)).toBeTruthy();
+    });
+  });
+});
+
+describe("Ingest — review state reached via pasted content", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url === "/api/commands/prd/ingest") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockIngestResult),
+          });
+        }
+        if (url.includes("/api/events/recent")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve([]),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shows draft task card after ingesting pasted content", async () => {
+    render(<Ingest onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    const textarea = screen.getByPlaceholderText(/paste your prd/i);
+    fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Implement authentication")).toBeTruthy();
+    });
+  });
+});
+
 describe("Ingest — error handling", () => {
   it("shows error message when ingest fails", async () => {
     vi.stubGlobal(

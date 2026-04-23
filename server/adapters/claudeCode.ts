@@ -176,6 +176,10 @@ async function* execaSpawner(
 
 /**
  * Constructs the CLI args array for `claude`.
+ *
+ * If transport_options includes a `schema`, serialises it as inline JSON
+ * and passes `--json-schema <json>`. Because execa uses spawn (not shell),
+ * the JSON string is passed as a single argv element — no shell-quoting issues.
  */
 export function buildArgs(opts: InvokeOptions): string[] {
   const { transport_options: to } = opts;
@@ -193,6 +197,10 @@ export function buildArgs(opts: InvokeOptions): string[] {
     String(to.max_turns ?? 10),
   ];
 
+  if (to.bare) {
+    args.push("--bare");
+  }
+
   // Only add budget flag when a value is provided
   if (to.max_budget_usd != null) {
     args.push("--max-budget-usd", String(to.max_budget_usd));
@@ -204,6 +212,10 @@ export function buildArgs(opts: InvokeOptions): string[] {
 
   if (to.allowed_tools && to.allowed_tools.length > 0) {
     args.push("--allowedTools", to.allowed_tools.join(","));
+  }
+
+  if (to.schema) {
+    args.push("--json-schema", JSON.stringify(to.schema));
   }
 
   return args;

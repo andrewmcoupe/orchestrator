@@ -145,7 +145,7 @@ export function parseVerdict(text: string): ParsedVerdict {
 
 function loadAuditorTemplate(): string {
   const dir = dirname(fileURLToPath(import.meta.url));
-  return readFileSync(join(dir, "..", "prompts", "auditor-v1.md"), "utf-8");
+  return readFileSync(join(dir, "..", "..", "prompts", "auditor-v1.md"), "utf-8");
 }
 
 /**

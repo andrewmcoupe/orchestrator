@@ -41,6 +41,9 @@ type RawAttemptRow = {
   files_changed_json: string;
   config_snapshot_json: string;
   previous_attempt_id: string | null;
+  commit_sha: string | null;
+  empty: number | null;
+  effective_diff_attempt_id: string | null;
   last_event_id: string;
 };
 
@@ -63,6 +66,9 @@ function rowFromRaw(raw: RawAttemptRow): AttemptRow {
     files_changed: JSON.parse(raw.files_changed_json),
     config_snapshot: JSON.parse(raw.config_snapshot_json),
     previous_attempt_id: raw.previous_attempt_id ?? undefined,
+    commit_sha: raw.commit_sha ?? undefined,
+    empty: raw.empty === 1 ? true : raw.empty === 0 ? false : undefined,
+    effective_diff_attempt_id: raw.effective_diff_attempt_id ?? undefined,
     last_event_id: raw.last_event_id,
   };
 }
@@ -107,6 +113,9 @@ export const attemptProjection: Projection<AttemptRow> = {
       files_changed_json   TEXT NOT NULL DEFAULT '[]',
       config_snapshot_json TEXT NOT NULL DEFAULT '{}',
       previous_attempt_id  TEXT,
+      commit_sha           TEXT,
+      empty                INTEGER,
+      effective_diff_attempt_id TEXT,
       last_event_id        TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_attempt_task
@@ -132,6 +141,30 @@ export const attemptProjection: Projection<AttemptRow> = {
     // Attempts are never deleted — even killed/rejected attempts are kept for history.
     if (!next) return;
 
+    // Resolve effective_diff_attempt_id for empty attempts by walking back
+    // through the previous_attempt_id chain to find the most recent non-empty attempt.
+    let effectiveDiffAttemptId = next.effective_diff_attempt_id ?? null;
+    if (next.empty === true && !effectiveDiffAttemptId) {
+      let walkId = next.previous_attempt_id;
+      while (walkId) {
+        const prev = db
+          .prepare("SELECT empty, effective_diff_attempt_id, previous_attempt_id FROM proj_attempt WHERE attempt_id = ?")
+          .get(walkId) as { empty: number | null; effective_diff_attempt_id: string | null; previous_attempt_id: string | null } | undefined;
+        if (!prev) break;
+        if (prev.empty === 0) {
+          // Previous attempt was non-empty — use its id
+          effectiveDiffAttemptId = walkId;
+          break;
+        }
+        if (prev.effective_diff_attempt_id) {
+          // Previous empty attempt already resolved — reuse its pointer
+          effectiveDiffAttemptId = prev.effective_diff_attempt_id;
+          break;
+        }
+        walkId = prev.previous_attempt_id ?? undefined;
+      }
+    }
+
     db.prepare(
       `INSERT INTO proj_attempt (
         attempt_id, task_id, attempt_number, status, outcome,
@@ -139,8 +172,9 @@ export const attemptProjection: Projection<AttemptRow> = {
         tokens_in_total, tokens_out_total, cost_usd_total,
         phases_json, gate_runs_json, audit_json,
         files_changed_json, config_snapshot_json,
-        previous_attempt_id, last_event_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        previous_attempt_id, commit_sha, empty,
+        effective_diff_attempt_id, last_event_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(attempt_id) DO UPDATE SET
         status               = excluded.status,
         outcome              = excluded.outcome,
@@ -153,6 +187,9 @@ export const attemptProjection: Projection<AttemptRow> = {
         gate_runs_json       = excluded.gate_runs_json,
         audit_json           = excluded.audit_json,
         files_changed_json   = excluded.files_changed_json,
+        commit_sha           = excluded.commit_sha,
+        empty                = excluded.empty,
+        effective_diff_attempt_id = excluded.effective_diff_attempt_id,
         last_event_id        = excluded.last_event_id`,
     ).run(
       next.attempt_id,
@@ -172,6 +209,9 @@ export const attemptProjection: Projection<AttemptRow> = {
       JSON.stringify(next.files_changed),
       JSON.stringify(next.config_snapshot),
       next.previous_attempt_id ?? null,
+      next.commit_sha ?? null,
+      next.empty === true ? 1 : next.empty === false ? 0 : null,
+      effectiveDiffAttemptId,
       next.last_event_id,
     );
   },

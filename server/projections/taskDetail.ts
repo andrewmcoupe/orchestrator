@@ -25,6 +25,7 @@ type RawTaskDetailRow = {
   proposition_ids_json: string;
   worktree_path: string | null;
   worktree_branch: string | null;
+  base_sha: string | null;
   current_attempt_id: string | null;
   merge_commit_sha: string | null;
   merged_into_branch: string | null;
@@ -112,6 +113,7 @@ function rowFromRaw(raw: RawTaskDetailRow): TaskDetailRow {
     proposition_ids: JSON.parse(raw.proposition_ids_json) as string[],
     worktree_path: raw.worktree_path ?? undefined,
     worktree_branch: raw.worktree_branch ?? undefined,
+    base_sha: raw.base_sha ?? undefined,
     current_attempt_id: raw.current_attempt_id ?? undefined,
     merge_commit_sha: raw.merge_commit_sha ?? undefined,
     merged_into_branch: raw.merged_into_branch ?? undefined,
@@ -139,6 +141,7 @@ export const taskDetailProjection: Projection<TaskDetailRow> = {
       proposition_ids_json       TEXT NOT NULL DEFAULT '[]',
       worktree_path              TEXT,
       worktree_branch            TEXT,
+      base_sha                   TEXT,
       current_attempt_id         TEXT,
       merge_commit_sha           TEXT,
       merged_into_branch         TEXT,
@@ -170,10 +173,10 @@ export const taskDetailProjection: Projection<TaskDetailRow> = {
       `INSERT INTO proj_task_detail
          (task_id, prd_id, title, status, config_json, preset_id,
           preset_override_keys_json, proposition_ids_json,
-          worktree_path, worktree_branch, current_attempt_id,
+          worktree_path, worktree_branch, base_sha, current_attempt_id,
           merge_commit_sha, merged_into_branch,
           last_event_id, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(task_id) DO UPDATE SET
          prd_id                    = excluded.prd_id,
          title                     = excluded.title,
@@ -184,6 +187,7 @@ export const taskDetailProjection: Projection<TaskDetailRow> = {
          proposition_ids_json      = excluded.proposition_ids_json,
          worktree_path             = excluded.worktree_path,
          worktree_branch           = excluded.worktree_branch,
+         base_sha                  = excluded.base_sha,
          current_attempt_id        = excluded.current_attempt_id,
          merge_commit_sha          = excluded.merge_commit_sha,
          merged_into_branch        = excluded.merged_into_branch,
@@ -200,6 +204,7 @@ export const taskDetailProjection: Projection<TaskDetailRow> = {
       JSON.stringify(next.proposition_ids),
       next.worktree_path ?? null,
       next.worktree_branch ?? null,
+      next.base_sha ?? null,
       next.current_attempt_id ?? null,
       next.merge_commit_sha ?? null,
       next.merged_into_branch ?? null,

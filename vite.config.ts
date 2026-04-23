@@ -13,6 +13,10 @@ export default defineConfig({
       "@web": path.resolve(__dirname, "web"),
     },
   },
+  build: {
+    outDir: "../dist/web",
+    emptyOutDir: true,
+  },
   server: {
     port: 3000,
     proxy: {

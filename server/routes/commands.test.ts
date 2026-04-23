@@ -240,7 +240,10 @@ describe("POST /api/commands/task/:id/start", () => {
     const res = await post(app, "/api/commands/task/T-001/start");
     expect(res.status).toBe(202);
 
-    const body = await res.json() as { task_id: string; attempt_id: string | undefined };
+    const body = (await res.json()) as {
+      task_id: string;
+      attempt_id: string | undefined;
+    };
     expect(body.task_id).toBe("T-001");
     // attempt_id may be undefined in test environments where runAttempt is not mocked,
     // but the task must have been transitioned to running
@@ -254,6 +257,62 @@ describe("POST /api/commands/task/:id/start", () => {
     const { app } = setup();
     const res = await post(app, "/api/commands/task/NOPE/start");
     expect(res.status).toBe(404);
+  });
+
+  it("returns 409 for a blocked task", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-DEP-BLOCK");
+    seedTask(db, "T-BLOCKED");
+
+    // Set dependency — T-BLOCKED depends on T-DEP-BLOCK
+    appendAndProject(db, {
+      type: "task.dependency.set",
+      aggregate_type: "task",
+      aggregate_id: "T-BLOCKED",
+      actor,
+      payload: { task_id: "T-BLOCKED", depends_on: ["T-DEP-BLOCK"] },
+    });
+
+    const res = await post(app, "/api/commands/task/T-BLOCKED/start");
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.detail).toContain("blocked");
+  });
+
+  it("allows starting a task whose dependencies are all merged", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-DEP-UNBLOCK");
+    seedTask(db, "T-UNBLOCK");
+
+    // Set dependency
+    appendAndProject(db, {
+      type: "task.dependency.set",
+      aggregate_type: "task",
+      aggregate_id: "T-UNBLOCK",
+      actor,
+      payload: { task_id: "T-UNBLOCK", depends_on: ["T-DEP-UNBLOCK"] },
+    });
+
+    // Merge the dependency
+    appendAndProject(db, {
+      type: "task.status_changed",
+      aggregate_type: "task",
+      aggregate_id: "T-DEP-UNBLOCK",
+      actor,
+      payload: { task_id: "T-DEP-UNBLOCK", from: "queued", to: "merged" },
+    });
+
+    // Unblock
+    appendAndProject(db, {
+      type: "task.unblocked",
+      aggregate_type: "task",
+      aggregate_id: "T-UNBLOCK",
+      actor,
+      payload: { task_id: "T-UNBLOCK" },
+    });
+
+    const res = await post(app, "/api/commands/task/T-UNBLOCK/start");
+    expect(res.status).toBe(202);
   });
 
   it("returns 409 for a task in rejected status", async () => {
@@ -421,7 +480,10 @@ describe("POST /api/commands/task/:id/retry", () => {
     });
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { events: AnyEvent[]; new_attempt_id: string };
+    const body = (await res.json()) as {
+      events: AnyEvent[];
+      new_attempt_id: string;
+    };
     // Command returns attempt.retry_requested + task.status_changed (attempt.started is background)
     expect(body.events).toHaveLength(2);
     expect(body.events[0].type).toBe("attempt.retry_requested");
@@ -433,7 +495,8 @@ describe("POST /api/commands/task/:id/retry", () => {
     ).toBe(body.new_attempt_id);
     expect(
       (body.events[0].payload as { previous_attempt_id: string })
-        .previous_attempt_id ?? (body.events[0].payload as { attempt_id: string }).attempt_id,
+        .previous_attempt_id ??
+        (body.events[0].payload as { attempt_id: string }).attempt_id,
     ).toBeDefined();
   });
 });
@@ -552,7 +615,7 @@ describe("POST /api/commands/attempt/:id/approve", () => {
       rationale: "Looks good",
     });
     expect(res.status).toBe(409);
-    const body = await res.json() as { detail: string };
+    const body = (await res.json()) as { detail: string };
     expect(body.detail).toContain("approved");
   });
 
@@ -662,8 +725,12 @@ describe("POST /api/commands/attempt/:id/unapprove", () => {
     const body = (await res.json()) as AnyEvent[];
     expect(body).toHaveLength(1);
     expect(body[0].type).toBe("task.status_changed");
-    expect((body[0].payload as { from: string; to: string }).from).toBe("approved");
-    expect((body[0].payload as { from: string; to: string }).to).toBe("awaiting_review");
+    expect((body[0].payload as { from: string; to: string }).from).toBe(
+      "approved",
+    );
+    expect((body[0].payload as { from: string; to: string }).to).toBe(
+      "awaiting_review",
+    );
 
     // Verify the projection reflects the revert
     const row = db
@@ -679,7 +746,7 @@ describe("POST /api/commands/attempt/:id/unapprove", () => {
 
     const res = await post(app, "/api/commands/attempt/A-001/unapprove");
     expect(res.status).toBe(409);
-    const body = await res.json() as { detail: string };
+    const body = (await res.json()) as { detail: string };
     expect(body.detail).toContain("approved");
   });
 
@@ -802,11 +869,16 @@ describe("POST /api/commands/attempt/:id/retry-with-feedback", () => {
     );
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { events: AnyEvent[]; new_attempt_id: string };
+    const body = (await res.json()) as {
+      events: AnyEvent[];
+      new_attempt_id: string;
+    };
     // Command returns attempt.retry_requested + task.status_changed (attempt.started is background)
     expect(body.events).toHaveLength(2);
     expect(body.events[0].type).toBe("attempt.retry_requested");
-    expect((body.events[0].payload as { with_feedback: boolean }).with_feedback).toBe(true);
+    expect(
+      (body.events[0].payload as { with_feedback: boolean }).with_feedback,
+    ).toBe(true);
     expect(body.events[1].type).toBe("task.status_changed");
     expect((body.events[1].payload as { to: string }).to).toBe("revising");
     expect(body.new_attempt_id).toMatch(/^A-/);
@@ -829,13 +901,46 @@ describe("POST /api/commands/prd/ingest", () => {
     });
     // Real ingestPrd is called; file not found → 500 with error message
     expect(res.status).toBe(500);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBeDefined();
   });
 
   it("returns 400 on empty path", async () => {
     const { app } = setup();
     const res = await post(app, "/api/commands/prd/ingest", { path: "" });
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts { path: string }", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/prd/ingest", {
+      path: "/some/prd.md",
+    });
+    // Validation passes (500 because file doesn't exist, not 400)
+    expect(res.status).not.toBe(400);
+  });
+
+  it("accepts { content: string }", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/prd/ingest", {
+      content: "# My PRD\nSome content here",
+    });
+    // Validation passes (500 from ingestPrd internals, not 400)
+    expect(res.status).not.toBe(400);
+  }, 10000);
+
+  it("rejects payload with both path and content", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/prd/ingest", {
+      path: "/some/prd.md",
+      content: "# My PRD",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects payload with neither path nor content", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/prd/ingest", {});
     expect(res.status).toBe(400);
   });
 });
@@ -903,6 +1008,111 @@ describe("POST /api/commands/pushback/:id/resolve", () => {
     const { app } = setup();
     const res = await post(app, "/api/commands/pushback/PB-001/resolve", {
       resolution: "invalid",
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ============================================================================
+// POST /api/commands/task/:id/dependencies
+// ============================================================================
+
+describe("POST /api/commands/task/:id/dependencies", () => {
+  it("sets dependencies on a draft task and emits task.dependency.set", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-DEP");
+    seedTask(db, "T-TARGET");
+
+    const res = await post(app, "/api/commands/task/T-TARGET/dependencies", {
+      depends_on: ["T-DEP"],
+    });
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as AnyEvent;
+    expect(body.type).toBe("task.dependency.set");
+    expect(body.payload).toMatchObject({
+      task_id: "T-TARGET",
+      depends_on: ["T-DEP"],
+    });
+  });
+
+  it("returns 409 when task is in_progress (running)", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-DEP");
+    seedRunningTask(db, "T-RUNNING", "A-RUN");
+
+    const res = await post(app, "/api/commands/task/T-RUNNING/dependencies", {
+      depends_on: ["T-DEP"],
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { detail: string };
+    expect(body.detail).toContain("running");
+  });
+
+  it("returns 409 when adding a dependency would create a cycle", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-A");
+    seedTask(db, "T-B");
+
+    // T-B depends on T-A
+    appendAndProject(db, {
+      type: "task.dependency.set",
+      aggregate_type: "task",
+      aggregate_id: "T-B",
+      actor,
+      payload: { task_id: "T-B", depends_on: ["T-A"] },
+    });
+
+    // Now try T-A depends on T-B — cycle!
+    const res = await post(app, "/api/commands/task/T-A/dependencies", {
+      depends_on: ["T-B"],
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { detail: string };
+    expect(body.detail).toContain("cycle");
+  });
+
+  it("allows removing dependencies (empty array)", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-DEP");
+    seedTask(db, "T-TARGET");
+
+    // Set dependency first
+    appendAndProject(db, {
+      type: "task.dependency.set",
+      aggregate_type: "task",
+      aggregate_id: "T-TARGET",
+      actor,
+      payload: { task_id: "T-TARGET", depends_on: ["T-DEP"] },
+    });
+
+    // Remove all dependencies
+    const res = await post(app, "/api/commands/task/T-TARGET/dependencies", {
+      depends_on: [],
+    });
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as AnyEvent;
+    expect(body.type).toBe("task.dependency.set");
+    expect(body.payload).toMatchObject({
+      task_id: "T-TARGET",
+      depends_on: [],
+    });
+  });
+
+  it("returns 404 for nonexistent task", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/task/NOPE/dependencies", {
+      depends_on: [],
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 400 for invalid body", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-001");
+    const res = await post(app, "/api/commands/task/T-001/dependencies", {
+      depends_on: "not-an-array",
     });
     expect(res.status).toBe(400);
   });

@@ -1,4 +1,4 @@
-import { Badge } from "@shared/components/ui/badge";
+import { Badge } from "@web/src/components/ui/badge";
 
 type ProviderStatus = "healthy" | "degraded" | "down" | "unknown";
 

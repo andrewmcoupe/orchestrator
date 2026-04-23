@@ -28,6 +28,7 @@
  * map). Different tasks run in parallel independently.
  */
 
+import { createHash } from "node:crypto";
 import { execa } from "execa";
 import { ulid } from "ulid";
 import type Database from "better-sqlite3";
@@ -51,11 +52,9 @@ import {
 } from "./auditor.js";
 import { evaluate as evaluateRetryPolicy } from "./retryPolicy.js";
 import { handleAutoMerge } from "./autoMerge.js";
-import path from "node:path";
+import { getBlobsDir } from "./paths.js";
 
-const defaultBlobStore = createBlobStore(
-  path.resolve(import.meta.dirname, "..", ".data", "blobs"),
-);
+const defaultBlobStore = createBlobStore(getBlobsDir());
 import type {
   TaskConfig,
   GateConfig,
@@ -63,6 +62,7 @@ import type {
   InvocationCompleted,
   InvocationErrored,
   InvocationAssistantMessage,
+  InvocationToolCalled,
   TaskStatus,
   ContextManifest,
   AuditConcern,
@@ -95,6 +95,10 @@ export type PhaseRunnerDeps = {
     attempt_id: string,
     worktree_path: string,
   ) => Promise<GateRunResult>;
+  /** Override diff capture for testing — returns the diff string (empty = no changes). */
+  diffCapturer?: (worktree_path: string, base_sha: string) => Promise<string>;
+  /** Override git commit for testing — returns { sha, empty }. */
+  committer?: (worktree_path: string, message: string) => Promise<{ sha: string; empty: boolean }>;
 };
 
 // ============================================================================
@@ -188,6 +192,7 @@ type TaskDetailDbRow = {
   status: string;
   config_json: string;
   worktree_path: string | null;
+  base_sha: string | null;
   proposition_ids_json: string;
   preset_id: string | null;
   preset_override_keys_json: string;
@@ -295,6 +300,34 @@ export async function runAttempt(
   const doApiInvoke: AdapterInvokeFn =
     deps?.apiInvoker ??
     ((opts, _blobStore) => apiInvoke(opts as ApiInvokeOptions));
+  const doDiffCapture = deps?.diffCapturer ?? (async (wp: string, baseSha: string) => {
+    const { stdout } = await execa(
+      "git", ["diff", baseSha, "--", ".", ":!node_modules"],
+      { cwd: wp, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return stdout;
+  });
+  const doCommit = deps?.committer ?? (async (wp: string, message: string) => {
+    await execa("git", ["add", "-A", "--", ".", ":!node_modules"], {
+      cwd: wp,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const { stdout: statusOut } = await execa(
+      "git", ["status", "--porcelain"],
+      { cwd: wp, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const empty = !statusOut.trim();
+    const commitArgs = ["commit", "-m", message, "--no-gpg-sign"];
+    if (empty) commitArgs.push("--allow-empty");
+    const { stdout: commitOut } = await execa("git", commitArgs, {
+      cwd: wp,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    // Extract SHA from commit output (first line: "[branch sha] message")
+    const shaMatch = commitOut.match(/\[[\w/.-]+ ([0-9a-f]+)\]/);
+    const sha = shaMatch?.[1] ?? "";
+    return { sha, empty };
+  });
 
   try {
     // -----------------------------------------------------------------------
@@ -358,13 +391,39 @@ export async function runAttempt(
     };
 
     // -----------------------------------------------------------------------
+    // 2b. Resolve diff base SHA
+    // -----------------------------------------------------------------------
+    // Attempt 1: base_sha from task.worktree_created (the commit the worktree branched from)
+    // Attempt 2+: commit_sha from the previous attempt's attempt.committed event
+    let diffBaseSha = "HEAD"; // fallback
+    if (options?.previous_attempt_id) {
+      // Look up previous attempt's commit SHA from events
+      const prevCommitRow = db
+        .prepare(
+          "SELECT payload_json FROM events WHERE type = 'attempt.committed' AND aggregate_id = ? LIMIT 1",
+        )
+        .get(options.previous_attempt_id) as { payload_json: string } | undefined;
+      if (prevCommitRow) {
+        const prevPayload = JSON.parse(prevCommitRow.payload_json) as { commit_sha: string };
+        diffBaseSha = prevPayload.commit_sha;
+      }
+    } else {
+      // Re-read base_sha from the task detail projection (may have been set by worktree creation above)
+      const freshDetail = getTaskDetailRow(db, task_id);
+      if (freshDetail?.base_sha) {
+        diffBaseSha = freshDetail.base_sha;
+      }
+    }
+
+    // -----------------------------------------------------------------------
     // 3. Phase loop
     // -----------------------------------------------------------------------
     let totalTokensIn = 0;
     let totalTokensOut = 0;
     let totalCostUsd = 0;
-    let finalOutcome: "approved" | "rejected" | "revised" | "escalated" | "failed" =
+    let finalOutcome: "approved" | "rejected" | "revised" | "escalated" | "failed" | "no_changes" =
       "approved";
+    let anyPhaseProducedDiff = false;
 
     // Auto-merge tracking — accumulated across all phases
     let auditorVerdict: "approve" | "revise" | "reject" | undefined;
@@ -382,6 +441,12 @@ export async function runAttempt(
         await new Promise<void>((r) => setTimeout(r, 50));
       }
       if (state.aborted) break phaseLoop;
+
+      // Skip auditor when no prior phase produced a diff — nothing to audit
+      if (phase.name === "auditor" && !anyPhaseProducedDiff) {
+        finalOutcome = "no_changes";
+        break phaseLoop;
+      }
 
       const phaseStartedAt = Date.now();
 
@@ -444,35 +509,29 @@ export async function runAttempt(
       try {
         let invoker: AsyncIterable<AppendEventInput>;
 
+        // For the auditor phase, merge the verdict schema into whichever
+        // transport the phase is configured to use. If the user switched
+        // transport (e.g. to claude-code) but transport_options.kind is
+        // still "api" from the old default, reconcile by building fresh
+        // CLI transport_options.
+        let effectiveTransportOpts = phase.transport_options;
         if (isAuditorPhase) {
-          // Auditor always runs via the API with schema-enforced structured output.
-          // Use the phase's configured transport_options but inject the verdict schema.
-          const auditTransportOpts: Extract<typeof phase.transport_options, { kind: "api" }> =
-            phase.transport_options.kind === "api"
-              ? { ...phase.transport_options, schema: VERDICT_JSON_SCHEMA }
-              : {
-                  kind: "api",
-                  max_tokens: 4096,
-                  schema: VERDICT_JSON_SCHEMA,
-                };
-          invoker = doApiInvoke(
-            {
-              invocation_id,
-              attempt_id,
-              phase_name: phase.name,
-              model: phase.model || AUDITOR_MODEL,
-              messages: [{ role: "user", content: packResult.prompt }],
-              system_prompt: packResult.system_prompt_file
-                ? undefined
-                : undefined, // system prompt is in the packer output
-              prompt_version_id: phase.prompt_version_id || AUDITOR_PROMPT_VERSION_ID,
-              context_manifest_hash: packResult.manifest_hash,
-              transport_options: auditTransportOpts,
-            } satisfies ApiInvokeOptions,
-            bs,
-          );
-        } else if (isCliTransport(phase.transport)) {
-          if (phase.transport_options.kind !== "cli") {
+          if (isCliTransport(phase.transport) && phase.transport_options.kind !== "cli") {
+            // Transport was switched to CLI but options are still API-shaped — build CLI defaults
+            effectiveTransportOpts = {
+              kind: "cli",
+              max_turns: 10,
+              max_budget_usd: 1,
+              permission_mode: "bypassPermissions",
+              schema: VERDICT_JSON_SCHEMA,
+            };
+          } else {
+            effectiveTransportOpts = { ...phase.transport_options, schema: VERDICT_JSON_SCHEMA };
+          }
+        }
+
+        if (isCliTransport(phase.transport)) {
+          if (effectiveTransportOpts.kind !== "cli") {
             throw new Error(
               `Transport ${phase.transport} requires cli transport_options`,
             );
@@ -482,19 +541,21 @@ export async function runAttempt(
               invocation_id,
               attempt_id,
               phase_name: phase.name,
-              model: phase.model,
+              model: isAuditorPhase ? (phase.model || AUDITOR_MODEL) : phase.model,
               prompt: packResult.prompt,
-              prompt_version_id: phase.prompt_version_id,
+              prompt_version_id: isAuditorPhase
+                ? (phase.prompt_version_id || AUDITOR_PROMPT_VERSION_ID)
+                : phase.prompt_version_id,
               context_manifest_hash: packResult.manifest_hash,
               systemPromptFile: packResult.system_prompt_file,
               cwd: worktree_path ?? "/tmp/no-worktree",
-              transport_options: phase.transport_options,
+              transport_options: effectiveTransportOpts,
             } satisfies CliInvokeOptions,
             bs,
           );
         } else {
           // API transport (anthropic-api, openai-api)
-          if (phase.transport_options.kind !== "api") {
+          if (effectiveTransportOpts.kind !== "api") {
             throw new Error(
               `Transport ${phase.transport} requires api transport_options`,
             );
@@ -504,11 +565,13 @@ export async function runAttempt(
               invocation_id,
               attempt_id,
               phase_name: phase.name,
-              model: phase.model,
+              model: isAuditorPhase ? (phase.model || AUDITOR_MODEL) : phase.model,
               messages: [{ role: "user", content: packResult.prompt }],
-              prompt_version_id: phase.prompt_version_id,
+              prompt_version_id: isAuditorPhase
+                ? (phase.prompt_version_id || AUDITOR_PROMPT_VERSION_ID)
+                : phase.prompt_version_id,
               context_manifest_hash: packResult.manifest_hash,
-              transport_options: phase.transport_options,
+              transport_options: effectiveTransportOpts,
             } satisfies ApiInvokeOptions,
             bs,
           );
@@ -522,9 +585,19 @@ export async function runAttempt(
 
           const event = appendAndProject(db, input);
 
-          // Capture the last assistant message text for the auditor phase
-          if (isAuditorPhase && event.type === "invocation.assistant_message") {
-            auditorResponseText = (event.payload as InvocationAssistantMessage).text;
+          // Capture the auditor response text — could arrive as a plain
+          // assistant_message (API path) or as a StructuredOutput tool_use
+          // (CLI --json-schema path).
+          if (isAuditorPhase) {
+            if (event.type === "invocation.assistant_message") {
+              auditorResponseText = (event.payload as InvocationAssistantMessage).text;
+            } else if (event.type === "invocation.tool_called") {
+              const p = event.payload as InvocationToolCalled;
+              if (p.tool_name === "StructuredOutput") {
+                const blob = bs.getBlob(p.args_hash);
+                if (blob) auditorResponseText = blob.toString("utf8");
+              }
+            }
           }
 
           if (event.type === "invocation.completed") {
@@ -624,11 +697,75 @@ export async function runAttempt(
       // Check kill after invocation
       if (state.aborted) break phaseLoop;
 
-      // ----- run gates -----
+      const phaseDuration = Date.now() - phaseStartedAt;
+
+      // ----- capture worktree diff and store in blob store -----
+      let diff_hash: string | undefined;
+      if (worktree_path) {
+        try {
+          const diffOutput = await doDiffCapture(worktree_path, diffBaseSha);
+          if (diffOutput.trim()) {
+            diff_hash = bs.putBlob(diffOutput).hash;
+            anyPhaseProducedDiff = true;
+
+            // Emit phase.diff_snapshotted with the diff hash and base SHA
+            appendAndProject(db, {
+              type: "phase.diff_snapshotted",
+              aggregate_type: "attempt",
+              aggregate_id: attempt_id,
+              actor: systemActor,
+              correlation_id: attempt_id,
+              payload: {
+                attempt_id,
+                phase_name: phase.name,
+                diff_hash,
+                base_sha: diffBaseSha,
+              },
+            });
+          }
+        } catch {
+          // Diff capture is best-effort — don't fail the phase
+        }
+      }
+
+      // ----- phase.completed -----
+      // Emitted before gates so the timeline reads naturally:
+      //   phase.completed → gate.started → gate.passed/failed
+      appendAndProject(db, {
+        type: "phase.completed",
+        aggregate_type: "attempt",
+        aggregate_id: attempt_id,
+        actor: systemActor,
+        correlation_id: attempt_id,
+        payload: {
+          attempt_id,
+          phase_name: phase.name,
+          outcome: phaseOutcome,
+          tokens_in: phaseTokensIn,
+          tokens_out: phaseTokensOut,
+          cost_usd: phaseCostUsd,
+          duration_ms: phaseDuration,
+          diff_hash,
+        },
+      });
+
+      totalTokensIn += phaseTokensIn;
+      totalTokensOut += phaseTokensOut;
+      totalCostUsd += phaseCostUsd;
+
+      if (phaseOutcome === "failed") {
+        // Only fall back to generic "failed" if the auditor didn't
+        // already set a more specific outcome (rejected / revised / escalated).
+        if (finalOutcome === "approved") finalOutcome = "failed";
+        break phaseLoop;
+      }
+
+      // ----- run gates (after phase.completed) -----
       let gatesFailed = false;
+      const skippedGates = new Set(phase.skip_gates ?? []);
       for (const gate of config.gates) {
+        if (skippedGates.has(gate.name)) continue;
         if (state.aborted) break;
-        // Pause between gates too
         while (state.paused && !state.aborted) {
           await new Promise<void>((r) => setTimeout(r, 50));
         }
@@ -644,83 +781,46 @@ export async function runAttempt(
 
       if (state.aborted) break phaseLoop;
 
-      const phaseDuration = Date.now() - phaseStartedAt;
-      const resolvedOutcome: "success" | "failed" | "aborted" = gatesFailed
-        ? "failed"
-        : phaseOutcome;
-
-      // ----- capture worktree diff and store in blob store -----
-      let diff_hash: string | undefined;
-      if (worktree_path) {
-        try {
-          const { stdout: diffOutput } = await execa(
-            "git", ["diff", "HEAD"],
-            { cwd: worktree_path, stdio: ["ignore", "pipe", "pipe"] },
-          );
-          if (diffOutput.trim()) {
-            diff_hash = bs.putBlob(diffOutput).hash;
-          }
-        } catch {
-          // Diff capture is best-effort — don't fail the phase
-        }
-      }
-
-      // ----- phase.completed -----
-      appendAndProject(db, {
-        type: "phase.completed",
-        aggregate_type: "attempt",
-        aggregate_id: attempt_id,
-        actor: systemActor,
-        correlation_id: attempt_id,
-        payload: {
-          attempt_id,
-          phase_name: phase.name,
-          outcome: resolvedOutcome,
-          tokens_in: phaseTokensIn,
-          tokens_out: phaseTokensOut,
-          cost_usd: phaseCostUsd,
-          duration_ms: phaseDuration,
-          diff_hash,
-        },
-      });
-
-      totalTokensIn += phaseTokensIn;
-      totalTokensOut += phaseTokensOut;
-      totalCostUsd += phaseCostUsd;
-
-      if (gatesFailed || phaseOutcome === "failed") {
-        // Only fall back to generic "failed" if the auditor (or gates) didn't
-        // already set a more specific outcome (rejected / revised / escalated).
+      if (gatesFailed) {
         if (finalOutcome === "approved") finalOutcome = "failed";
         break phaseLoop;
       }
     } // end phaseLoop
 
     // -----------------------------------------------------------------------
-    // 3b. Commit worktree changes to the branch
+    // 3b. Per-attempt commit + attempt.committed event
     // -----------------------------------------------------------------------
-    // Claude CLI (and other adapters) modify files in the worktree but don't
-    // commit. We need to commit so `git merge --squash wt/{task_id}` has
-    // actual commits to merge from.
+    // Every attempt gets a commit (--allow-empty when no changes) so git
+    // history has one commit per attempt and squash-merge works correctly.
     if (worktree_path && !state.aborted) {
       try {
-        // Stage all changes in the worktree
-        await execa("git", ["add", "-A"], {
-          cwd: worktree_path,
-          stdio: ["ignore", "pipe", "pipe"],
+        const durationMs = Date.now() - startedAt;
+        const configHash = createHash("sha256")
+          .update(JSON.stringify(config))
+          .digest("hex")
+          .slice(0, 12);
+        const commitMessage = [
+          `Attempt ${attempt_number} of ${task_id} — ${finalOutcome}`,
+          "",
+          `config: ${configHash}`,
+          `cost: $${totalCostUsd.toFixed(4)}`,
+          `duration: ${durationMs}ms`,
+        ].join("\n");
+
+        const { sha, empty } = await doCommit(worktree_path, commitMessage);
+
+        appendAndProject(db, {
+          type: "attempt.committed",
+          aggregate_type: "attempt",
+          aggregate_id: attempt_id,
+          actor: systemActor,
+          correlation_id: attempt_id,
+          payload: {
+            attempt_id,
+            commit_sha: sha,
+            empty,
+          },
         });
-        // Check if there's anything to commit
-        const { stdout: statusOut } = await execa(
-          "git", ["status", "--porcelain"],
-          { cwd: worktree_path, stdio: ["ignore", "pipe", "pipe"] },
-        );
-        if (statusOut.trim()) {
-          await execa(
-            "git",
-            ["commit", "-m", `orchestrator: ${taskDetailDbRow.title}\n\nattempt ${attempt_id}`, "--no-gpg-sign"],
-            { cwd: worktree_path, stdio: ["ignore", "pipe", "pipe"] },
-          );
-        }
       } catch (commitErr: unknown) {
         console.error(
           `[phaseRunner] failed to commit worktree changes for ${task_id}:`,
@@ -771,6 +871,9 @@ export async function runAttempt(
           // Auto-merge succeeded — task.auto_approved and task.merged already emitted
           // by handleAutoMerge and mergeTask. Set status to merged.
           newStatus = "merged";
+        } else if (finalOutcome === "no_changes") {
+          // No diff produced — user decides what to do next
+          newStatus = "awaiting_review";
         } else {
           // Normal flow: approved / revised → awaiting_review, others → rejected
           newStatus =

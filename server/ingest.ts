@@ -21,6 +21,7 @@ import { appendAndProject } from "./projectionRunner.js";
 import type { Actor } from "@shared/events.js";
 import type { PropositionRow } from "@shared/projections.js";
 import { invoke, type Fetcher } from "./adapters/anthropicApi.js";
+import { topoSort } from "@shared/dependency.js";
 
 // ============================================================================
 // Constants
@@ -53,8 +54,10 @@ const extractionSchema = z.object({
   ),
   draft_tasks: z.array(
     z.object({
+      id: z.string(),
       title: z.string().min(1),
       proposition_ids: z.array(z.string()),
+      depends_on: z.array(z.string()),
     }),
   ),
   pushbacks: z.array(
@@ -99,10 +102,12 @@ const EXTRACTION_JSON_SCHEMA: object = {
       items: {
         type: "object",
         properties: {
+          id: { type: "string", description: "Temporary draft task ID using DT-001, DT-002, etc." },
           title: { type: "string" },
           proposition_ids: { type: "array", items: { type: "string" } },
+          depends_on: { type: "array", items: { type: "string" }, description: "Array of DT-* IDs that this task depends on" },
         },
-        required: ["title", "proposition_ids"],
+        required: ["id", "title", "proposition_ids", "depends_on"],
       },
     },
     pushbacks: {
@@ -157,6 +162,9 @@ async function callExtractionApi(
     let assistantText = "";
     let apiErrored = false;
 
+    console.log(`[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${INGEST_MODEL})`);
+    console.log(`[ingest] content length: ${content.length} chars`);
+
     const opts = {
       invocation_id: invocationId,
       attempt_id: prd_id,
@@ -168,29 +176,38 @@ async function callExtractionApi(
       context_manifest_hash: "",
       transport_options: {
         kind: "api" as const,
-        max_tokens: 4096,
+        max_tokens: 16384,
         schema: EXTRACTION_JSON_SCHEMA,
       },
     };
 
+    console.log(`[ingest] calling API...`);
+    const startTime = Date.now();
+
     for await (const event of invoke(opts, fetcher)) {
+      console.log(`[ingest] received event: ${event.type} (+${Date.now() - startTime}ms)`);
       if (event.type === "invocation.assistant_message") {
         assistantText += (event.payload as { text: string }).text;
       }
       if (event.type === "invocation.errored") {
         apiErrored = true;
-        lastError = new Error(
-          (event.payload as { error: string }).error ?? "API error",
-        );
+        const errorPayload = event.payload as { error: string };
+        console.error(`[ingest] API error: ${errorPayload.error}`);
+        lastError = new Error(errorPayload.error ?? "API error");
         break;
       }
     }
 
+    console.log(`[ingest] API call completed in ${Date.now() - startTime}ms (errored: ${apiErrored}, textLen: ${assistantText.length})`);
+
     if (!apiErrored && assistantText) {
       try {
         const parsed: unknown = JSON.parse(assistantText);
-        return extractionSchema.parse(parsed);
+        const result = extractionSchema.parse(parsed);
+        console.log(`[ingest] extraction succeeded: ${result.propositions.length} propositions, ${result.draft_tasks.length} tasks, ${result.pushbacks.length} pushbacks`);
+        return result;
       } catch (err) {
+        console.error(`[ingest] parse/validation failed:`, err instanceof Error ? err.message : err);
         lastError =
           err instanceof Error ? err : new Error("Validation failed");
         // continue to next retry
@@ -213,6 +230,7 @@ export interface TaskDraftSummary {
   task_id: string;
   title: string;
   proposition_ids: string[];
+  depends_on: string[];
 }
 
 export interface IngestResult {
@@ -222,21 +240,22 @@ export interface IngestResult {
   pushback_count: number;
 }
 
+export type IngestInput = { path: string } | { content: string };
+
 /**
- * Ingest a PRD file: read it, extract propositions via the LLM,
- * and emit the canonical events.
+ * Ingest a PRD: extract propositions via the LLM and emit canonical events.
  *
- * @param db       SQLite database (used for appendAndProject)
- * @param path     Absolute or relative path to the PRD file
- * @param fetcher  Injectable HTTP fetcher (defaults to globalThis.fetch)
+ * Accepts either `{ path }` (reads the file) or `{ content }` (uses the
+ * string directly, sets path to null in the event payload).
  */
 export async function ingestPrd(
   db: Database.Database,
-  path: string,
+  input: IngestInput,
   fetcher: Fetcher = globalThis.fetch.bind(globalThis),
 ): Promise<IngestResult> {
-  // Read file
-  const content = readFileSync(path, "utf-8");
+  // Resolve content from either input mode
+  const resolvedPath: string | null = "path" in input ? input.path : null;
+  const content = "content" in input ? input.content : readFileSync(input.path, "utf-8");
   const lines = content.split("\n").length;
   const size_bytes = Buffer.byteLength(content);
   const content_hash = createHash("sha256").update(content).digest("hex");
@@ -252,17 +271,38 @@ export async function ingestPrd(
     actor: INGEST_ACTOR,
     payload: {
       prd_id,
-      path,
+      path: resolvedPath,
       size_bytes,
       lines,
       extractor_model: INGEST_MODEL,
       extractor_prompt_version_id: INGEST_PROMPT_VERSION_ID,
       content_hash,
+      content,
     },
   });
 
   // Call extraction API (retries up to MAX_RETRIES on failure)
   const extracted = await callExtractionApi(prd_id, content, fetcher);
+
+  // Run topological sort to detect and strip cycle-causing edges
+  const topoResult = topoSort(
+    extracted.draft_tasks.map((t) => ({ id: t.id, depends_on: [...t.depends_on] })),
+  );
+
+  // Apply stripped edges back to the extracted draft tasks
+  if (topoResult.stripped.length > 0) {
+    const strippedEdges = new Map<string, Set<string>>();
+    for (const { from, to } of topoResult.stripped) {
+      if (!strippedEdges.has(from)) strippedEdges.set(from, new Set());
+      strippedEdges.get(from)!.add(to);
+    }
+    for (const draft of extracted.draft_tasks) {
+      const removed = strippedEdges.get(draft.id);
+      if (removed) {
+        draft.depends_on = draft.depends_on.filter((dep) => !removed.has(dep));
+      }
+    }
+  }
 
   // Map extracted prop IDs ("P-001" etc.) → assigned ULIDs
   const idMap = new Map<string, string>();
@@ -300,13 +340,24 @@ export async function ingestPrd(
     });
   }
 
+  // Map DT-* IDs → assigned T-{ULID} task IDs
+  const taskIdMap = new Map<string, string>();
+  for (const draft of extracted.draft_tasks) {
+    taskIdMap.set(draft.id, `T-${ulid()}`);
+  }
+
   // Emit task.drafted for each draft task grouping
   const draft_tasks: TaskDraftSummary[] = [];
   for (const draft of extracted.draft_tasks) {
-    const task_id = `T-${ulid()}`;
+    const task_id = taskIdMap.get(draft.id)!;
     // Resolve proposition IDs from the LLM's "P-001" style IDs to ULIDs
     const resolvedIds = draft.proposition_ids
       .map((id) => idMap.get(id))
+      .filter((id): id is string => id !== undefined);
+
+    // Resolve DT-* depends_on IDs to T-{ULID} task IDs
+    const resolvedDeps = draft.depends_on
+      .map((id) => taskIdMap.get(id))
       .filter((id): id is string => id !== undefined);
 
     appendAndProject(db, {
@@ -323,7 +374,22 @@ export async function ingestPrd(
       },
     });
 
-    draft_tasks.push({ task_id, title: draft.title, proposition_ids: resolvedIds });
+    // Emit task.dependency.set if this task has dependencies
+    if (resolvedDeps.length > 0) {
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: task_id,
+        actor: INGEST_ACTOR,
+        correlation_id: prd_id,
+        payload: {
+          task_id,
+          depends_on: resolvedDeps,
+        },
+      });
+    }
+
+    draft_tasks.push({ task_id, title: draft.title, proposition_ids: resolvedIds, depends_on: resolvedDeps });
   }
 
   // Emit pushback.raised for each flagged proposition
@@ -345,6 +411,39 @@ export async function ingestPrd(
         kind: pushback.kind,
         rationale: pushback.rationale,
         suggested_resolutions: pushback.suggested_resolutions,
+        raised_by: { phase: "ingest" as const, model: INGEST_MODEL },
+      },
+    });
+    pushback_count++;
+  }
+
+  // Emit advisory pushback for any cycle edges that were stripped
+  if (topoResult.stripped.length > 0) {
+    const edgeDescriptions = topoResult.stripped
+      .map(({ from, to }) => `${from} → ${to}`)
+      .join(", ");
+
+    const pushback_id = `PUSHBACK-${ulid()}`;
+    // Use the first proposition ID as a reference anchor (cycle is cross-task)
+    const anchorPropId = extracted.propositions[0]
+      ? idMap.get(extracted.propositions[0].id) ?? ""
+      : "";
+
+    appendAndProject(db, {
+      type: "pushback.raised",
+      aggregate_type: "pushback",
+      aggregate_id: pushback_id,
+      actor: INGEST_ACTOR,
+      correlation_id: prd_id,
+      payload: {
+        pushback_id,
+        proposition_id: anchorPropId,
+        kind: "advisory" as const,
+        rationale: `Circular dependency cycle detected and stripped: ${edgeDescriptions}`,
+        suggested_resolutions: [
+          "Review task ordering to eliminate circular dependencies",
+          "Split tightly-coupled tasks into smaller units",
+        ],
         raised_by: { phase: "ingest" as const, model: INGEST_MODEL },
       },
     });

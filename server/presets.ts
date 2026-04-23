@@ -105,6 +105,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
           transport: "claude-code",
           model: "claude-sonnet-4-6",
           prompt_version_id: "default",
+          skip_gates: ["test"],
           transport_options: {
             kind: "cli",
             bare: true,

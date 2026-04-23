@@ -32,7 +32,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from "@shared/components/ui/dialog.js";
+} from "@web/src/components/ui/dialog";
 
 // ============================================================================
 // Types
@@ -140,11 +140,17 @@ export function MergeDialog({
           return;
         }
         if (result.outcome === "drifted") {
-          setPhase({ name: "drifted", commits_ahead: result.commits_ahead ?? 0 });
+          setPhase({
+            name: "drifted",
+            commits_ahead: result.commits_ahead ?? 0,
+          });
           return;
         }
         if (result.outcome === "conflicted") {
-          setPhase({ name: "conflicted", paths: result.conflicting_paths ?? [] });
+          setPhase({
+            name: "conflicted",
+            paths: result.conflicting_paths ?? [],
+          });
           return;
         }
         if (result.outcome === "gate_failed") {
@@ -152,7 +158,10 @@ export function MergeDialog({
           return;
         }
         // Unexpected response
-        setPhase({ name: "error", message: result.detail ?? "Unexpected merge outcome" });
+        setPhase({
+          name: "error",
+          message: result.detail ?? "Unexpected merge outcome",
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setPhase({ name: "error", message: msg });
@@ -168,7 +177,12 @@ export function MergeDialog({
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
       <DialogContent
         data-testid="merge-dialog"
         showCloseButton={phase.name !== "merging"}
@@ -201,9 +215,7 @@ export function MergeDialog({
             <DriftedView commits_ahead={phase.commits_ahead} />
           )}
 
-          {phase.name === "merging" && (
-            <MergingView />
-          )}
+          {phase.name === "merging" && <MergingView />}
 
           {phase.name === "gate_failed" && (
             <GateFailedView failures={phase.failures} />
@@ -217,9 +229,7 @@ export function MergeDialog({
             />
           )}
 
-          {phase.name === "error" && (
-            <ErrorView message={phase.message} />
-          )}
+          {phase.name === "error" && <ErrorView message={phase.message} />}
         </div>
 
         {/* ── Footer — action buttons per phase ───────────────────── */}
@@ -342,10 +352,7 @@ function ConfirmingView({
 
       {/* Commit message */}
       <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor="commit-msg"
-          className="text-xs text-text-secondary"
-        >
+        <label htmlFor="commit-msg" className="text-xs text-text-secondary">
           {isSquash ? "Commit message" : "Commit message (auto-generated)"}
         </label>
         <textarea
@@ -357,8 +364,8 @@ function ConfirmingView({
           rows={3}
           className={`w-full border px-3 py-2 text-sm font-mono resize-none outline-none ${
             isSquash
-              ? "bg-bg-primary border-border-muted text-text-primary focus:border-purple-500/50"
-              : "bg-bg-tertiary border-border-muted text-text-secondary cursor-not-allowed"
+              ? "border-border-muted text-text-primary focus:border-purple-500/50"
+              : "border-border-muted text-text-secondary cursor-not-allowed"
           }`}
         />
       </div>
@@ -366,17 +373,18 @@ function ConfirmingView({
       {/* Gate preview */}
       {priorGateRuns.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-text-secondary">Gates that will run:</span>
-          <ul
-            data-testid="gate-preview-list"
-            className="flex flex-col gap-1"
-          >
+          <span className="text-xs text-text-secondary">
+            Gates that will run:
+          </span>
+          <ul data-testid="gate-preview-list" className="flex flex-col gap-1">
             {priorGateRuns.map((g) => (
               <li
                 key={g.gate_run_id}
                 className="flex items-center justify-between text-xs px-2.5 py-1.5 bg-bg-primary border border-border-muted"
               >
-                <span className="font-mono text-text-primary">{g.gate_name}</span>
+                <span className="font-mono text-text-primary">
+                  {g.gate_name}
+                </span>
                 {g.duration_ms !== undefined && (
                   <span className="text-text-tertiary">
                     ~{formatDurationMs(g.duration_ms)}
@@ -410,8 +418,8 @@ function DriftedView({ commits_ahead }: { commits_ahead: number }) {
       <p className="text-xs text-text-secondary">
         The target branch has{" "}
         <span className="font-mono text-text-primary">{commits_ahead}</span>{" "}
-        {commits_ahead === 1 ? "commit" : "commits"} ahead of this worktree's base.
-        The merge may still succeed, but there could be conflicts.
+        {commits_ahead === 1 ? "commit" : "commits"} ahead of this worktree's
+        base. The merge may still succeed, but there could be conflicts.
       </p>
     </div>
   );
@@ -463,7 +471,9 @@ function GateFailedView({ failures }: { failures: GateFailureItem[] }) {
             key={i}
             className="flex flex-col gap-0.5 bg-status-danger/5 border border-status-danger/20 px-3 py-2"
           >
-            <span className="text-xs font-mono text-status-danger">{f.category}</span>
+            <span className="text-xs font-mono text-status-danger">
+              {f.category}
+            </span>
             {f.location && (
               <span className="text-xs font-mono text-text-tertiary">
                 {f.location.path}:{f.location.line}
