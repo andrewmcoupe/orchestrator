@@ -24,6 +24,7 @@ import { createSettingsRoutes } from "./routes/settings.js";
 import { createRepoRoutes } from "./routes/repo.js";
 import { createWorktreeRoutes } from "./routes/worktrees.js";
 import { addStaticMiddleware } from "./staticFiles.js";
+import { recoverWorktrees } from "./crashRecovery.js";
 
 const app = new Hono();
 
@@ -34,6 +35,9 @@ app.get("/healthz", (c) => c.json({ status: "ok" }));
 const db = getDb();
 runMigrations(db);
 initProjections(db);
+
+// Discard uncommitted worktree changes left by interrupted attempts
+await recoverWorktrees(db);
 
 // Load gate definitions from config.yaml
 loadGateRegistry();

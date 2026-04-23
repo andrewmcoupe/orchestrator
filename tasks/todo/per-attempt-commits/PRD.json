@@ -145,7 +145,7 @@
       "Committed state (completed attempts) is preserved",
       "Recovery runs before any new attempts are started"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 7
   },
   {

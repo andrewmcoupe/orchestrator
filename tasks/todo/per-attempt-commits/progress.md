@@ -102,3 +102,14 @@ Added empty-attempt fallback display to `web/src/screens/review/Review.tsx` with
 - 4 TDD tests: fallback banner text, no-changes-yet banner, no banner for non-empty, effective attempt diff fetch
 
 PRD item 12 completed.
+
+## 2026-04-23: Crash recovery — discard uncommitted worktree changes on startup
+
+Added `server/crashRecovery.ts` module and wired it into `server/app.ts` startup.
+
+- `recoverWorktrees(db)` queries `proj_task_detail` for rows with `worktree_path`, runs `git reset --hard HEAD` + `git clean -fd` on each existing path
+- Skips worktree paths that no longer exist on disk
+- Called in `app.ts` after `initProjections(db)` but before routes are mounted
+- 5 TDD tests: modified files discarded, untracked files removed, committed state preserved, missing paths skipped, multiple worktrees handled
+
+PRD item 13 completed.
