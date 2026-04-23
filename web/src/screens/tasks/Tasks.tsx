@@ -151,8 +151,25 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
           onReview={onReview}
         />
       ) : (
-        <div className="flex-1 flex items-center justify-center">
-
+        <div className="flex-1 flex flex-col items-center justify-center gap-3">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="48"
+            height="48"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-text-tertiary opacity-40"
+          >
+            <path d="M12 22V12" />
+            <path d="M5 12H2a10 10 0 0 0 20 0h-3" />
+            <rect x="7" y="2" width="10" height="8" rx="2" />
+            <path d="M6 2v4" />
+            <path d="M18 2v4" />
+          </svg>
           <p className="text-sm text-text-tertiary">
             {tasks.length > 0
               ? "Select a task to view details."
