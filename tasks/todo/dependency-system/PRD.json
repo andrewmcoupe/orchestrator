@@ -156,7 +156,7 @@
       "Warning indicator appears when a dependency is in failed/cancelled state",
       "Unblocked tasks render normally with no dependency indicators"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 8
   },
   {

@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { Search, GitMerge } from "lucide-react";
+import { Search, GitMerge, Lock, AlertTriangle } from "lucide-react";
 import type { TaskListRow } from "@shared/projections.js";
 import type { TaskStatus } from "@shared/events.js";
 import { useCreateTask } from "../../hooks/useTaskMutations.js";
@@ -180,6 +180,18 @@ export function TaskListSidebar({
     return result;
   }, [tasks, search, statusFilter]);
 
+  /** Map task_id → status for dependency failure detection */
+  const statusMap = useMemo(() => {
+    const map = new Map<string, TaskStatus>();
+    for (const t of tasks) map.set(t.task_id, t.status);
+    return map;
+  }, [tasks]);
+
+  const TERMINAL_FAILURE: Set<TaskStatus> = useMemo(
+    () => new Set(["rejected", "archived"]),
+    [],
+  );
+
   const groups = useMemo(() => groupByPrd(filtered), [filtered]);
 
   return (
@@ -292,6 +304,13 @@ export function TaskListSidebar({
               const isApproved = APPROVED_STATUSES.has(task.status);
               const canMerge =
                 isApproved && !!task.current_attempt_id && !!onMergeIconClick;
+              const isBlocked = !!task.blocked;
+              const hasFailedDep =
+                isBlocked &&
+                (task.depends_on ?? []).some((id) => {
+                  const s = statusMap.get(id);
+                  return s != null && TERMINAL_FAILURE.has(s);
+                });
 
               return (
                 <button
@@ -304,7 +323,7 @@ export function TaskListSidebar({
                     task.task_id === selectedId
                       ? "border-l-status-warning bg-bg-secondary"
                       : "border-l-transparent hover:bg-bg-secondary"
-                  }`}
+                  }${isBlocked ? " opacity-50" : ""}`}
                 >
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <span
@@ -313,6 +332,12 @@ export function TaskListSidebar({
                     <span className="text-xs font-mono text-text-secondary">
                       {task.task_id}
                     </span>
+                    {isBlocked && (
+                      <Lock size={12} className="shrink-0 text-text-tertiary" aria-label="Blocked" />
+                    )}
+                    {hasFailedDep && (
+                      <AlertTriangle size={12} className="shrink-0 text-status-danger" aria-label="Dependency failed" />
+                    )}
                     {/* Merge icon for approved tasks — visible always (subtle), focus on hover */}
                     {canMerge && (
                       <span
@@ -354,7 +379,9 @@ export function TaskListSidebar({
                   <div
                     className={`text-xs mt-0.5 ${isApproved ? "text-purple-400" : "text-text-tertiary"}`}
                   >
-                    {statusLine(task, currentBranch)}
+                    {isBlocked
+                      ? `Blocked by ${(task.depends_on ?? []).join(", ")}`
+                      : statusLine(task, currentBranch)}
                   </div>
                 </button>
               );

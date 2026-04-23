@@ -81,3 +81,11 @@
 - Updated `handleIngest` from `(path, content?)` to a zero-arg callback that reads from `activeTab` state.
 - Rewrote test sections: 8 new tab-specific tests covering structure, value preservation, active-tab disable logic, and per-tab submission payloads.
 - All tests pass (25/25 in ingest suite, 919/919 non-flaky across 60 files), typecheck clean.
+
+## 2026-04-23 — Frontend: Task Card Dependencies (PRD item: "Frontend — Task Card Dependencies")
+
+- Added dependency indicators to `TaskListSidebar.tsx`: blocked tasks show a lock icon, greyed-out styling (opacity-50), and "Blocked by T-XXXXX" text replacing the status line.
+- Warning indicator (AlertTriangle icon) appears when any dependency is in a terminal failure state (rejected/archived), using a status map built from the full task list.
+- Unblocked tasks render normally with no dependency indicators.
+- Added 4 new tests in `Cockpit.test.tsx` covering all 4 PRD verification steps.
+- All tests pass (38/38 in Cockpit suite, 923/923 non-flaky across 60 files), typecheck clean.

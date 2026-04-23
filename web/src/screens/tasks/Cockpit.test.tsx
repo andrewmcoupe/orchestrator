@@ -272,6 +272,62 @@ describe("TaskListSidebar", () => {
     withQuery(<TaskListSidebar tasks={[manualMergedTask]} selectedId={null} onSelect={() => {}} />);
     expect(screen.queryByText("auto")).toBeNull();
   });
+
+  // ── Dependency indicators ──────────────────────────────────────────────
+
+  it("shows lock icon and greyed-out styling on blocked tasks", () => {
+    const blockedTask = makeListRow({
+      task_id: "T-020",
+      title: "Blocked feature",
+      status: "draft",
+      blocked: true,
+      depends_on: ["T-019"],
+    });
+    withQuery(<TaskListSidebar tasks={[blockedTask]} selectedId={null} onSelect={() => {}} />);
+    expect(screen.getByLabelText("Blocked")).toBeDefined();
+    const btn = screen.getByText("Blocked feature").closest("button");
+    expect(btn?.className).toContain("opacity-50");
+  });
+
+  it("shows 'Blocked by T-XXXXX' badge with dependency IDs", () => {
+    const dep1 = makeListRow({ task_id: "T-019", title: "Dep one", status: "running" });
+    const dep2 = makeListRow({ task_id: "T-018", title: "Dep two", status: "queued" });
+    const blockedTask = makeListRow({
+      task_id: "T-020",
+      title: "Blocked feature",
+      status: "draft",
+      blocked: true,
+      depends_on: ["T-019", "T-018"],
+    });
+    withQuery(<TaskListSidebar tasks={[dep1, dep2, blockedTask]} selectedId={null} onSelect={() => {}} />);
+    expect(screen.getByText("Blocked by T-019, T-018")).toBeDefined();
+  });
+
+  it("shows warning indicator when a dependency is in failed/cancelled state", () => {
+    const rejectedDep = makeListRow({ task_id: "T-019", title: "Rejected dep", status: "rejected" });
+    const blockedTask = makeListRow({
+      task_id: "T-020",
+      title: "Blocked feature",
+      status: "draft",
+      blocked: true,
+      depends_on: ["T-019"],
+    });
+    withQuery(<TaskListSidebar tasks={[rejectedDep, blockedTask]} selectedId={null} onSelect={() => {}} />);
+    expect(screen.getByLabelText("Dependency failed")).toBeDefined();
+  });
+
+  it("renders unblocked tasks normally with no dependency indicators", () => {
+    const normalTask = makeListRow({
+      task_id: "T-021",
+      title: "Normal task",
+      status: "running",
+      blocked: false,
+      depends_on: ["T-019"],
+    });
+    withQuery(<TaskListSidebar tasks={[normalTask]} selectedId={null} onSelect={() => {}} />);
+    expect(screen.queryByLabelText("Blocked")).toBeNull();
+    expect(screen.queryByText(/Blocked by/)).toBeNull();
+  });
 });
 
 // ============================================================================
