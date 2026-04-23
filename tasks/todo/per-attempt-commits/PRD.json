@@ -97,7 +97,7 @@
       "Task appears in the awaiting_review state in the sidebar after a no-changes attempt",
       "User can approve, reject, or retry from the awaiting_review state"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 4
   },
   {
@@ -155,7 +155,7 @@
       "phaseRunner.test.ts no_changes test asserts status is awaiting_review",
       "Test passes with the updated assertion"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 1
   },
   {

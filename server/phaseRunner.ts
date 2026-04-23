@@ -872,8 +872,8 @@ export async function runAttempt(
           // by handleAutoMerge and mergeTask. Set status to merged.
           newStatus = "merged";
         } else if (finalOutcome === "no_changes") {
-          // No diff produced — nothing to review, return to draft
-          newStatus = "draft";
+          // No diff produced — user decides what to do next
+          newStatus = "awaiting_review";
         } else {
           // Normal flow: approved / revised → awaiting_review, others → rejected
           newStatus =

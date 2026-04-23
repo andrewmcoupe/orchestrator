@@ -1124,11 +1124,11 @@ describe("runAttempt", () => {
     const payload = JSON.parse(completedRow!.payload_json) as { outcome: string };
     expect(payload.outcome).toBe("no_changes");
 
-    // Task goes back to draft
+    // Task moves to awaiting_review — user decides what to do
     const taskRow = db
       .prepare("SELECT status FROM proj_task_list WHERE task_id = ?")
       .get(taskId) as { status: string } | undefined;
-    expect(taskRow?.status).toBe("draft");
+    expect(taskRow?.status).toBe("awaiting_review");
   });
 
   // --------------------------------------------------------------------------

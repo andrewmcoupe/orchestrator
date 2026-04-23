@@ -58,3 +58,12 @@ Anchored per-phase diff capture to `base_sha` and added `phase.diff_snapshotted`
 - 3 TDD tests: attempt 1 uses base_sha, attempt 2 uses previous commit SHA, phase.diff_snapshotted emitted with correct payload
 
 PRD items 7, 8, and 15 completed.
+
+## 2026-04-23: no_changes outcome → awaiting_review
+
+Changed `no_changes` outcome status from `draft` to `awaiting_review` so empty attempts don't silently regress.
+
+- `server/phaseRunner.ts`: `newStatus` for `no_changes` outcome changed from `"draft"` to `"awaiting_review"`
+- `server/phaseRunner.test.ts`: Updated no_changes test assertion to expect `awaiting_review`
+
+PRD items 9 and 14 completed.
