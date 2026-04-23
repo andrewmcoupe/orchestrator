@@ -286,6 +286,13 @@ const taskUnblockedSchema = z.object({
   task_id: z.string(),
 });
 
+const taskDependencyWarningSchema = z.object({
+  task_id: z.string(),
+  dependency_id: z.string(),
+  dependency_status: z.string(),
+  message: z.string(),
+});
+
 const attemptStartedSchema = z.object({
   attempt_id: z.string(),
   task_id: z.string(),
@@ -722,6 +729,7 @@ export const eventPayloadSchemas: Record<EventType, z.ZodTypeAny> = {
   "task.worktree_deleted": taskWorktreeDeletedSchema,
   "task.dependency.set": taskDependencySetSchema,
   "task.unblocked": taskUnblockedSchema,
+  "task.dependency.warning": taskDependencyWarningSchema,
   "attempt.started": attemptStartedSchema,
   "attempt.paused": attemptPausedSchema,
   "attempt.resumed": attemptResumedSchema,

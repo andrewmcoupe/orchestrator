@@ -366,6 +366,13 @@ export interface TaskUnblocked {
   task_id: string;
 }
 
+export interface TaskDependencyWarning {
+  task_id: string;
+  dependency_id: string;
+  dependency_status: TaskStatus;
+  message: string;
+}
+
 // ============================================================================
 // Attempt events
 // ============================================================================
@@ -891,6 +898,7 @@ export interface EventMap {
   "task.worktree_deleted": TaskWorktreeDeleted;
   "task.dependency.set": TaskDependencySet;
   "task.unblocked": TaskUnblocked;
+  "task.dependency.warning": TaskDependencyWarning;
 
   // Attempt
   "attempt.started": AttemptStarted;

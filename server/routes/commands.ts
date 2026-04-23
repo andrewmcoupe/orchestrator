@@ -133,6 +133,7 @@ type TaskListRow = {
   status: TaskStatus;
   current_attempt_id: string | null;
   attempt_count: number;
+  blocked: number;
 };
 
 type TaskDetailRow = {
@@ -269,6 +270,13 @@ export function createCommandRoutes(db: Database.Database) {
     if (!VALID_TRANSITIONS.start.includes(task.status)) {
       return conflict(
         `Cannot start task in status '${task.status}'. Allowed: ${VALID_TRANSITIONS.start.join(", ")}`,
+      );
+    }
+
+    // Blocked tasks cannot be started — dependencies must be merged first
+    if (task.blocked) {
+      return conflict(
+        `Task '${taskId}' is blocked by unmet dependencies`,
       );
     }
 

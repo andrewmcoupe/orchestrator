@@ -62,3 +62,12 @@
 - Updated `server/routes/projections.ts` `parseTaskListRow` to parse `depends_on_json` and `blocked` for the API response.
 - Added 7 new tests in `server/projections/taskList.test.ts` covering all 5 PRD verification steps plus defaults.
 - All tests pass (906/906 across 59 files), typecheck clean.
+
+## 2026-04-23 — Phase Runner: blocked task gate & dependency warnings (PRD item: "Backend — Phase Runner")
+
+- Added blocked check to `POST /api/commands/task/:id/start` — returns 409 if task has unmet dependencies.
+- Added `TaskDependencyWarning` event type to `shared/events.ts` with Zod schema in `shared/eventSchemas.ts`.
+- Updated dependency reactor to emit `task.dependency.warning` events when a dependency reaches terminal failure (rejected/archived).
+- Added 2 new tests in `server/routes/commands.test.ts`: blocked task rejected, unblocked task starts.
+- Added 4 new tests in `server/projections/taskList.test.ts`: warning on rejected dep, warning on archived dep, no warning for non-terminal status, blocked persists after dep failure.
+- All tests pass (922/922 across 60 files), typecheck clean.

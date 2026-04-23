@@ -256,6 +256,62 @@ describe("POST /api/commands/task/:id/start", () => {
     expect(res.status).toBe(404);
   });
 
+  it("returns 409 for a blocked task", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-DEP-BLOCK");
+    seedTask(db, "T-BLOCKED");
+
+    // Set dependency — T-BLOCKED depends on T-DEP-BLOCK
+    appendAndProject(db, {
+      type: "task.dependency.set",
+      aggregate_type: "task",
+      aggregate_id: "T-BLOCKED",
+      actor,
+      payload: { task_id: "T-BLOCKED", depends_on: ["T-DEP-BLOCK"] },
+    });
+
+    const res = await post(app, "/api/commands/task/T-BLOCKED/start");
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.detail).toContain("blocked");
+  });
+
+  it("allows starting a task whose dependencies are all merged", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-DEP-UNBLOCK");
+    seedTask(db, "T-UNBLOCK");
+
+    // Set dependency
+    appendAndProject(db, {
+      type: "task.dependency.set",
+      aggregate_type: "task",
+      aggregate_id: "T-UNBLOCK",
+      actor,
+      payload: { task_id: "T-UNBLOCK", depends_on: ["T-DEP-UNBLOCK"] },
+    });
+
+    // Merge the dependency
+    appendAndProject(db, {
+      type: "task.status_changed",
+      aggregate_type: "task",
+      aggregate_id: "T-DEP-UNBLOCK",
+      actor,
+      payload: { task_id: "T-DEP-UNBLOCK", from: "queued", to: "merged" },
+    });
+
+    // Unblock
+    appendAndProject(db, {
+      type: "task.unblocked",
+      aggregate_type: "task",
+      aggregate_id: "T-UNBLOCK",
+      actor,
+      payload: { task_id: "T-UNBLOCK" },
+    });
+
+    const res = await post(app, "/api/commands/task/T-UNBLOCK/start");
+    expect(res.status).toBe(202);
+  });
+
   it("returns 409 for a task in rejected status", async () => {
     const { db, app } = setup();
     seedRunningTask(db, "T-001", "A-001");

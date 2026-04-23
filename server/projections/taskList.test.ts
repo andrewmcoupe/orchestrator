@@ -549,6 +549,145 @@ describe("TaskList projection", () => {
       expect(raw.blocked).toBe(1);
     });
 
+    it("emits task.dependency.warning when a dependency reaches rejected status", () => {
+      // Create parent and child
+      appendAndProject(db, taskCreated("T-PARENT"));
+      appendAndProject(db, taskCreated("T-CHILD"));
+
+      // Set dependency
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-CHILD",
+        actor: testActor,
+        payload: { task_id: "T-CHILD", depends_on: ["T-PARENT"] },
+      });
+
+      // Listen for warning events
+      const warnings: import("@shared/events.js").AnyEvent[] = [];
+      const listener = (e: import("@shared/events.js").AnyEvent) => {
+        if (e.type === "task.dependency.warning") warnings.push(e);
+      };
+      eventBus.on("event.committed", listener);
+
+      try {
+        // Reject the parent task
+        appendAndProject(db, {
+          type: "task.status_changed",
+          aggregate_type: "task",
+          aggregate_id: "T-PARENT",
+          actor: testActor,
+          payload: { task_id: "T-PARENT", from: "queued", to: "rejected" },
+        });
+
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0].payload).toMatchObject({
+          task_id: "T-CHILD",
+          dependency_id: "T-PARENT",
+          dependency_status: "rejected",
+        });
+      } finally {
+        eventBus.off("event.committed", listener);
+      }
+    });
+
+    it("emits task.dependency.warning when a dependency reaches archived status", () => {
+      appendAndProject(db, taskCreated("T-PARENT"));
+      appendAndProject(db, taskCreated("T-CHILD"));
+
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-CHILD",
+        actor: testActor,
+        payload: { task_id: "T-CHILD", depends_on: ["T-PARENT"] },
+      });
+
+      const warnings: import("@shared/events.js").AnyEvent[] = [];
+      const listener = (e: import("@shared/events.js").AnyEvent) => {
+        if (e.type === "task.dependency.warning") warnings.push(e);
+      };
+      eventBus.on("event.committed", listener);
+
+      try {
+        appendAndProject(db, {
+          type: "task.status_changed",
+          aggregate_type: "task",
+          aggregate_id: "T-PARENT",
+          actor: testActor,
+          payload: { task_id: "T-PARENT", from: "queued", to: "archived" },
+        });
+
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0].payload).toMatchObject({
+          dependency_status: "archived",
+        });
+      } finally {
+        eventBus.off("event.committed", listener);
+      }
+    });
+
+    it("does not emit warning for non-terminal status changes", () => {
+      appendAndProject(db, taskCreated("T-PARENT"));
+      appendAndProject(db, taskCreated("T-CHILD"));
+
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-CHILD",
+        actor: testActor,
+        payload: { task_id: "T-CHILD", depends_on: ["T-PARENT"] },
+      });
+
+      const warnings: import("@shared/events.js").AnyEvent[] = [];
+      const listener = (e: import("@shared/events.js").AnyEvent) => {
+        if (e.type === "task.dependency.warning") warnings.push(e);
+      };
+      eventBus.on("event.committed", listener);
+
+      try {
+        // Running is not terminal — no warning
+        appendAndProject(db, {
+          type: "task.status_changed",
+          aggregate_type: "task",
+          aggregate_id: "T-PARENT",
+          actor: testActor,
+          payload: { task_id: "T-PARENT", from: "queued", to: "running" },
+        });
+
+        expect(warnings).toHaveLength(0);
+      } finally {
+        eventBus.off("event.committed", listener);
+      }
+    });
+
+    it("keeps dependents blocked when dependency fails", () => {
+      appendAndProject(db, taskCreated("T-PARENT"));
+      appendAndProject(db, taskCreated("T-CHILD"));
+
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: "T-CHILD",
+        actor: testActor,
+        payload: { task_id: "T-CHILD", depends_on: ["T-PARENT"] },
+      });
+
+      // Reject the parent
+      appendAndProject(db, {
+        type: "task.status_changed",
+        aggregate_type: "task",
+        aggregate_id: "T-PARENT",
+        actor: testActor,
+        payload: { task_id: "T-PARENT", from: "queued", to: "rejected" },
+      });
+
+      const raw = db
+        .prepare("SELECT blocked FROM proj_task_list WHERE task_id = ?")
+        .get("T-CHILD") as { blocked: number };
+      expect(raw.blocked).toBe(1);
+    });
+
     it("defaults depends_on_json to '[]' and blocked to 0 for new tasks", () => {
       appendAndProject(db, taskCreated("T-001"));
 

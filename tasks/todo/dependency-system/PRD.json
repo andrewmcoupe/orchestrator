@@ -129,7 +129,7 @@
       "Phase runner starts tasks where all dependencies are merged",
       "When a dependency fails/is cancelled, dependent tasks remain blocked and a warning event is emitted"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 6
   },
   {

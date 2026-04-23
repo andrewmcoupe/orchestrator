@@ -1168,6 +1168,7 @@ export const PROJECTION_SUBSCRIPTIONS: Record<EventType, ProjectionName[]> = {
   "task.worktree_deleted": ["task_detail"],
   "task.dependency.set": ["task_list"],
   "task.unblocked": ["task_list"],
+  "task.dependency.warning": [],
 
   // Attempt
   "attempt.started": ["task_list", "task_detail", "attempt"],
