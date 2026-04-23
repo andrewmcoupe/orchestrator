@@ -942,7 +942,7 @@ export function createCommandRoutes(db: Database.Database) {
     if (!parsed.success) return badRequest(parsed.error);
 
     try {
-      const result = await ingestPrd(db, parsed.data.path);
+      const result = await ingestPrd(db, parsed.data);
       return c.json(result);
     } catch (err) {
       const error = err as Error;

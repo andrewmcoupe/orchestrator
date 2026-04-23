@@ -20,7 +20,7 @@
       "Test prd.ingested event has path: null when content mode is used",
       "Test size_bytes, lines, and content_hash are computed from resolved content in both modes"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 1
   },
   {
@@ -70,7 +70,7 @@
       "prd.ingested event always contains full content regardless of input mode",
       "prd.ingested event has path: null when content is provided directly"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 3
   },
   {

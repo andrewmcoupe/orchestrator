@@ -222,21 +222,22 @@ export interface IngestResult {
   pushback_count: number;
 }
 
+export type IngestInput = { path: string } | { content: string };
+
 /**
- * Ingest a PRD file: read it, extract propositions via the LLM,
- * and emit the canonical events.
+ * Ingest a PRD: extract propositions via the LLM and emit canonical events.
  *
- * @param db       SQLite database (used for appendAndProject)
- * @param path     Absolute or relative path to the PRD file
- * @param fetcher  Injectable HTTP fetcher (defaults to globalThis.fetch)
+ * Accepts either `{ path }` (reads the file) or `{ content }` (uses the
+ * string directly, sets path to null in the event payload).
  */
 export async function ingestPrd(
   db: Database.Database,
-  path: string,
+  input: IngestInput,
   fetcher: Fetcher = globalThis.fetch.bind(globalThis),
 ): Promise<IngestResult> {
-  // Read file
-  const content = readFileSync(path, "utf-8");
+  // Resolve content from either input mode
+  const resolvedPath: string | null = "path" in input ? input.path : null;
+  const content = "content" in input ? input.content : readFileSync(input.path, "utf-8");
   const lines = content.split("\n").length;
   const size_bytes = Buffer.byteLength(content);
   const content_hash = createHash("sha256").update(content).digest("hex");
@@ -252,7 +253,7 @@ export async function ingestPrd(
     actor: INGEST_ACTOR,
     payload: {
       prd_id,
-      path,
+      path: resolvedPath,
       size_bytes,
       lines,
       extractor_model: INGEST_MODEL,

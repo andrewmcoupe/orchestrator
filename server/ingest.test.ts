@@ -166,7 +166,7 @@ describe("ingestPrd", () => {
   });
 
   it("emits prd.ingested event with correct metadata", async () => {
-    const result = await ingestPrd(db, prdPath, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
 
     const prdEvent = db
       .prepare("SELECT * FROM events WHERE type = 'prd.ingested' LIMIT 1")
@@ -183,7 +183,7 @@ describe("ingestPrd", () => {
   });
 
   it("emits proposition.extracted events and populates proj_proposition", async () => {
-    const result = await ingestPrd(db, prdPath, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
 
     expect(result.propositions).toHaveLength(3);
 
@@ -211,7 +211,7 @@ describe("ingestPrd", () => {
   });
 
   it("emits task.drafted events and creates draft rows in task_list", async () => {
-    const result = await ingestPrd(db, prdPath, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
 
     expect(result.draft_tasks).toHaveLength(2);
 
@@ -227,7 +227,7 @@ describe("ingestPrd", () => {
   });
 
   it("emits pushback.raised events and adds pushback_id to proposition", async () => {
-    const result = await ingestPrd(db, prdPath, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
 
     expect(result.pushback_count).toBe(1);
 
@@ -253,7 +253,7 @@ describe("ingestPrd", () => {
   });
 
   it("resolves proposition IDs from P-001 style to ULIDs in draft tasks", async () => {
-    const result = await ingestPrd(db, prdPath, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
 
     const authTask = result.draft_tasks.find(
       (t) => t.title === "Implement authentication",
@@ -270,8 +270,8 @@ describe("ingestPrd", () => {
   it("retries on validation failure (flaky fetcher succeeds on 3rd call)", async () => {
     const result = await ingestPrd(
       db,
-      prdPath,
-      makeFlakyFetcher(2, SAMPLE_EXTRACTION), // fail 2x, succeed on 3rd
+      { path: prdPath },
+      makeFlakyFetcher(2, SAMPLE_EXTRACTION),
     );
 
     // Should still succeed
@@ -281,18 +281,18 @@ describe("ingestPrd", () => {
   it("throws after exhausting retries", async () => {
     // fail all 3 attempts (attempts 0, 1, 2 = MAX_RETRIES + 1 = 3 total)
     await expect(
-      ingestPrd(db, prdPath, makeFlakyFetcher(3, SAMPLE_EXTRACTION)),
+      ingestPrd(db, { path: prdPath }, makeFlakyFetcher(3, SAMPLE_EXTRACTION)),
     ).rejects.toThrow(/Ingest extraction failed after/);
   });
 
   it("throws when the PRD file does not exist", async () => {
     await expect(
-      ingestPrd(db, "/nonexistent/path.md", makeFakeFetcher(SAMPLE_EXTRACTION)),
+      ingestPrd(db, { path: "/nonexistent/path.md" }, makeFakeFetcher(SAMPLE_EXTRACTION)),
     ).rejects.toThrow();
   });
 
   it("all events share the same correlation_id (prd_id)", async () => {
-    const result = await ingestPrd(db, prdPath, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
 
     const events = db
       .prepare(
@@ -308,6 +308,97 @@ describe("ingestPrd", () => {
     // Every event should have the prd_id as correlation_id
     for (const e of events) {
       expect(e.correlation_id).toBe(result.prd_id);
+    }
+  });
+});
+
+const PRD_CONTENT = "# Test PRD\n\n## Authentication\n\nUsers must be able to log in.\n";
+
+describe("ingestPrd — content mode", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+    initProjections(db);
+  });
+
+  afterEach(() => {
+    db.close();
+    eventBus.removeAllListeners();
+  });
+
+  it("accepts { content: string } and skips file I/O", async () => {
+    const result = await ingestPrd(
+      db,
+      { content: PRD_CONTENT },
+      makeFakeFetcher(SAMPLE_EXTRACTION),
+    );
+
+    expect(result.propositions).toHaveLength(3);
+    expect(result.prd_id).toMatch(/^PRD-/);
+  });
+
+  it("sets path to null in prd.ingested event when content mode is used", async () => {
+    await ingestPrd(
+      db,
+      { content: PRD_CONTENT },
+      makeFakeFetcher(SAMPLE_EXTRACTION),
+    );
+
+    const prdEvent = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'prd.ingested' LIMIT 1")
+      .get() as { payload_json: string } | undefined;
+
+    expect(prdEvent).toBeDefined();
+    const payload = JSON.parse(prdEvent!.payload_json) as Record<string, unknown>;
+    expect(payload.path).toBeNull();
+    expect(payload.content).toBe(PRD_CONTENT);
+  });
+
+  it("computes size_bytes, lines, and content_hash from content in content mode", async () => {
+    await ingestPrd(
+      db,
+      { content: PRD_CONTENT },
+      makeFakeFetcher(SAMPLE_EXTRACTION),
+    );
+
+    const prdEvent = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'prd.ingested' LIMIT 1")
+      .get() as { payload_json: string } | undefined;
+
+    const payload = JSON.parse(prdEvent!.payload_json) as Record<string, unknown>;
+    expect(payload.size_bytes).toBe(Buffer.byteLength(PRD_CONTENT));
+    expect(payload.lines).toBe(PRD_CONTENT.split("\n").length);
+    expect(typeof payload.content_hash).toBe("string");
+    expect((payload.content_hash as string).length).toBe(64);
+  });
+
+  it("computes size_bytes, lines, and content_hash from file content in path mode", async () => {
+    const prdPath = join(tmpdir(), `test-prd-content-${Date.now()}.md`);
+    writeFileSync(prdPath, PRD_CONTENT);
+
+    try {
+      await ingestPrd(
+        db,
+        { path: prdPath },
+        makeFakeFetcher(SAMPLE_EXTRACTION),
+      );
+
+      const prdEvent = db
+        .prepare("SELECT payload_json FROM events WHERE type = 'prd.ingested' LIMIT 1")
+        .get() as { payload_json: string } | undefined;
+
+      const payload = JSON.parse(prdEvent!.payload_json) as Record<string, unknown>;
+      expect(payload.path).toBe(prdPath);
+      expect(payload.content).toBe(PRD_CONTENT);
+      expect(payload.size_bytes).toBe(Buffer.byteLength(PRD_CONTENT));
+      expect(payload.lines).toBe(PRD_CONTENT.split("\n").length);
+      expect((payload.content_hash as string).length).toBe(64);
+    } finally {
+      try { unlinkSync(prdPath); } catch { /* ignore */ }
     }
   });
 });
