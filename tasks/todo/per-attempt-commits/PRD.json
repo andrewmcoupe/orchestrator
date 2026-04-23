@@ -121,7 +121,7 @@
       "Auditor concerns from the prior attempt are included in the retry prompt",
       "git diff HEAD after attempt 2 shows only attempt 2's delta, not cumulative changes"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 5
   },
   {

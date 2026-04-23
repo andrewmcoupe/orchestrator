@@ -79,3 +79,14 @@ Added `effective_diff_attempt_id` to `AttemptRow` for empty-attempt diff fallbac
 - `commit_sha` and `empty` columns also added to SQL schema and persistence (were previously only in-memory on the reducer)
 
 PRD items 10 and 16 completed.
+
+## 2026-04-23: Retry prompt includes previous attempt's diff
+
+Added `git diff HEAD~1 HEAD` output to the implementer prompt for retry attempts, completing delta-only diff semantics.
+
+- Added `gitDiffPrevAttempt` injectable dep to `TrivialPackerDeps` (defaults to `git diff HEAD~1 HEAD`)
+- Added `isRetryAttempt` helper that checks `attempt.started` event for `previous_attempt_id`
+- Implementer prompt now includes "## Previous Attempt Changes" diff block on retry attempts
+- 2 TDD tests: retry attempt includes previous diff, first attempt does not
+
+PRD item 11 completed.
