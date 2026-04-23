@@ -133,7 +133,7 @@
       "When effective_diff_attempt_id is null, renders: 'No attempts have produced changes yet.'",
       "When attempt is non-empty, no banner is shown and diff displays normally"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 6
   },
   {

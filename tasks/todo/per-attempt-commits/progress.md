@@ -90,3 +90,15 @@ Added `git diff HEAD~1 HEAD` output to the implementer prompt for retry attempts
 - 2 TDD tests: retry attempt includes previous diff, first attempt does not
 
 PRD item 11 completed.
+
+## 2026-04-23: Empty-attempt banner in Review UI
+
+Added empty-attempt fallback display to `web/src/screens/review/Review.tsx` with diff fetched from the effective attempt.
+
+- Fixed API parser in `server/routes/projections.ts` to include `commit_sha`, `empty`, and `effective_diff_attempt_id` on the attempt response (fields were stored in DB but stripped during parsing)
+- Review UI reads `effective_diff_attempt_id` — when it differs from the current attempt, fetches the effective attempt's diff and shows a warning banner
+- When `effective_diff_attempt_id` is null, renders "No attempts have produced changes yet."
+- Non-empty attempts display normally with no banner
+- 4 TDD tests: fallback banner text, no-changes-yet banner, no banner for non-empty, effective attempt diff fetch
+
+PRD item 12 completed.

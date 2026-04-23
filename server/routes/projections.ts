@@ -160,6 +160,9 @@ type RawAttemptRow = {
   files_changed_json: string;
   config_snapshot_json: string;
   previous_attempt_id: string | null;
+  commit_sha: string | null;
+  empty: number | null;
+  effective_diff_attempt_id: string | null;
   last_event_id: string;
 };
 
@@ -182,6 +185,9 @@ function parseAttemptRow(raw: RawAttemptRow): AttemptRow {
     files_changed: JSON.parse(raw.files_changed_json),
     config_snapshot: JSON.parse(raw.config_snapshot_json),
     previous_attempt_id: raw.previous_attempt_id ?? undefined,
+    commit_sha: raw.commit_sha ?? undefined,
+    empty: raw.empty != null ? Boolean(raw.empty) : undefined,
+    effective_diff_attempt_id: raw.effective_diff_attempt_id ?? undefined,
     last_event_id: raw.last_event_id,
   };
 }
