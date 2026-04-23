@@ -67,3 +67,15 @@ Changed `no_changes` outcome status from `draft` to `awaiting_review` so empty a
 - `server/phaseRunner.test.ts`: Updated no_changes test assertion to expect `awaiting_review`
 
 PRD items 9 and 14 completed.
+
+## 2026-04-23: effective_diff_attempt_id on attempt projection
+
+Added `effective_diff_attempt_id` to `AttemptRow` for empty-attempt diff fallback.
+
+- Field added to `AttemptRow` interface, `RawAttemptRow`, SQL schema, `rowFromRaw`, and `write` method
+- Reducer sets `effective_diff_attempt_id = attempt_id` for non-empty commits on `attempt.committed`
+- Write-time walkback: empty attempts walk `previous_attempt_id` chain in DB to find the most recent non-empty attempt
+- 3 TDD tests: non-empty self-reference, empty walkback to prior non-empty, null when no prior non-empty exists
+- `commit_sha` and `empty` columns also added to SQL schema and persistence (were previously only in-memory on the reducer)
+
+PRD items 10 and 16 completed.

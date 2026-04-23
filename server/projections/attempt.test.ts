@@ -112,6 +112,9 @@ function getAttemptRow(db: Database.Database, attempt_id: string): AttemptRow | 
     files_changed: JSON.parse(raw.files_changed_json as string),
     config_snapshot: JSON.parse(raw.config_snapshot_json as string),
     previous_attempt_id: (raw.previous_attempt_id ?? undefined) as string | undefined,
+    commit_sha: (raw.commit_sha ?? undefined) as string | undefined,
+    empty: raw.empty === 1 ? true : raw.empty === 0 ? false : undefined,
+    effective_diff_attempt_id: (raw.effective_diff_attempt_id ?? undefined) as string | undefined,
     last_event_id: raw.last_event_id as string,
   };
 }
@@ -390,6 +393,98 @@ describe("attempt projection", () => {
       lines_added: 10,
       lines_removed: 3,
     });
+  });
+
+  // ============================================================================
+  // effective_diff_attempt_id
+  // ============================================================================
+
+  it("non-empty attempt sets effective_diff_attempt_id to its own id", () => {
+    appendAndProject(db, {
+      type: "attempt.started",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: { attempt_id, task_id, attempt_number: 1, config_snapshot: minimalConfig, triggered_by: "user_start" },
+    });
+    appendAndProject(db, {
+      type: "attempt.committed",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: { attempt_id, commit_sha: "abc123def456", empty: false },
+    });
+
+    const row = getAttemptRow(db, attempt_id);
+    expect(row!.effective_diff_attempt_id).toBe(attempt_id);
+  });
+
+  it("empty attempt walks back to find the most recent non-empty attempt", () => {
+    // Attempt 1: non-empty
+    appendAndProject(db, {
+      type: "attempt.started",
+      aggregate_type: "attempt",
+      aggregate_id: "A-001",
+      actor,
+      correlation_id: "A-001",
+      payload: { attempt_id: "A-001", task_id, attempt_number: 1, config_snapshot: minimalConfig, triggered_by: "user_start" },
+    });
+    appendAndProject(db, {
+      type: "attempt.committed",
+      aggregate_type: "attempt",
+      aggregate_id: "A-001",
+      actor,
+      correlation_id: "A-001",
+      payload: { attempt_id: "A-001", commit_sha: "sha-1", empty: false },
+    });
+
+    // Attempt 2: empty, links back to A-001
+    appendAndProject(db, {
+      type: "attempt.started",
+      aggregate_type: "attempt",
+      aggregate_id: "A-002",
+      actor,
+      correlation_id: "A-002",
+      payload: { attempt_id: "A-002", task_id, attempt_number: 2, config_snapshot: minimalConfig, triggered_by: "retry", previous_attempt_id: "A-001" },
+    });
+    appendAndProject(db, {
+      type: "attempt.committed",
+      aggregate_type: "attempt",
+      aggregate_id: "A-002",
+      actor,
+      correlation_id: "A-002",
+      payload: { attempt_id: "A-002", commit_sha: "sha-2", empty: true },
+    });
+
+    const row = getAttemptRow(db, "A-002");
+    expect(row!.empty).toBe(true);
+    expect(row!.effective_diff_attempt_id).toBe("A-001");
+  });
+
+  it("effective_diff_attempt_id is null when no prior non-empty attempt exists", () => {
+    // Attempt 1: empty (first attempt, no previous)
+    appendAndProject(db, {
+      type: "attempt.started",
+      aggregate_type: "attempt",
+      aggregate_id: "A-001",
+      actor,
+      correlation_id: "A-001",
+      payload: { attempt_id: "A-001", task_id, attempt_number: 1, config_snapshot: minimalConfig, triggered_by: "user_start" },
+    });
+    appendAndProject(db, {
+      type: "attempt.committed",
+      aggregate_type: "attempt",
+      aggregate_id: "A-001",
+      actor,
+      correlation_id: "A-001",
+      payload: { attempt_id: "A-001", commit_sha: "sha-1", empty: true },
+    });
+
+    const row = getAttemptRow(db, "A-001");
+    expect(row!.empty).toBe(true);
+    expect(row!.effective_diff_attempt_id).toBeUndefined();
   });
 
   it("rebuild produces identical state", () => {

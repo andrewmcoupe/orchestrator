@@ -109,7 +109,7 @@
       "If no prior non-empty attempt exists, effective_diff_attempt_id is null",
       "Field is computed in the projection reducer, not in the UI"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 4
   },
   {
@@ -189,7 +189,7 @@
       "Test that empty attempt walks back to find the most recent non-empty attempt",
       "Test that effective_diff_attempt_id is null when no prior non-empty attempt exists"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 1
   }
 ]

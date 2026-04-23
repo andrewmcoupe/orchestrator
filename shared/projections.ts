@@ -333,6 +333,7 @@ export interface AttemptRow {
   previous_attempt_id?: string;
   commit_sha?: string;
   empty?: boolean;
+  effective_diff_attempt_id?: string;
   last_event_id: string;
 }
 
@@ -1368,6 +1369,8 @@ export function reduceAttempt(
         ...current,
         commit_sha: event.payload.commit_sha,
         empty: event.payload.empty,
+        // Non-empty: point to self. Empty: leave undefined for write-time resolution.
+        effective_diff_attempt_id: event.payload.empty ? undefined : current.attempt_id,
         last_event_id: event.id,
       };
 
