@@ -144,7 +144,7 @@
       "File Path tab submits { path: string }",
       "Paste Content tab submits { content: string }"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 7
   },
   {

@@ -367,31 +367,107 @@ describe("Ingest — accept action", () => {
 });
 
 // ============================================================================
-// Textarea (paste PRD content directly) — requirement 1
+// Tabs UI — Base UI Tabs with "File Path" (default) and "Paste Content"
 // ============================================================================
 
-describe("Ingest — textarea input", () => {
-  it("renders a textarea for pasting PRD content", () => {
+describe("Ingest — tabs structure", () => {
+  it("renders Base UI Tabs with 'File Path' as default active tab", () => {
     render(<Ingest onBack={vi.fn()} />);
-    expect(screen.getByRole("textbox", { name: /paste/i })).toBeTruthy();
+    const filePathTab = screen.getByRole("tab", { name: /file path/i });
+    const pasteTab = screen.getByRole("tab", { name: /paste content/i });
+    expect(filePathTab).toBeTruthy();
+    expect(pasteTab).toBeTruthy();
+    // File Path tab should be selected by default
+    expect(filePathTab.getAttribute("aria-selected")).toBe("true");
   });
 
-  it("ingest button is enabled when only textarea has content", () => {
+  it("File Path tab contains text input for path", () => {
     render(<Ingest onBack={vi.fn()} />);
-    const textarea = screen.getByRole("textbox", { name: /paste/i });
-    fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
-    const btn = screen.getByRole("button", { name: /^ingest$/i });
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByPlaceholderText(/absolute\/path/i)).toBeTruthy();
   });
 
-  it("ingest button is disabled when both path and textarea are empty", () => {
+  it("Paste Content tab contains textarea for PRD markdown", () => {
     render(<Ingest onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    expect(screen.getByPlaceholderText(/paste your prd/i)).toBeTruthy();
+  });
+
+  it("switching tabs preserves input values in both tabs", () => {
+    render(<Ingest onBack={vi.fn()} />);
+
+    // Type in file path (default tab)
+    const pathInput = screen.getByPlaceholderText(/absolute\/path/i);
+    fireEvent.change(pathInput, { target: { value: "/tmp/prd.md" } });
+
+    // Switch to Paste Content tab
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    const textarea = screen.getByPlaceholderText(/paste your prd/i);
+    fireEvent.change(textarea, { target: { value: "# My PRD" } });
+
+    // Switch back to File Path tab — value should be preserved
+    fireEvent.click(screen.getByRole("tab", { name: /file path/i }));
+    expect((screen.getByPlaceholderText(/absolute\/path/i) as HTMLInputElement).value).toBe("/tmp/prd.md");
+
+    // Switch to Paste Content tab — value should be preserved
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    expect((screen.getByPlaceholderText(/paste your prd/i) as HTMLTextAreaElement).value).toBe("# My PRD");
+  });
+
+  it("ingest button is disabled when active tab's field is empty", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    // File Path tab is active, path is empty
     const btn = screen.getByRole("button", { name: /^ingest$/i });
     expect((btn as HTMLButtonElement).disabled).toBe(true);
+
+    // Switch to Paste Content tab, textarea is empty
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("ingest button is enabled when active tab's field has content", () => {
+    render(<Ingest onBack={vi.fn()} />);
+
+    // File Path tab: fill path → enabled
+    fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), { target: { value: "/tmp/prd.md" } });
+    const btn = screen.getByRole("button", { name: /^ingest$/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+
+    // Switch to Paste Content (empty) → disabled
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+
+    // Fill textarea → enabled
+    fireEvent.change(screen.getByPlaceholderText(/paste your prd/i), { target: { value: "# PRD" } });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
   });
 });
 
-describe("Ingest — loading state via pasted content", () => {
+describe("Ingest — File Path tab submission", () => {
+  it("File Path tab submits { path: string }", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Ingest onBack={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
+      target: { value: "/tmp/prd.md" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/commands/prd/ingest",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ path: "/tmp/prd.md" }),
+        }),
+      );
+    });
+
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("Ingest — Paste Content tab submission", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
@@ -403,22 +479,13 @@ describe("Ingest — loading state via pasted content", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows loading spinner after clicking Ingest with pasted content", async () => {
-    render(<Ingest onBack={vi.fn()} />);
-    const textarea = screen.getByRole("textbox", { name: /paste/i });
-    fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
-    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
-    await waitFor(() => {
-      expect(screen.getByText(/ingesting/i)).toBeTruthy();
-    });
-  });
-
-  it("calls the ingest API with pasted content when no path is provided", async () => {
+  it("Paste Content tab submits { content: string }", async () => {
     const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<Ingest onBack={vi.fn()} />);
-    const textarea = screen.getByRole("textbox", { name: /paste/i });
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    const textarea = screen.getByPlaceholderText(/paste your prd/i);
     fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
     fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
 
@@ -427,9 +494,20 @@ describe("Ingest — loading state via pasted content", () => {
         "/api/commands/prd/ingest",
         expect.objectContaining({
           method: "POST",
-          body: expect.stringContaining("The system shall do things"),
+          body: JSON.stringify({ content: "# My PRD\n\nThe system shall do things." }),
         }),
       );
+    });
+  });
+
+  it("shows loading spinner after clicking Ingest with pasted content", async () => {
+    render(<Ingest onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    const textarea = screen.getByPlaceholderText(/paste your prd/i);
+    fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/ingesting/i)).toBeTruthy();
     });
   });
 });
@@ -462,56 +540,14 @@ describe("Ingest — review state reached via pasted content", () => {
 
   it("shows draft task card after ingesting pasted content", async () => {
     render(<Ingest onBack={vi.fn()} />);
-    const textarea = screen.getByRole("textbox", { name: /paste/i });
+    fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
+    const textarea = screen.getByPlaceholderText(/paste your prd/i);
     fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
     fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
 
     await waitFor(() => {
       expect(screen.getByText("Implement authentication")).toBeTruthy();
     });
-  });
-});
-
-// ============================================================================
-// File path input — requirement 2 (preservation of existing behaviour)
-// ============================================================================
-
-describe("Ingest — file path input preserved", () => {
-  it("still renders the file path input", () => {
-    render(<Ingest onBack={vi.fn()} />);
-    expect(screen.getByPlaceholderText(/absolute\/path/i)).toBeTruthy();
-  });
-
-  it("ingest button is enabled when only the path input has a value", () => {
-    render(<Ingest onBack={vi.fn()} />);
-    fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
-      target: { value: "/tmp/prd.md" },
-    });
-    const btn = screen.getByRole("button", { name: /^ingest$/i });
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("calls the ingest API with path when path input is used and textarea is empty", async () => {
-    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<Ingest onBack={vi.fn()} />);
-    fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
-      target: { value: "/tmp/prd.md" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/commands/prd/ingest",
-        expect.objectContaining({
-          method: "POST",
-          body: expect.stringContaining("/tmp/prd.md"),
-        }),
-      );
-    });
-
-    vi.unstubAllGlobals();
   });
 });
 

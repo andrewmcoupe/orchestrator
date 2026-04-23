@@ -71,3 +71,13 @@
 - Added 2 new tests in `server/routes/commands.test.ts`: blocked task rejected, unblocked task starts.
 - Added 4 new tests in `server/projections/taskList.test.ts`: warning on rejected dep, warning on archived dep, no warning for non-terminal status, blocked persists after dep failure.
 - All tests pass (922/922 across 60 files), typecheck clean.
+
+## 2026-04-23 — Frontend: Ingest Form Tabs (PRD item: "Frontend — Ingest Form")
+
+- Created `web/src/components/ui/tabs.tsx` wrapping `@base-ui/react/tabs` (Root, List, Tab, Panel) following project's Base UI component pattern.
+- Refactored `Ingest.tsx` idle form: replaced side-by-side textarea + divider + path input with Base UI Tabs ("File Path" default, "Paste Content").
+- Only the active tab's value is submitted; values are preserved across tab switches.
+- Ingest button disabled when the active tab's field is empty.
+- Updated `handleIngest` from `(path, content?)` to a zero-arg callback that reads from `activeTab` state.
+- Rewrote test sections: 8 new tab-specific tests covering structure, value preservation, active-tab disable logic, and per-tab submission payloads.
+- All tests pass (25/25 in ingest suite, 919/919 non-flaky across 60 files), typecheck clean.
