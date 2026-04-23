@@ -998,6 +998,111 @@ describe("POST /api/commands/pushback/:id/resolve", () => {
 });
 
 // ============================================================================
+// POST /api/commands/task/:id/dependencies
+// ============================================================================
+
+describe("POST /api/commands/task/:id/dependencies", () => {
+  it("sets dependencies on a draft task and emits task.dependency.set", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-DEP");
+    seedTask(db, "T-TARGET");
+
+    const res = await post(app, "/api/commands/task/T-TARGET/dependencies", {
+      depends_on: ["T-DEP"],
+    });
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as AnyEvent;
+    expect(body.type).toBe("task.dependency.set");
+    expect(body.payload).toMatchObject({
+      task_id: "T-TARGET",
+      depends_on: ["T-DEP"],
+    });
+  });
+
+  it("returns 409 when task is in_progress (running)", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-DEP");
+    seedRunningTask(db, "T-RUNNING", "A-RUN");
+
+    const res = await post(app, "/api/commands/task/T-RUNNING/dependencies", {
+      depends_on: ["T-DEP"],
+    });
+    expect(res.status).toBe(409);
+    const body = await res.json() as { detail: string };
+    expect(body.detail).toContain("running");
+  });
+
+  it("returns 409 when adding a dependency would create a cycle", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-A");
+    seedTask(db, "T-B");
+
+    // T-B depends on T-A
+    appendAndProject(db, {
+      type: "task.dependency.set",
+      aggregate_type: "task",
+      aggregate_id: "T-B",
+      actor,
+      payload: { task_id: "T-B", depends_on: ["T-A"] },
+    });
+
+    // Now try T-A depends on T-B — cycle!
+    const res = await post(app, "/api/commands/task/T-A/dependencies", {
+      depends_on: ["T-B"],
+    });
+    expect(res.status).toBe(409);
+    const body = await res.json() as { detail: string };
+    expect(body.detail).toContain("cycle");
+  });
+
+  it("allows removing dependencies (empty array)", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-DEP");
+    seedTask(db, "T-TARGET");
+
+    // Set dependency first
+    appendAndProject(db, {
+      type: "task.dependency.set",
+      aggregate_type: "task",
+      aggregate_id: "T-TARGET",
+      actor,
+      payload: { task_id: "T-TARGET", depends_on: ["T-DEP"] },
+    });
+
+    // Remove all dependencies
+    const res = await post(app, "/api/commands/task/T-TARGET/dependencies", {
+      depends_on: [],
+    });
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as AnyEvent;
+    expect(body.type).toBe("task.dependency.set");
+    expect(body.payload).toMatchObject({
+      task_id: "T-TARGET",
+      depends_on: [],
+    });
+  });
+
+  it("returns 404 for nonexistent task", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/task/NOPE/dependencies", {
+      depends_on: [],
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 400 for invalid body", async () => {
+    const { db, app } = setup();
+    seedTask(db, "T-001");
+    const res = await post(app, "/api/commands/task/T-001/dependencies", {
+      depends_on: "not-an-array",
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ============================================================================
 // SSE integration — commands trigger SSE events
 // ============================================================================
 

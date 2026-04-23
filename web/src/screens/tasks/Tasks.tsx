@@ -144,6 +144,7 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
         <TaskDetailPane
           detail={taskDetail}
           listRow={selectedListRow}
+          allTasks={tasks}
           onEditConfig={
             onEditConfig ? () => onEditConfig(selectedId) : undefined
           }

@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { SlidersHorizontal, ClipboardList } from "lucide-react";
+import { useCallback, useState, useMemo } from "react";
+import { SlidersHorizontal, ClipboardList, Plus, X } from "lucide-react";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
   TaskStatus,
@@ -7,6 +7,8 @@ import type {
   GateConfig,
   AnyEvent,
 } from "@shared/events.js";
+import { canAddDependency } from "@shared/dependency.js";
+import { topoSort } from "@shared/dependency.js";
 import { useTaskTimelineQuery } from "../../hooks/useQueries.js";
 import { MergeDialog } from "../review/MergeDialog.js";
 import { Button } from "@web/src/components/ui/button";
@@ -14,6 +16,8 @@ import { Button } from "@web/src/components/ui/button";
 type TaskDetailPaneProps = {
   detail: TaskDetailRow;
   listRow?: TaskListRow;
+  /** All tasks in the project — needed for the dependency picker. */
+  allTasks?: TaskListRow[];
   onEditConfig?: () => void;
   onReview?: (taskId: string, attemptId: string) => void;
 };
@@ -287,12 +291,155 @@ function retryPolicySummary(detail: TaskDetailRow): string {
 }
 
 // ============================================================================
+// Dependency editing section
+// ============================================================================
+
+function DependencySection({
+  taskId,
+  status,
+  dependsOn,
+  allTasks,
+}: {
+  taskId: string;
+  status: TaskStatus;
+  dependsOn: string[];
+  allTasks: TaskListRow[];
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const editable = canAddDependency(status);
+
+  // Compute which tasks can be added as dependencies (no cycles, not self, not already a dep)
+  const availableTasks = useMemo(() => {
+    if (!editable || !pickerOpen) return [];
+    const existing = new Set(dependsOn);
+    return allTasks.filter((t) => {
+      if (t.task_id === taskId || existing.has(t.task_id)) return false;
+      // Check if adding this dependency would create a cycle
+      const proposedGraph = allTasks.map((at) => ({
+        id: at.task_id,
+        depends_on:
+          at.task_id === taskId
+            ? [...dependsOn, t.task_id]
+            : (at.depends_on ?? []),
+      }));
+      const result = topoSort(proposedGraph);
+      return result.stripped.length === 0;
+    });
+  }, [editable, pickerOpen, allTasks, taskId, dependsOn]);
+
+  const postDeps = useCallback(
+    (newDeps: string[]) => {
+      void fetch(`/api/commands/task/${taskId}/dependencies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ depends_on: newDeps }),
+      });
+    },
+    [taskId],
+  );
+
+  const handleAdd = useCallback(
+    (depId: string) => {
+      const newDeps = [...dependsOn, depId];
+      postDeps(newDeps);
+      setPickerOpen(false);
+    },
+    [dependsOn, postDeps],
+  );
+
+  const handleRemove = useCallback(
+    (depId: string) => {
+      const newDeps = dependsOn.filter((d) => d !== depId);
+      postDeps(newDeps);
+    },
+    [dependsOn, postDeps],
+  );
+
+  // Don't render at all if no deps and not editable
+  if (dependsOn.length === 0 && !editable) return null;
+
+  return (
+    <section className="mb-6">
+      <div className="flex items-center gap-2 mb-2">
+        <h3 className="text-xs uppercase tracking-wider text-text-tertiary">
+          Dependencies
+        </h3>
+        {editable && (
+          <button
+            type="button"
+            aria-label="Add dependency"
+            onClick={() => setPickerOpen((v) => !v)}
+            className="p-0.5 text-text-tertiary hover:text-text-primary transition-colors"
+          >
+            <Plus size={14} />
+          </button>
+        )}
+      </div>
+
+      {/* Current dependencies */}
+      {dependsOn.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {dependsOn.map((depId) => (
+            <span
+              key={depId}
+              className="inline-flex items-center gap-1 border border-border-default bg-bg-secondary px-2 py-1 text-xs font-mono"
+            >
+              {depId}
+              {editable && (
+                <button
+                  type="button"
+                  aria-label={`Remove dependency ${depId}`}
+                  onClick={() => handleRemove(depId)}
+                  className="p-0.5 text-text-tertiary hover:text-status-danger transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {dependsOn.length === 0 && !pickerOpen && (
+        <p className="text-xs text-text-tertiary">No dependencies.</p>
+      )}
+
+      {/* Picker dropdown */}
+      {pickerOpen && (
+        <div className="border border-border-default bg-bg-secondary max-h-40 overflow-y-auto">
+          {availableTasks.length === 0 ? (
+            <p className="text-xs text-text-tertiary p-2">
+              No tasks available to add.
+            </p>
+          ) : (
+            availableTasks.map((t) => (
+              <button
+                key={t.task_id}
+                type="button"
+                onClick={() => handleAdd(t.task_id)}
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-bg-tertiary transition-colors flex items-center gap-2"
+              >
+                <span className="font-mono text-text-secondary">
+                  {t.task_id}
+                </span>
+                <span className="text-text-primary truncate">{t.title}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================================
 // Main component
 // ============================================================================
 
 export function TaskDetailPane({
   detail,
   listRow,
+  allTasks,
   onEditConfig,
   onReview,
 }: TaskDetailPaneProps) {
@@ -412,6 +559,16 @@ export function TaskDetailPane({
               </p>
             </div>
           </section>
+        )}
+
+        {/* Dependency editing */}
+        {allTasks && (
+          <DependencySection
+            taskId={detail.task_id}
+            status={detail.status}
+            dependsOn={listRow?.depends_on ?? []}
+            allTasks={allTasks}
+          />
         )}
 
         {/* Phase pipeline */}

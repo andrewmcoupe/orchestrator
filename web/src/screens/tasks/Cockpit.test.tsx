@@ -331,6 +331,116 @@ describe("TaskListSidebar", () => {
 });
 
 // ============================================================================
+// Dependency editing — TaskDetailPane
+// ============================================================================
+
+describe("TaskDetailPane — dependency editing", () => {
+  it("shows dependency picker on draft tasks", () => {
+    const allTasks = [
+      makeListRow({ task_id: "T-010", title: "Dep A", status: "queued" }),
+      makeListRow({ task_id: "T-011", title: "Dep B", status: "queued" }),
+    ];
+    withQuery(
+      <TaskDetailPane
+        detail={makeDetailRow({ task_id: "T-010", status: "draft" })}
+        listRow={makeListRow({ task_id: "T-010", status: "draft" })}
+        allTasks={allTasks}
+      />,
+    );
+    expect(screen.getByText("Dependencies")).toBeDefined();
+    expect(screen.getByLabelText("Add dependency")).toBeDefined();
+  });
+
+  it("hides dependency picker on running tasks", () => {
+    const allTasks = [
+      makeListRow({ task_id: "T-010", title: "Running task", status: "running" }),
+    ];
+    withQuery(
+      <TaskDetailPane
+        detail={makeDetailRow({ task_id: "T-010", status: "running" })}
+        listRow={makeListRow({ task_id: "T-010", status: "running" })}
+        allTasks={allTasks}
+      />,
+    );
+    // Section heading should still show if there are deps, but no add button
+    expect(screen.queryByLabelText("Add dependency")).toBeNull();
+  });
+
+  it("prevents adding a dependency that would create a cycle", async () => {
+    const allTasks = [
+      makeListRow({ task_id: "T-A", title: "Task A", status: "draft", depends_on: [] }),
+      makeListRow({ task_id: "T-B", title: "Task B", status: "draft", depends_on: ["T-A"] }),
+    ];
+    withQuery(
+      <TaskDetailPane
+        detail={makeDetailRow({ task_id: "T-A", status: "draft" })}
+        listRow={makeListRow({ task_id: "T-A", status: "draft", depends_on: [] })}
+        allTasks={allTasks}
+      />,
+    );
+    // T-B depends on T-A, so T-A cannot depend on T-B
+    const addBtn = screen.getByLabelText("Add dependency");
+    fireEvent.click(addBtn);
+    // T-B should not appear as an option (it would create a cycle)
+    expect(screen.queryByText("Task B")).toBeNull();
+  });
+
+  it("removes a dependency when clicking the remove button", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}"));
+    const allTasks = [
+      makeListRow({ task_id: "T-010", title: "Main task", status: "draft", depends_on: ["T-011"] }),
+      makeListRow({ task_id: "T-011", title: "Dep task", status: "queued" }),
+    ];
+    withQuery(
+      <TaskDetailPane
+        detail={makeDetailRow({ task_id: "T-010", status: "draft" })}
+        listRow={makeListRow({ task_id: "T-010", status: "draft", depends_on: ["T-011"] })}
+        allTasks={allTasks}
+      />,
+    );
+    // Should show the dependency
+    expect(screen.getByText("T-011")).toBeDefined();
+    // Click remove
+    const removeBtn = screen.getByLabelText("Remove dependency T-011");
+    fireEvent.click(removeBtn);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/commands/task/T-010/dependencies",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ depends_on: [] }),
+      }),
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it("emits task.dependency.set when adding a dependency", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}"));
+    const allTasks = [
+      makeListRow({ task_id: "T-010", title: "Main task", status: "draft", depends_on: [] }),
+      makeListRow({ task_id: "T-011", title: "Dep task", status: "queued", depends_on: [] }),
+    ];
+    withQuery(
+      <TaskDetailPane
+        detail={makeDetailRow({ task_id: "T-010", status: "draft" })}
+        listRow={makeListRow({ task_id: "T-010", status: "draft", depends_on: [] })}
+        allTasks={allTasks}
+      />,
+    );
+    // Open picker and select a task
+    fireEvent.click(screen.getByLabelText("Add dependency"));
+    fireEvent.click(screen.getByText("Dep task"));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/commands/task/T-010/dependencies",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ depends_on: ["T-011"] }),
+      }),
+    );
+    fetchSpy.mockRestore();
+  });
+});
+
+// ============================================================================
 // TaskDetailPane tests
 // ============================================================================
 

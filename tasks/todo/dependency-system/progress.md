@@ -89,3 +89,14 @@
 - Unblocked tasks render normally with no dependency indicators.
 - Added 4 new tests in `Cockpit.test.tsx` covering all 4 PRD verification steps.
 - All tests pass (38/38 in Cockpit suite, 923/923 non-flaky across 60 files), typecheck clean.
+
+## 2026-04-23 — Frontend: Dependency Editing (PRD item: "Frontend — Dependency Editing")
+
+- Added `POST /api/commands/task/:id/dependencies` endpoint to `server/routes/commands.ts` with status gate (`canAddDependency`), cycle detection (`topoSort`), and `task.dependency.set` event emission.
+- Added `setDependenciesBody` Zod schema for request validation.
+- Added `DependencySection` component to `TaskDetailPane.tsx`: shows current dependencies as removable badges, "Add dependency" button opens a picker filtered to exclude self, existing deps, and cycle-causing candidates.
+- Added `useSetDependencies` mutation hook to `useTaskMutations.ts`.
+- Wired `allTasks` prop through `Tasks.tsx` → `TaskDetailPane` for dependency graph context.
+- Added 6 backend tests in `server/routes/commands.test.ts`: set deps, reject running, reject cycle, remove deps, 404, 400.
+- Added 5 frontend tests in `Cockpit.test.tsx`: picker on draft, hidden on running, cycle prevention, remove dep, add dep.
+- All tests pass (934/934 non-flaky across 60 files), typecheck clean.

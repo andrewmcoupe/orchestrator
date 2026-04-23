@@ -169,7 +169,7 @@
       "Removing a dependency updates the task card immediately",
       "Changes emit task.dependency.set events"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 8
   }
 ]
