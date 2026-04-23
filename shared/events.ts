@@ -236,12 +236,13 @@ export interface ContextManifest {
 
 export interface PrdIngested {
   prd_id: string;
-  path: string;
+  path: string | null;
   size_bytes: number;
   lines: number;
   extractor_model: string;
   extractor_prompt_version_id: string;
   content_hash: string;
+  content: string;
 }
 
 // ============================================================================
@@ -353,6 +354,15 @@ export interface TaskWorktreeCreated {
 export interface TaskWorktreeDeleted {
   task_id: string;
   path: string;
+}
+
+export interface TaskDependencySet {
+  task_id: string;
+  depends_on: string[];
+}
+
+export interface TaskUnblocked {
+  task_id: string;
 }
 
 // ============================================================================
@@ -878,6 +888,8 @@ export interface EventMap {
   "task.archived": TaskArchived;
   "task.worktree_created": TaskWorktreeCreated;
   "task.worktree_deleted": TaskWorktreeDeleted;
+  "task.dependency.set": TaskDependencySet;
+  "task.unblocked": TaskUnblocked;
 
   // Attempt
   "attempt.started": AttemptStarted;

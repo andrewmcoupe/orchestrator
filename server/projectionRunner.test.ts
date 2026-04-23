@@ -253,6 +253,7 @@ describe("projectionRunner", () => {
           extractor_model: "sonnet-4-6",
           extractor_prompt_version_id: "pv-1",
           content_hash: "abc123",
+          content: "# Test PRD",
         },
       });
 

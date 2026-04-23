@@ -258,6 +258,7 @@ export async function ingestPrd(
       extractor_model: INGEST_MODEL,
       extractor_prompt_version_id: INGEST_PROMPT_VERSION_ID,
       content_hash,
+      content,
     },
   });
 

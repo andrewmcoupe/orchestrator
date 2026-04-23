@@ -1,0 +1,175 @@
+[
+  {
+    "category": "Testing — Shared Types",
+    "description": "Tests for updated prd.ingested event type with nullable path and required content field, and new task.dependency.set and task.unblocked event types",
+    "steps_to_verify": [
+      "Test that prd.ingested event accepts path as string | null",
+      "Test that prd.ingested event requires content as string",
+      "Test that task.dependency.set event accepts task_id and depends_on array",
+      "Test that task.unblocked event accepts task_id"
+    ],
+    "passes": true,
+    "priority": 1
+  },
+  {
+    "category": "Testing — Ingest Pipeline",
+    "description": "Tests for ingestPrd accepting content directly and populating content in event payload for both input modes",
+    "steps_to_verify": [
+      "Test ingestPrd with { content: string } skips readFileSync and uses content directly",
+      "Test ingestPrd with { path: string } reads file and populates content in event payload",
+      "Test prd.ingested event has path: null when content mode is used",
+      "Test size_bytes, lines, and content_hash are computed from resolved content in both modes"
+    ],
+    "passes": false,
+    "priority": 1
+  },
+  {
+    "category": "Testing — API Route",
+    "description": "Tests for prdIngestBody schema accepting discriminated union of path or content",
+    "steps_to_verify": [
+      "Test POST /api/commands/prd/ingest with { path: string } is accepted",
+      "Test POST /api/commands/prd/ingest with { content: string } is accepted",
+      "Test POST with both path and content is rejected",
+      "Test POST with neither path nor content is rejected"
+    ],
+    "passes": false,
+    "priority": 1
+  },
+  {
+    "category": "Testing — Dependency System",
+    "description": "Tests for dependency validation, cycle detection, blocking logic, and unblocking on merge",
+    "steps_to_verify": [
+      "Test topological sort detects circular dependencies and strips offending edges",
+      "Test task with unmet dependencies has blocked: true in projection",
+      "Test task.merged event on a dependency triggers task.unblocked for dependents when all deps satisfied",
+      "Test task.merged on one of multiple dependencies does not unblock if others remain",
+      "Test dependencies cannot be added to tasks that are in_progress or beyond",
+      "Test cancelled/failed dependency keeps dependents blocked and raises a warning"
+    ],
+    "passes": false,
+    "priority": 1
+  },
+  {
+    "category": "Shared Types — Events",
+    "description": "Update shared/events.ts: make prd.ingested path nullable, add required content field. Add new event types task.dependency.set and task.unblocked",
+    "steps_to_verify": [
+      "prd.ingested type has path: string | null",
+      "prd.ingested type has content: string",
+      "task.dependency.set type exists with task_id and depends_on fields",
+      "task.unblocked type exists with task_id field"
+    ],
+    "passes": true,
+    "priority": 2
+  },
+  {
+    "category": "Backend — Ingest Pipeline",
+    "description": "Update ingestPrd() in server/ingest.ts to accept { path: string } | { content: string }, skip readFileSync for content mode, always populate content in prd.ingested event payload",
+    "steps_to_verify": [
+      "ingestPrd accepts { content: string } and uses it directly without file I/O",
+      "ingestPrd accepts { path: string } and reads file, populating content from resolved text",
+      "prd.ingested event always contains full content regardless of input mode",
+      "prd.ingested event has path: null when content is provided directly"
+    ],
+    "passes": false,
+    "priority": 3
+  },
+  {
+    "category": "Backend — API Route",
+    "description": "Update prdIngestBody Zod schema in server/routes/commands.ts to accept { path: string } | { content: string } discriminated union",
+    "steps_to_verify": [
+      "Schema validates { path: string } as valid",
+      "Schema validates { content: string } as valid",
+      "Schema rejects payloads with both path and content",
+      "Schema rejects payloads with neither path nor content"
+    ],
+    "passes": false,
+    "priority": 3
+  },
+  {
+    "category": "Backend — Extraction Prompt",
+    "description": "Update ingest prompt to have the LLM output depends_on references between draft tasks using temporary DT-* IDs, and remap to ULIDs server-side",
+    "steps_to_verify": [
+      "Ingest prompt instructs LLM to assign DT-* IDs to draft tasks",
+      "Ingest prompt instructs LLM to output depends_on arrays referencing DT-* IDs",
+      "Server remaps DT-* IDs to ULIDs in the same pass as proposition ID remapping"
+    ],
+    "passes": false,
+    "priority": 4
+  },
+  {
+    "category": "Backend — Cycle Detection",
+    "description": "Implement topological sort validation on extracted draft tasks. Strip cycle-causing edges and raise advisory pushback when cycles are detected",
+    "steps_to_verify": [
+      "Topological sort runs on draft_tasks after extraction",
+      "Cycle-causing edges are removed from depends_on arrays",
+      "Advisory pushback is raised explaining which dependency edges were stripped",
+      "Valid dependency graphs pass through unchanged"
+    ],
+    "passes": false,
+    "priority": 5
+  },
+  {
+    "category": "Backend — Projection",
+    "description": "Update proj_task_list projection to include depends_on (JSON array) and blocked (boolean) columns. Projection reacts to task.dependency.set, task.merged, and task.unblocked events",
+    "steps_to_verify": [
+      "proj_task_list has depends_on column storing JSON array of task IDs",
+      "proj_task_list has blocked column computed from dependency status",
+      "task.dependency.set event updates depends_on for the target task",
+      "task.merged event recalculates blocked status for all tasks depending on the merged task",
+      "task.unblocked event sets blocked to false for the target task"
+    ],
+    "passes": false,
+    "priority": 5
+  },
+  {
+    "category": "Backend — Phase Runner",
+    "description": "Phase runner skips blocked tasks — checks depends_on before starting execution, only runs tasks whose dependencies have all reached merged status",
+    "steps_to_verify": [
+      "Phase runner skips tasks where blocked is true",
+      "Phase runner starts tasks where all dependencies are merged",
+      "When a dependency fails/is cancelled, dependent tasks remain blocked and a warning event is emitted"
+    ],
+    "passes": false,
+    "priority": 6
+  },
+  {
+    "category": "Frontend — Ingest Form",
+    "description": "Replace side-by-side inputs with Base UI Tabs component. Two tabs: 'File Path' (default) and 'Paste Content'. Values preserved across tab switches. Only active tab's value submitted",
+    "steps_to_verify": [
+      "Base UI Tabs renders with 'File Path' as default active tab",
+      "File Path tab contains text input for path",
+      "Paste Content tab contains textarea for PRD markdown",
+      "Switching tabs preserves input values in both tabs",
+      "Ingest button is disabled when active tab's field is empty",
+      "File Path tab submits { path: string }",
+      "Paste Content tab submits { content: string }"
+    ],
+    "passes": false,
+    "priority": 7
+  },
+  {
+    "category": "Frontend — Task Card Dependencies",
+    "description": "Show dependency state on task cards: lock icon and 'Blocked by T-XXXXX' badge for blocked tasks with greyed-out styling. Show warning when blocked by a failed/cancelled dependency",
+    "steps_to_verify": [
+      "Blocked tasks display lock icon and greyed-out styling",
+      "Blocked tasks show 'Blocked by T-XXXXX' with direct dependency IDs only",
+      "Warning indicator appears when a dependency is in failed/cancelled state",
+      "Unblocked tasks render normally with no dependency indicators"
+    ],
+    "passes": false,
+    "priority": 8
+  },
+  {
+    "category": "Frontend — Dependency Editing",
+    "description": "Allow users to add/remove dependencies on tasks that haven't started yet. Prevent edits on in_progress or later tasks. Prevent cycles in the UI",
+    "steps_to_verify": [
+      "Dependency picker is available on task cards with status before in_progress",
+      "Dependency picker is disabled/hidden on in_progress or later tasks",
+      "Adding a dependency that would create a cycle is prevented with a user-facing message",
+      "Removing a dependency updates the task card immediately",
+      "Changes emit task.dependency.set events"
+    ],
+    "passes": false,
+    "priority": 8
+  }
+]

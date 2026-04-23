@@ -168,12 +168,13 @@ const errorCategorySchema = z.enum([
 
 const prdIngestedSchema = z.object({
   prd_id: z.string(),
-  path: z.string(),
+  path: z.string().nullable(),
   size_bytes: z.number(),
   lines: z.number(),
   extractor_model: z.string(),
   extractor_prompt_version_id: z.string(),
   content_hash: z.string(),
+  content: z.string(),
 });
 
 const propositionExtractedSchema = z.object({
@@ -274,6 +275,15 @@ const taskWorktreeCreatedSchema = z.object({
 const taskWorktreeDeletedSchema = z.object({
   task_id: z.string(),
   path: z.string(),
+});
+
+const taskDependencySetSchema = z.object({
+  task_id: z.string(),
+  depends_on: z.array(z.string()),
+});
+
+const taskUnblockedSchema = z.object({
+  task_id: z.string(),
 });
 
 const attemptStartedSchema = z.object({
@@ -710,6 +720,8 @@ export const eventPayloadSchemas: Record<EventType, z.ZodTypeAny> = {
   "task.archived": taskArchivedSchema,
   "task.worktree_created": taskWorktreeCreatedSchema,
   "task.worktree_deleted": taskWorktreeDeletedSchema,
+  "task.dependency.set": taskDependencySetSchema,
+  "task.unblocked": taskUnblockedSchema,
   "attempt.started": attemptStartedSchema,
   "attempt.paused": attemptPausedSchema,
   "attempt.resumed": attemptResumedSchema,
