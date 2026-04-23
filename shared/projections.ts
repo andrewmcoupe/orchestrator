@@ -1188,6 +1188,7 @@ export const PROJECTION_SUBSCRIPTIONS: Record<EventType, ProjectionName[]> = {
   "phase.context_packed": ["attempt"],
   "phase.completed": ["attempt"],
   "phase.failed": ["attempt"],
+  "phase.diff_snapshotted": ["attempt"],
 
   // Invocation
   "invocation.started": ["attempt"],
@@ -1420,6 +1421,21 @@ export function reduceAttempt(
             duration_ms: p.duration_ms,
             diff_hash: p.diff_hash,
           },
+        },
+        last_event_id: event.id,
+      };
+    }
+
+    case "phase.diff_snapshotted": {
+      if (!current) return null;
+      const p = event.payload;
+      const existing = current.phases[p.phase_name];
+      if (!existing) return { ...current, last_event_id: event.id };
+      return {
+        ...current,
+        phases: {
+          ...current.phases,
+          [p.phase_name]: { ...existing, diff_hash: p.diff_hash },
         },
         last_event_id: event.id,
       };

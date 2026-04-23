@@ -18,7 +18,7 @@
       "Zod schema validates the payload shape correctly",
       "Event is included in PROJECTION_SUBSCRIPTIONS for the attempt projection"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 1
   },
   {

@@ -121,3 +121,44 @@ describe("attempt.committed schema", () => {
     expect(schema.safeParse(rest).success).toBe(false);
   });
 });
+
+describe("phase.diff_snapshotted schema", () => {
+  const schema = eventPayloadSchemas["phase.diff_snapshotted"];
+
+  const valid = {
+    attempt_id: "01J000000000000000000001",
+    phase_name: "implementer",
+    diff_hash: "b".repeat(64),
+    base_sha: "c".repeat(40),
+  };
+
+  it("accepts valid payload", () => {
+    const result = schema.safeParse(valid);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts different phase names", () => {
+    const result = schema.safeParse({ ...valid, phase_name: "test-author" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects missing attempt_id", () => {
+    const { attempt_id: _, ...rest } = valid;
+    expect(schema.safeParse(rest).success).toBe(false);
+  });
+
+  it("rejects missing phase_name", () => {
+    const { phase_name: _, ...rest } = valid;
+    expect(schema.safeParse(rest).success).toBe(false);
+  });
+
+  it("rejects missing diff_hash", () => {
+    const { diff_hash: _, ...rest } = valid;
+    expect(schema.safeParse(rest).success).toBe(false);
+  });
+
+  it("rejects missing base_sha", () => {
+    const { base_sha: _, ...rest } = valid;
+    expect(schema.safeParse(rest).success).toBe(false);
+  });
+});

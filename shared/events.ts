@@ -438,6 +438,17 @@ export interface AttemptCommitted {
 }
 
 // ============================================================================
+// Phase diff snapshot events
+// ============================================================================
+
+export interface PhaseDiffSnapshotted {
+  attempt_id: string;
+  phase_name: string;
+  diff_hash: string;
+  base_sha: string;
+}
+
+// ============================================================================
 // Phase events (boundaries within an attempt)
 // ============================================================================
 
@@ -922,6 +933,7 @@ export interface EventMap {
   "phase.context_packed": PhaseContextPacked;
   "phase.completed": PhaseCompleted;
   "phase.failed": PhaseFailed;
+  "phase.diff_snapshotted": PhaseDiffSnapshotted;
 
   // Invocation
   "invocation.started": InvocationStarted;

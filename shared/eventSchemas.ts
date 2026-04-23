@@ -386,6 +386,13 @@ const phaseCompletedSchema = z.object({
   diff_hash: z.string().optional(),
 });
 
+const phaseDiffSnapshottedSchema = z.object({
+  attempt_id: z.string(),
+  phase_name: z.string(),
+  diff_hash: z.string(),
+  base_sha: z.string(),
+});
+
 const phaseFailedSchema = z.object({
   attempt_id: z.string(),
   phase_name: z.string(),
@@ -749,6 +756,7 @@ export const eventPayloadSchemas: Record<EventType, z.ZodTypeAny> = {
   "phase.context_packed": phaseContextPackedSchema,
   "phase.completed": phaseCompletedSchema,
   "phase.failed": phaseFailedSchema,
+  "phase.diff_snapshotted": phaseDiffSnapshottedSchema,
   "invocation.started": invocationStartedSchema,
   "invocation.assistant_message": invocationAssistantMessageSchema,
   "invocation.tool_called": invocationToolCalledSchema,
