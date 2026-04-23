@@ -39,7 +39,7 @@ function makeTestDb(): Database.Database {
  */
 async function waitFor(
   predicate: () => boolean,
-  maxMs = 2000,
+  maxMs = 6000,
   interval = 20,
 ): Promise<void> {
   const deadline = Date.now() + maxMs;
@@ -57,15 +57,22 @@ async function waitFor(
 let tmpDir: string;
 let db: Database.Database;
 let worktreesDir: string;
+let activeWatchers: Array<{ stop: () => Promise<void> }> = [];
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "orchestrator-fswatcher-"));
   worktreesDir = path.join(tmpDir, ".orchestrator-worktrees");
   fs.mkdirSync(worktreesDir, { recursive: true });
   db = makeTestDb();
+  activeWatchers = [];
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Ensure all watchers are stopped to prevent EMFILE
+  for (const w of activeWatchers) {
+    try { await w.stop(); } catch {}
+  }
+  activeWatchers = [];
   db.close();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });

@@ -197,6 +197,10 @@ export function buildArgs(opts: InvokeOptions): string[] {
     String(to.max_turns ?? 10),
   ];
 
+  if (to.bare) {
+    args.push("--bare");
+  }
+
   // Only add budget flag when a value is provided
   if (to.max_budget_usd != null) {
     args.push("--max-budget-usd", String(to.max_budget_usd));

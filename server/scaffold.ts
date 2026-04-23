@@ -23,7 +23,10 @@ import {
  */
 function getTemplatesDir(): string {
   // From dist/server/ we need to go up two levels to reach the package root
-  return path.join(import.meta.dirname, "..", "..", "templates");
+  const distPath = path.join(import.meta.dirname, "..", "..", "templates");
+  // In dev/test mode, import.meta.dirname is server/ — go up one level
+  const devPath = path.join(import.meta.dirname, "..", "templates");
+  return fs.existsSync(devPath) ? devPath : distPath;
 }
 
 /**

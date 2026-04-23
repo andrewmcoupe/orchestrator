@@ -447,7 +447,7 @@ describe("Task lifecycle — retry-with-feedback carries concerns", () => {
 });
 
 describe("Task lifecycle — approve with override", () => {
-  it("approve override=true sets overrode_audit and transitions to merged", async () => {
+  it("approve override=true sets overrode_audit and transitions to approved", async () => {
     const { db, app } = setup();
     seedRunningTask(db, "T-LC-APP", "A-APP-001");
 
@@ -460,7 +460,7 @@ describe("Task lifecycle — approve with override", () => {
     const body = (await res.json()) as AnyEvent[];
     expect(body[0].type).toBe("attempt.approved");
     expect((body[0].payload as { overrode_audit: boolean }).overrode_audit).toBe(true);
-    expect((body[1].payload as { to: string }).to).toBe("merged");
+    expect((body[1].payload as { to: string }).to).toBe("approved");
   });
 });
 

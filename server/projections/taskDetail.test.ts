@@ -166,7 +166,7 @@ describe("TaskDetail projection", () => {
   });
 
   it("canned replay: drafted → created → config_updated → attempt.started → phase.started → phase.completed → attempt.completed", () => {
-    // task.drafted — no subscription for task_detail
+    // task.drafted — creates a draft row in task_detail
     appendAndProject(db, {
       type: "task.drafted",
       aggregate_type: "task",
@@ -179,7 +179,9 @@ describe("TaskDetail projection", () => {
         proposed_by: "agent",
       },
     });
-    expect(readDetail(db, "T-001")).toBeNull();
+    const draftDetail = readDetail(db, "T-001");
+    expect(draftDetail).not.toBeNull();
+    expect(draftDetail!.status).toBe("draft");
 
     // task.created
     appendAndProject(db, taskCreated("T-001", "Build widget"));

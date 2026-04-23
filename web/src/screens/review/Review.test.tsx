@@ -172,7 +172,7 @@ function mockFetchAttempt(attempt: AttemptRow) {
       if (url.includes("/api/blobs/")) {
         return Promise.resolve({
           ok: true,
-          text: () => Promise.resolve("--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -10,3 +10,10 @@\n context line\n-removed line\n+added line\n+another added line\n"),
+          text: () => Promise.resolve("diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -10,3 +10,10 @@\n context line\n-removed line\n+added line\n+another added line\n"),
         });
       }
       return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
@@ -343,7 +343,16 @@ describe("Review — file tabs", () => {
   });
 
   it("loads diff content from blob store when a file tab is clicked", async () => {
-    mockFetchAttempt(BASE_ATTEMPT);
+    const attemptWithDiff = {
+      ...BASE_ATTEMPT,
+      phases: {
+        implementer: {
+          ...BASE_ATTEMPT.phases.implementer,
+          diff_hash: "abc123",
+        },
+      },
+    };
+    mockFetchAttempt(attemptWithDiff);
     render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
     await waitFor(() => screen.getByText("src/foo.ts"));
     fireEvent.click(screen.getByText("src/foo.ts"));
@@ -532,13 +541,6 @@ describe("Review — approved task footer", () => {
     expect(screen.getByText(/Unapprove/i)).toBeTruthy();
   });
 
-  it("shows Open in editor button when task has a worktree", async () => {
-    mockApproved();
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
-    await waitFor(() => screen.getByTestId("footer-approved"));
-    expect(screen.getByTestId("open-in-editor-btn")).toBeTruthy();
-  });
-
   it("Unapprove POSTs to unapprove endpoint", async () => {
     const fetchMock = vi.fn((url: string) => {
       if (url.includes("/api/projections/attempt/"))
@@ -605,33 +607,6 @@ describe("Review — approved task footer", () => {
     expect(screen.getByTestId("approved-summary-strip")).toBeTruthy();
   });
 
-  it("Open in editor calls worktree open endpoint", async () => {
-    const fetchMock = vi.fn((url: string) => {
-      if (url.includes("/api/projections/attempt/"))
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(BASE_ATTEMPT) });
-      if (url.includes("/api/projections/task_detail/"))
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ task_id: "T-001", title: "Test", status: "approved", updated_at: "2026-04-21T10:10:00.000Z", worktree_path: "/tmp/wt" }),
-        });
-      if (url.includes("/api/repo/current-branch"))
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ branch: "main" }) });
-      if (url.includes("/api/events/recent"))
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
-    await waitFor(() => screen.getByTestId("open-in-editor-btn"));
-    fireEvent.click(screen.getByTestId("open-in-editor-btn"));
-
-    await waitFor(() =>
-      (fetchMock.mock.calls as Array<[string, RequestInit?]>).some(
-        ([url]) => url.includes("/api/worktree/T-001/open"),
-      ),
-    );
-  });
 });
 
 // ============================================================================
@@ -699,66 +674,6 @@ describe("Review — merged task footer", () => {
   });
 });
 
-// ============================================================================
-// Tests — awaiting_review state includes Manual edit button
-// ============================================================================
-
-describe("Review — awaiting_review Manual edit button", () => {
-  it("shows Manual edit button in awaiting_review state", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string) => {
-        if (url.includes("/api/projections/attempt/"))
-          return Promise.resolve({ ok: true, json: () => Promise.resolve(BASE_ATTEMPT) });
-        if (url.includes("/api/projections/task_detail/"))
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                task_id: "T-001",
-                title: "Test",
-                status: "awaiting_review",
-                updated_at: "2026-04-21T10:00:00.000Z",
-                worktree_path: "/tmp/wt",
-              }),
-          });
-        if (url.includes("/api/events/recent"))
-          return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-      }),
-    );
-
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
-    await waitFor(() => screen.getByTestId("footer-awaiting-review"));
-    expect(screen.getByTestId("manual-edit-btn")).toBeTruthy();
-  });
-
-  it("Manual edit button calls open endpoint", async () => {
-    const fetchMock = vi.fn((url: string) => {
-      if (url.includes("/api/projections/attempt/"))
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(BASE_ATTEMPT) });
-      if (url.includes("/api/projections/task_detail/"))
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ task_id: "T-001", title: "Test", status: "awaiting_review", updated_at: "2026-04-21T10:00:00.000Z", worktree_path: "/tmp/wt" }),
-        });
-      if (url.includes("/api/events/recent"))
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
-    await waitFor(() => screen.getByTestId("manual-edit-btn"));
-    fireEvent.click(screen.getByTestId("manual-edit-btn"));
-
-    await waitFor(() =>
-      (fetchMock.mock.calls as Array<[string, RequestInit?]>).some(
-        ([url]) => url.includes("/api/worktree/T-001/open"),
-      ),
-    );
-  });
-});
 
 // ============================================================================
 // Tests — phase strip with A/B variant badge

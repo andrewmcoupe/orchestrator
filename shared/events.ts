@@ -155,6 +155,9 @@ export interface PhaseConfig {
   ab_experiment_id?: string;
   transport_options: TransportOptions;
   context_policy: ContextPolicy;
+  /** Gate names to skip after this phase completes. Useful for phases
+   *  like test-author where certain gates (e.g. "test") are expected to fail. */
+  skip_gates?: string[];
 }
 
 export type TransportOptions =

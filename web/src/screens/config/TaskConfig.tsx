@@ -191,11 +191,13 @@ function PhaseCard({
   phase,
   index,
   presetPhase,
+  gateNames,
   onChange,
 }: {
   phase: PhaseConfig;
   index: number;
   presetPhase?: PhaseConfig;
+  gateNames: string[];
   onChange: (index: number, updated: PhaseConfig) => void;
 }) {
   const update = (patch: Partial<PhaseConfig>) => onChange(index, { ...phase, ...patch });
@@ -381,6 +383,38 @@ function PhaseCard({
             }
             className="w-24 border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
           />
+        </div>
+      )}
+
+      {/* Skip gates */}
+      {gateNames.length > 0 && (
+        <div className="mt-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="text-xs text-text-secondary">Skip gates</span>
+            {isOverride("skip_gates") && <OverridePill />}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {gateNames.map((name) => {
+              const skipped = phase.skip_gates?.includes(name) ?? false;
+              return (
+                <label key={name} className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={skipped}
+                    onChange={(e) => {
+                      const current = phase.skip_gates ?? [];
+                      const next = e.target.checked
+                        ? [...current, name]
+                        : current.filter((g) => g !== name);
+                      update({ skip_gates: next.length > 0 ? next : undefined });
+                    }}
+                    className="h-3.5 w-3.5 accent-status-warning"
+                  />
+                  <span className="text-xs font-mono text-text-primary">{name}</span>
+                </label>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -1032,6 +1066,7 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
                     phase={phase}
                     index={i}
                     presetPhase={selectedPreset?.config.phases.find((p) => p.name === phase.name)}
+                    gateNames={editedConfig.gates.map((g) => g.name)}
                     onChange={updatePhase}
                   />
                 ))}

@@ -131,7 +131,8 @@ describe("Providers screen", () => {
     render(<Providers />);
     await waitFor(() => {
       expect(screen.getAllByText("healthy").length).toBeGreaterThan(0);
-      expect(screen.getAllByText("down").length).toBeGreaterThan(0);
+      // CLI providers show "not found" instead of "down"
+      expect(screen.getAllByText("not found").length).toBeGreaterThan(0);
     });
   });
 
@@ -160,7 +161,7 @@ describe("Providers screen", () => {
   });
 
   it("shows auth ok badge when auth_present is true", async () => {
-    setupFetch([healthRow({ auth_present: true })]);
+    setupFetch([healthRow({ auth_method: "env_var", auth_present: true })]);
     render(<Providers />);
     await waitFor(() => {
       expect(screen.getByText(/auth ok/i)).toBeTruthy();
@@ -168,7 +169,7 @@ describe("Providers screen", () => {
   });
 
   it("shows auth missing badge when auth not present", async () => {
-    setupFetch([healthRow({ auth_present: false })]);
+    setupFetch([healthRow({ auth_method: "env_var", auth_present: false })]);
     render(<Providers />);
     await waitFor(() => {
       expect(screen.getByText(/auth missing/i)).toBeTruthy();

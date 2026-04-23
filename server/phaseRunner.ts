@@ -94,6 +94,8 @@ export type PhaseRunnerDeps = {
     attempt_id: string,
     worktree_path: string,
   ) => Promise<GateRunResult>;
+  /** Override diff capture for testing — returns the diff string (empty = no changes). */
+  diffCapturer?: (worktree_path: string) => Promise<string>;
 };
 
 // ============================================================================
@@ -294,6 +296,13 @@ export async function runAttempt(
   const doApiInvoke: AdapterInvokeFn =
     deps?.apiInvoker ??
     ((opts, _blobStore) => apiInvoke(opts as ApiInvokeOptions));
+  const doDiffCapture = deps?.diffCapturer ?? (async (wp: string) => {
+    const { stdout } = await execa(
+      "git", ["diff", "HEAD", "--", ".", ":!node_modules"],
+      { cwd: wp, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return stdout;
+  });
 
   try {
     // -----------------------------------------------------------------------
@@ -638,11 +647,60 @@ export async function runAttempt(
       // Check kill after invocation
       if (state.aborted) break phaseLoop;
 
-      // ----- run gates -----
+      const phaseDuration = Date.now() - phaseStartedAt;
+
+      // ----- capture worktree diff and store in blob store -----
+      let diff_hash: string | undefined;
+      if (worktree_path) {
+        try {
+          const diffOutput = await doDiffCapture(worktree_path);
+          if (diffOutput.trim()) {
+            diff_hash = bs.putBlob(diffOutput).hash;
+            anyPhaseProducedDiff = true;
+          }
+        } catch {
+          // Diff capture is best-effort — don't fail the phase
+        }
+      }
+
+      // ----- phase.completed -----
+      // Emitted before gates so the timeline reads naturally:
+      //   phase.completed → gate.started → gate.passed/failed
+      appendAndProject(db, {
+        type: "phase.completed",
+        aggregate_type: "attempt",
+        aggregate_id: attempt_id,
+        actor: systemActor,
+        correlation_id: attempt_id,
+        payload: {
+          attempt_id,
+          phase_name: phase.name,
+          outcome: phaseOutcome,
+          tokens_in: phaseTokensIn,
+          tokens_out: phaseTokensOut,
+          cost_usd: phaseCostUsd,
+          duration_ms: phaseDuration,
+          diff_hash,
+        },
+      });
+
+      totalTokensIn += phaseTokensIn;
+      totalTokensOut += phaseTokensOut;
+      totalCostUsd += phaseCostUsd;
+
+      if (phaseOutcome === "failed") {
+        // Only fall back to generic "failed" if the auditor didn't
+        // already set a more specific outcome (rejected / revised / escalated).
+        if (finalOutcome === "approved") finalOutcome = "failed";
+        break phaseLoop;
+      }
+
+      // ----- run gates (after phase.completed) -----
       let gatesFailed = false;
+      const skippedGates = new Set(phase.skip_gates ?? []);
       for (const gate of config.gates) {
+        if (skippedGates.has(gate.name)) continue;
         if (state.aborted) break;
-        // Pause between gates too
         while (state.paused && !state.aborted) {
           await new Promise<void>((r) => setTimeout(r, 50));
         }
@@ -658,54 +716,7 @@ export async function runAttempt(
 
       if (state.aborted) break phaseLoop;
 
-      const phaseDuration = Date.now() - phaseStartedAt;
-      const resolvedOutcome: "success" | "failed" | "aborted" = gatesFailed
-        ? "failed"
-        : phaseOutcome;
-
-      // ----- capture worktree diff and store in blob store -----
-      let diff_hash: string | undefined;
-      if (worktree_path) {
-        try {
-          const { stdout: diffOutput } = await execa(
-            "git", ["diff", "HEAD"],
-            { cwd: worktree_path, stdio: ["ignore", "pipe", "pipe"] },
-          );
-          if (diffOutput.trim()) {
-            diff_hash = bs.putBlob(diffOutput).hash;
-            anyPhaseProducedDiff = true;
-          }
-        } catch {
-          // Diff capture is best-effort — don't fail the phase
-        }
-      }
-
-      // ----- phase.completed -----
-      appendAndProject(db, {
-        type: "phase.completed",
-        aggregate_type: "attempt",
-        aggregate_id: attempt_id,
-        actor: systemActor,
-        correlation_id: attempt_id,
-        payload: {
-          attempt_id,
-          phase_name: phase.name,
-          outcome: resolvedOutcome,
-          tokens_in: phaseTokensIn,
-          tokens_out: phaseTokensOut,
-          cost_usd: phaseCostUsd,
-          duration_ms: phaseDuration,
-          diff_hash,
-        },
-      });
-
-      totalTokensIn += phaseTokensIn;
-      totalTokensOut += phaseTokensOut;
-      totalCostUsd += phaseCostUsd;
-
-      if (gatesFailed || phaseOutcome === "failed") {
-        // Only fall back to generic "failed" if the auditor (or gates) didn't
-        // already set a more specific outcome (rejected / revised / escalated).
+      if (gatesFailed) {
         if (finalOutcome === "approved") finalOutcome = "failed";
         break phaseLoop;
       }
@@ -719,8 +730,9 @@ export async function runAttempt(
     // actual commits to merge from.
     if (worktree_path && !state.aborted) {
       try {
-        // Stage all changes in the worktree
-        await execa("git", ["add", "-A"], {
+        // Stage all changes in the worktree (exclude node_modules symlink
+        // which was created by worktree setup and must not be committed)
+        await execa("git", ["add", "-A", "--", ".", ":!node_modules"], {
           cwd: worktree_path,
           stdio: ["ignore", "pipe", "pipe"],
         });

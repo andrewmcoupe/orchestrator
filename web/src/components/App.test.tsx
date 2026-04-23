@@ -109,8 +109,8 @@ describe("App shell", () => {
 
   it("provider pills show status dots with fallback unknown status", () => {
     renderApp();
-    const claudeBtn = screen.getByText("claude").closest("button");
-    const dot = claudeBtn?.querySelector("span.rounded-full");
+    const claudeEl = screen.getByText("claude").closest("span");
+    const dot = claudeEl?.querySelector("span.rounded-full");
     // Fallback providers have "unknown" status which maps to muted
     expect(dot?.className).toContain("bg-status-muted");
   });
