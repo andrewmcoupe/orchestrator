@@ -60,11 +60,22 @@ function safeGet<T>(db: Database.Database, sql: string, params: unknown[] = []):
 // Row parsers — convert raw SQLite rows (JSON text) to typed objects
 // ============================================================================
 
-type RawTaskListRow = Omit<TaskListRow, "phase_models"> & { phase_models_json: string | null };
+type RawTaskListRow = Omit<TaskListRow, "phase_models" | "auto_merged" | "depends_on" | "blocked"> & {
+  phase_models_json: string | null;
+  auto_merged: number;
+  depends_on_json: string | null;
+  blocked: number;
+};
 
 function parseTaskListRow(raw: RawTaskListRow): TaskListRow {
-  const { phase_models_json, ...rest } = raw;
-  return { ...rest, phase_models: phase_models_json ? JSON.parse(phase_models_json) : {} };
+  const { phase_models_json, auto_merged: autoMergedInt, depends_on_json, blocked: blockedInt, ...rest } = raw;
+  return {
+    ...rest,
+    phase_models: phase_models_json ? JSON.parse(phase_models_json) : {},
+    auto_merged: autoMergedInt === 1,
+    depends_on: depends_on_json ? JSON.parse(depends_on_json) : [],
+    blocked: blockedInt === 1,
+  };
 }
 
 type RawTaskDetailRow = {

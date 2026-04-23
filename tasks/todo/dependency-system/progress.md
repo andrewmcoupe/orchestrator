@@ -51,3 +51,14 @@
 - Valid dependency graphs pass through unchanged.
 - Added 4 new tests in `server/ingest.test.ts` covering 2-node cycle stripping, advisory pushback emission, valid graph passthrough, and 3-node cycle minimum edge stripping.
 - All tests pass (22/22 in ingest suite), typecheck clean.
+
+## 2026-04-23 — Projection: depends_on and blocked columns (PRD item: "Backend — Projection")
+
+- Added `depends_on_json` (TEXT, default `'[]'`) and `blocked` (INTEGER, default 0) columns to `proj_task_list` DDL in `server/projections/taskList.ts`.
+- Updated `RawTaskListRow`, `rowFromRaw`, and `write()` to serialize/deserialize the new fields.
+- Wired `task.dependency.set` and `task.unblocked` to `["task_list"]` in `PROJECTION_SUBSCRIPTIONS`.
+- Created `server/dependencyReactor.ts`: listens for `task.merged` / `task.auto_merged` on `eventBus`, queries dependents via `depends_on_json LIKE`, checks all deps merged, emits `task.unblocked` via `appendAndProject`.
+- Added `"dependency_reactor"` to the `Actor` system component union.
+- Updated `server/routes/projections.ts` `parseTaskListRow` to parse `depends_on_json` and `blocked` for the API response.
+- Added 7 new tests in `server/projections/taskList.test.ts` covering all 5 PRD verification steps plus defaults.
+- All tests pass (906/906 across 59 files), typecheck clean.

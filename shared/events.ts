@@ -72,7 +72,8 @@ export type Actor =
         | "scheduler"
         | "watcher"
         | "classifier"
-        | "gate_runner";
+        | "gate_runner"
+        | "dependency_reactor";
     }
   | { kind: "cli"; transport: Transport; invocation_id: string };
 

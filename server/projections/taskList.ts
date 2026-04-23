@@ -15,9 +15,11 @@ import { registerProjection, type Projection } from "../projectionRunner.js";
 // Raw DB row (phase_models stored as JSON text)
 // ============================================================================
 
-type RawTaskListRow = Omit<TaskListRow, "phase_models" | "auto_merged"> & {
+type RawTaskListRow = Omit<TaskListRow, "phase_models" | "auto_merged" | "depends_on" | "blocked"> & {
   phase_models_json: string | null;
   auto_merged: number;
+  depends_on_json: string | null;
+  blocked: number;
 };
 
 // ============================================================================
@@ -92,11 +94,13 @@ function resolvePropositionId(
 }
 
 function rowFromRaw(raw: RawTaskListRow): TaskListRow {
-  const { phase_models_json, auto_merged: autoMergedInt, ...rest } = raw;
+  const { phase_models_json, auto_merged: autoMergedInt, depends_on_json, blocked: blockedInt, ...rest } = raw;
   return {
     ...rest,
     phase_models: phase_models_json ? JSON.parse(phase_models_json) : {},
     auto_merged: autoMergedInt === 1,
+    depends_on: depends_on_json ? JSON.parse(depends_on_json) : [],
+    blocked: blockedInt === 1,
   };
 }
 
@@ -119,6 +123,8 @@ export const taskListProjection: Projection<TaskListRow> = {
       pushback_count     INTEGER NOT NULL DEFAULT 0,
       phase_models_json  TEXT,
       auto_merged        INTEGER NOT NULL DEFAULT 0,
+      depends_on_json    TEXT NOT NULL DEFAULT '[]',
+      blocked            INTEGER NOT NULL DEFAULT 0,
       last_event_ts      TEXT NOT NULL,
       updated_at         TEXT NOT NULL
     );
@@ -149,8 +155,9 @@ export const taskListProjection: Projection<TaskListRow> = {
     db.prepare(
       `INSERT INTO proj_task_list
          (task_id, prd_id, title, status, current_phase, current_attempt_id,
-          attempt_count, pushback_count, phase_models_json, auto_merged, last_event_ts, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          attempt_count, pushback_count, phase_models_json, auto_merged,
+          depends_on_json, blocked, last_event_ts, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(task_id) DO UPDATE SET
          prd_id             = excluded.prd_id,
          title              = excluded.title,
@@ -161,6 +168,8 @@ export const taskListProjection: Projection<TaskListRow> = {
          pushback_count     = excluded.pushback_count,
          phase_models_json  = excluded.phase_models_json,
          auto_merged        = excluded.auto_merged,
+         depends_on_json    = excluded.depends_on_json,
+         blocked            = excluded.blocked,
          last_event_ts      = excluded.last_event_ts,
          updated_at         = excluded.updated_at`,
     ).run(
@@ -174,6 +183,8 @@ export const taskListProjection: Projection<TaskListRow> = {
       next.pushback_count,
       JSON.stringify(next.phase_models),
       next.auto_merged ? 1 : 0,
+      JSON.stringify(next.depends_on ?? []),
+      next.blocked ? 1 : 0,
       next.last_event_ts,
       next.updated_at,
     );

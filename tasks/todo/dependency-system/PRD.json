@@ -118,7 +118,7 @@
       "task.merged event recalculates blocked status for all tasks depending on the merged task",
       "task.unblocked event sets blocked to false for the target task"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 5
   },
   {
