@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback, useRef } from "react";
-import { useTaskList, useTaskDetail, useEventStore } from "../../store/eventStore.js";
-import { useSelectedTaskId } from "../../hooks/useSelectedTaskId.js";
-import { TaskListSidebar } from "./TaskListSidebar.js";
-import { TaskDetailPane } from "./TaskDetailPane.js";
-import { MergeDialog } from "../review/MergeDialog.js";
+import {useCallback, useEffect, useRef, useState} from "react";
+import {useEventStore, useTaskDetail, useTaskList,} from "../../store/eventStore.js";
+import {useSelectedTaskId} from "../../hooks/useSelectedTaskId.js";
+import {TaskListSidebar} from "./TaskListSidebar.js";
+import {TaskDetailPane} from "./TaskDetailPane.js";
+import {MergeDialog} from "../review/MergeDialog.js";
 
 type TasksProps = {
   onIngest?: () => void;
@@ -31,15 +31,19 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const branchPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const approvedCount = tasks.filter((t) => APPROVED_STATUSES.has(t.status)).length;
+  const approvedCount = tasks.filter((t) =>
+    APPROVED_STATUSES.has(t.status),
+  ).length;
 
   const fetchCurrentBranch = useCallback(() => {
     fetch("/api/repo/current-branch")
-      .then((r) => r.ok ? r.json() : null)
+      .then((r) => (r.ok ? r.json() : null))
       .then((data: { branch: string } | null) => {
         if (data?.branch) setCurrentBranch(data.branch);
       })
-      .catch(() => { /* ignore network errors */ });
+      .catch(() => {
+        /* ignore network errors */
+      });
   }, []);
 
   useEffect(() => {
@@ -71,7 +75,9 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
   }, [selectedId, taskDetail, applyEvent]);
 
   // Find matching list row for the selected task
-  const selectedListRow = selectedId ? tasks.find((t) => t.task_id === selectedId) : undefined;
+  const selectedListRow = selectedId
+    ? tasks.find((t) => t.task_id === selectedId)
+    : undefined;
 
   // ── Merge dialog state (opened via Cmd+Shift+M shortcut) ─────────────────
   const [mergeDialogTask, setMergeDialogTask] = useState<{
@@ -138,11 +144,14 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
         <TaskDetailPane
           detail={taskDetail}
           listRow={selectedListRow}
-          onEditConfig={onEditConfig ? () => onEditConfig(selectedId) : undefined}
+          onEditConfig={
+            onEditConfig ? () => onEditConfig(selectedId) : undefined
+          }
           onReview={onReview}
         />
       ) : (
         <div className="flex-1 flex items-center justify-center">
+
           <p className="text-sm text-text-tertiary">
             {tasks.length > 0
               ? "Select a task to view details."

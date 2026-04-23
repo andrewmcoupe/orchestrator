@@ -362,8 +362,9 @@ export async function runAttempt(
     let totalTokensIn = 0;
     let totalTokensOut = 0;
     let totalCostUsd = 0;
-    let finalOutcome: "approved" | "rejected" | "revised" | "escalated" | "failed" =
+    let finalOutcome: "approved" | "rejected" | "revised" | "escalated" | "failed" | "no_changes" =
       "approved";
+    let anyPhaseProducedDiff = false;
 
     // Auto-merge tracking — accumulated across all phases
     let auditorVerdict: "approve" | "revise" | "reject" | undefined;
@@ -381,6 +382,12 @@ export async function runAttempt(
         await new Promise<void>((r) => setTimeout(r, 50));
       }
       if (state.aborted) break phaseLoop;
+
+      // Skip auditor when no prior phase produced a diff — nothing to audit
+      if (phase.name === "auditor" && !anyPhaseProducedDiff) {
+        finalOutcome = "no_changes";
+        break phaseLoop;
+      }
 
       const phaseStartedAt = Date.now();
 
@@ -666,6 +673,7 @@ export async function runAttempt(
           );
           if (diffOutput.trim()) {
             diff_hash = bs.putBlob(diffOutput).hash;
+            anyPhaseProducedDiff = true;
           }
         } catch {
           // Diff capture is best-effort — don't fail the phase
@@ -778,6 +786,9 @@ export async function runAttempt(
           // Auto-merge succeeded — task.auto_approved and task.merged already emitted
           // by handleAutoMerge and mergeTask. Set status to merged.
           newStatus = "merged";
+        } else if (finalOutcome === "no_changes") {
+          // No diff produced — nothing to review, return to draft
+          newStatus = "draft";
         } else {
           // Normal flow: approved / revised → awaiting_review, others → rejected
           newStatus =

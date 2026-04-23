@@ -312,7 +312,7 @@ export interface AttemptRow {
   task_id: string;
   attempt_number: number;
   status: AttemptStatus;
-  outcome?: "approved" | "rejected" | "revised" | "escalated" | "failed";
+  outcome?: "approved" | "rejected" | "revised" | "escalated" | "failed" | "no_changes";
   started_at: string;
   completed_at?: string;
   duration_ms?: number;

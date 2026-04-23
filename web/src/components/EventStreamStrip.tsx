@@ -83,7 +83,7 @@ function eventTypeColor(type: string): string {
   if (type.startsWith("attempt.completed") || type.startsWith("attempt.approved")) return "text-status-healthy";
   if (type.startsWith("phase.")) return "text-status-warning";
   if (type.startsWith("invocation.")) return "text-text-secondary";
-  return "text-text-primary";
+  return "text-primary";
 }
 
 function EventRow({ event, selected, onClick }: { event: AnyEvent; selected?: boolean; onClick: () => void }) {
@@ -101,14 +101,14 @@ function EventRow({ event, selected, onClick }: { event: AnyEvent; selected?: bo
       type="button"
       onClick={onClick}
       className={`flex items-center gap-3 px-4 py-1 font-mono text-[11px] leading-5 w-full text-left cursor-pointer transition-colors ${
-        selected ? "bg-bg-secondary" : "hover:bg-bg-secondary/50"
+        selected ? "bg-secondary" : "hover:bg-secondary/50"
       }`}
     >
       <span className="text-text-tertiary w-16 shrink-0">{formatTime(event.ts)}</span>
       <span className={`w-52 shrink-0 truncate font-medium ${eventTypeColor(event.type)}`}>
         {event.type}
       </span>
-      <span className="text-text-secondary truncate">{detail}</span>
+      <span className="text-primary/40 truncate">{detail}</span>
     </button>
   );
 }

@@ -1,9 +1,15 @@
 import { useCallback, useState } from "react";
 import { SlidersHorizontal, ClipboardList } from "lucide-react";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
-import type { TaskStatus, PhaseConfig, GateConfig, AnyEvent } from "@shared/events.js";
+import type {
+  TaskStatus,
+  PhaseConfig,
+  GateConfig,
+  AnyEvent,
+} from "@shared/events.js";
 import { useTaskTimelineQuery } from "../../hooks/useQueries.js";
 import { MergeDialog } from "../review/MergeDialog.js";
+import { Button } from "@web/src/components/ui/button";
 
 type TaskDetailPaneProps = {
   detail: TaskDetailRow;
@@ -45,8 +51,14 @@ function derivePhaseStatus(
   currentPhase?: string,
   taskStatus?: TaskStatus,
 ): PhaseStatus {
-  if (!taskStatus || taskStatus === "draft" || taskStatus === "queued") return "pending";
-  if (taskStatus === "merged" || taskStatus === "awaiting_review" || taskStatus === "rejected") return "done";
+  if (!taskStatus || taskStatus === "draft" || taskStatus === "queued")
+    return "pending";
+  if (
+    taskStatus === "merged" ||
+    taskStatus === "awaiting_review" ||
+    taskStatus === "rejected"
+  )
+    return "done";
   if (currentPhase === phase.name) return "running";
   // If the task is running, phases before the current one are done
   if (taskStatus === "running" && currentPhase) {
@@ -80,18 +92,29 @@ function PhaseBox({
   currentPhase?: string;
   taskStatus?: TaskStatus;
 }) {
-  const status = derivePhaseStatus(phase, enabledPhases, currentPhase, taskStatus);
+  const status = derivePhaseStatus(
+    phase,
+    enabledPhases,
+    currentPhase,
+    taskStatus,
+  );
   const model = phase.model.split("/").pop() ?? phase.model;
 
   return (
-    <div className={`flex-1 border px-4 py-3 min-w-[140px] ${PHASE_STATUS_STYLES[status]}`}>
+    <div
+      className={`flex-1 border px-4 py-3 min-w-[140px] ${PHASE_STATUS_STYLES[status]}`}
+    >
       <div className="flex items-center gap-1.5 mb-1">
         {status === "running" ? (
           <span className="inline-block h-2.5 w-2.5 rounded-full border-[1.5px] border-status-warning border-t-transparent animate-spin" />
         ) : (
-          <span className={`inline-block h-2 w-2 rounded-full ${PHASE_DOT[status]}`} />
+          <span
+            className={`inline-block h-2 w-2 rounded-full ${PHASE_DOT[status]}`}
+          />
         )}
-        <span className="text-sm font-medium text-text-primary">{phase.name}</span>
+        <span className="text-sm font-medium text-text-primary">
+          {phase.name}
+        </span>
       </div>
       <div className="text-xs text-text-secondary font-mono">
         {model} &middot; {phase.prompt_version_id || "v?"}
@@ -117,7 +140,10 @@ function GatePill({ gate }: { gate: GateConfig }) {
 // Action buttons
 // ============================================================================
 
-const ACTIONS_BY_STATUS: Record<string, { label: string; action: string; destructive?: boolean }[]> = {
+const ACTIONS_BY_STATUS: Record<
+  string,
+  { label: string; action: string; destructive?: boolean }[]
+> = {
   draft: [
     { label: "Start", action: "start" },
     { label: "Archive", action: "archive", destructive: true },
@@ -151,16 +177,24 @@ const ACTIONS_BY_STATUS: Record<string, { label: string; action: string; destruc
     { label: "Retry", action: "retry" },
     { label: "Archive", action: "archive", destructive: true },
   ],
-  merged: [
-    { label: "Archive", action: "archive", destructive: true },
-  ],
+  merged: [{ label: "Archive", action: "archive", destructive: true }],
   revising: [
     { label: "Pause", action: "pause" },
     { label: "Kill", action: "kill" },
   ],
 };
 
-function ActionButtons({ taskId, attemptId, status, onMerge }: { taskId: string; attemptId?: string; status: TaskStatus; onMerge?: () => void }) {
+function ActionButtons({
+  taskId,
+  attemptId,
+  status,
+  onMerge,
+}: {
+  taskId: string;
+  attemptId?: string;
+  status: TaskStatus;
+  onMerge?: () => void;
+}) {
   const actions = ACTIONS_BY_STATUS[status] ?? [];
 
   const handleAction = useCallback(
@@ -223,18 +257,14 @@ function ActionButtons({ taskId, attemptId, status, onMerge }: { taskId: string;
   return (
     <div className="flex gap-2">
       {actions.map((a) => (
-        <button
+        <Button
           key={a.action}
           type="button"
           onClick={() => handleAction(a.action)}
-          className={`border px-4 py-1.5 text-sm transition-colors cursor-pointer ${
-            a.destructive
-              ? "border-status-danger/30 text-status-danger hover:bg-status-danger/10"
-              : "border-border-default text-text-primary hover:bg-bg-secondary"
-          }`}
+          variant={a.destructive ? "destructive" : "outline"}
         >
           {a.label}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -260,49 +290,57 @@ function retryPolicySummary(detail: TaskDetailRow): string {
 // Main component
 // ============================================================================
 
-export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: TaskDetailPaneProps) {
+export function TaskDetailPane({
+  detail,
+  listRow,
+  onEditConfig,
+  onReview,
+}: TaskDetailPaneProps) {
   const enabledPhases = detail.config.phases.filter((p) => p.enabled);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
 
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Action toolbar */}
-      <div className="flex items-center justify-between px-6 py-2.5 border-b border-border-muted bg-bg-secondary shrink-0">
+      <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-6 py-2.5 border-b border-border-muted bg-bg-secondary shrink-0">
         <div className="flex items-center gap-2">
-          {onEditConfig && detail.status !== "merged" && detail.status !== "archived" && (
-            <button
-              type="button"
-              onClick={onEditConfig}
-              title="Edit config"
-              className="flex items-center gap-1.5 border border-border-default px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              Config
-            </button>
-          )}
-          {onReview && detail.current_attempt_id && (
-            detail.status === "awaiting_review" ? (
-              <button
+          {onEditConfig &&
+            detail.status !== "merged" &&
+            detail.status !== "archived" && (
+              <Button
                 type="button"
-                onClick={() => onReview(detail.task_id, detail.current_attempt_id!)}
-                title="Review diff and auditor verdict"
-                className="flex items-center gap-1.5 border border-status-warning/40 bg-status-warning/5 px-3 py-1.5 text-xs text-status-warning hover:bg-status-warning/10 transition-colors cursor-pointer"
+                onClick={onEditConfig}
+                variant={"outline"}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Config
+              </Button>
+            )}
+          {onReview &&
+            detail.current_attempt_id &&
+            (detail.status === "awaiting_review" ? (
+              <Button
+
+                onClick={() =>
+                  onReview(detail.task_id, detail.current_attempt_id!)
+                }
+
               >
                 <ClipboardList className="h-3.5 w-3.5" />
                 Review
-              </button>
-            ) : (detail.status === "merged" || detail.status === "rejected") ? (
-              <button
+              </Button>
+            ) : detail.status === "merged" || detail.status === "rejected" ? (
+              <Button
                 type="button"
-                onClick={() => onReview(detail.task_id, detail.current_attempt_id!)}
+                onClick={() =>
+                  onReview(detail.task_id, detail.current_attempt_id!)
+                }
                 title="View diff from last attempt"
-                className="flex items-center gap-1.5 border border-border-default px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-tertiary transition-colors cursor-pointer"
               >
                 <ClipboardList className="h-3.5 w-3.5" />
                 View diff
-              </button>
-            ) : null
-          )}
+              </Button>
+            ) : null)}
         </div>
         <ActionButtons
           taskId={detail.task_id}
@@ -315,8 +353,12 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
       {/* Task identity */}
       <div className="px-6 pt-5 pb-6">
         <div className="flex items-center gap-3 mb-1">
-          <span className="font-mono text-sm text-text-secondary">{detail.task_id}</span>
-          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_PILL[detail.status]}`}>
+          <span className="font-mono text-sm text-text-secondary">
+            {detail.task_id}
+          </span>
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_PILL[detail.status]}`}
+          >
             {detail.status}
           </span>
           {detail.worktree_branch && (
@@ -325,7 +367,9 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
             </span>
           )}
         </div>
-        <h2 className="text-xl font-semibold text-text-primary">{detail.title}</h2>
+        <h2 className="text-xl font-semibold text-text-primary">
+          {detail.title}
+        </h2>
       </div>
 
       {/* Merge confirmation dialog */}
@@ -352,11 +396,16 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
         {/* Proposition block */}
         {detail.proposition_ids.length > 0 && (
           <section className="mb-6">
-            <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">Proposition</h3>
+            <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+              Proposition
+            </h3>
             <div className="border border-border-muted bg-bg-secondary p-4">
               <p className="text-sm text-text-primary leading-relaxed">
                 {detail.proposition_ids.map((id) => (
-                  <span key={id} className="font-mono text-xs text-text-secondary">
+                  <span
+                    key={id}
+                    className="font-mono text-xs text-text-secondary"
+                  >
                     {id}{" "}
                   </span>
                 ))}
@@ -367,7 +416,9 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
 
         {/* Phase pipeline */}
         <section className="mb-6">
-          <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">Phases</h3>
+          <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+            Phases
+          </h3>
           <div className="flex gap-3">
             {enabledPhases.map((phase) => (
               <PhaseBox
@@ -379,7 +430,9 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
               />
             ))}
             {enabledPhases.length === 0 && (
-              <p className="text-sm text-text-tertiary">No phases configured.</p>
+              <p className="text-sm text-text-tertiary">
+                No phases configured.
+              </p>
             )}
           </div>
         </section>
@@ -387,7 +440,9 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
         {/* Gates */}
         {detail.config.gates.length > 0 && (
           <section className="mb-6">
-            <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">Gates</h3>
+            <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+              Gates
+            </h3>
             <div className="flex flex-wrap gap-2">
               {detail.config.gates.map((gate) => (
                 <GatePill key={gate.name} gate={gate} />
@@ -407,7 +462,8 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
             </div>
             {listRow && (
               <span className="text-xs text-text-secondary font-mono">
-                attempt {listRow.attempt_count}/{detail.config.retry_policy.max_total_attempts}
+                attempt {listRow.attempt_count}/
+                {detail.config.retry_policy.max_total_attempts}
               </span>
             )}
           </div>
@@ -424,10 +480,29 @@ export function TaskDetailPane({ detail, listRow, onEditConfig, onReview }: Task
 // Task timeline
 // ============================================================================
 
-function timelineColor(type: string): string {
-  if (type.includes("approved") || type.includes("passed") || type === "attempt.completed") return "bg-status-healthy";
-  if (type.includes("failed") || type.includes("rejected") || type.includes("killed")) return "bg-status-danger";
-  if (type.includes("started") || type.includes("running") || type.includes("phase.")) return "bg-status-warning";
+function timelineColor(event: AnyEvent): string {
+  const type = event.type;
+  const payload = event.payload as unknown as Record<string, unknown>;
+  if (
+    type.includes("approved") ||
+    type.includes("passed") ||
+    type === "attempt.completed"
+  ) {
+    if (payload.outcome === "no_changes") return "bg-status-muted";
+    return "bg-status-healthy";
+  }
+  if (
+    type.includes("failed") ||
+    type.includes("rejected") ||
+    type.includes("killed")
+  )
+    return "bg-status-danger";
+  if (
+    type.includes("started") ||
+    type.includes("running") ||
+    type.includes("phase.")
+  )
+    return "bg-status-warning";
   return "bg-status-muted";
 }
 
@@ -435,6 +510,7 @@ function timelineDetail(event: AnyEvent): string {
   const p = event.payload as unknown as Record<string, unknown>;
   if (p.from && p.to) return `${p.from} → ${p.to}`;
   if (p.phase_name) return String(p.phase_name);
+  if (p.outcome === "no_changes") return "no changes — skipped review";
   if (p.outcome) return String(p.outcome);
   if (p.gate_name) return String(p.gate_name);
   if (p.verdict) return `verdict: ${p.verdict}`;
@@ -453,13 +529,21 @@ function formatTimelineTs(ts: string): string {
   });
 }
 
-function TaskTimeline({ taskId, status }: { taskId: string; status?: TaskStatus }) {
+function TaskTimeline({
+  taskId,
+  status,
+}: {
+  taskId: string;
+  status?: TaskStatus;
+}) {
   const { data: events, isLoading } = useTaskTimelineQuery(taskId, status);
 
   if (isLoading) {
     return (
       <section className="mt-6">
-        <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-3">Timeline</h3>
+        <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-3">
+          Timeline
+        </h3>
         <p className="text-xs text-text-tertiary">Loading…</p>
       </section>
     );
@@ -469,13 +553,20 @@ function TaskTimeline({ taskId, status }: { taskId: string; status?: TaskStatus 
 
   return (
     <section className="mt-6">
-      <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-3">Timeline</h3>
+      <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-3">
+        Timeline
+      </h3>
       <div className="relative pl-4 border-l border-border-muted">
         {events.map((event) => {
           const detail = timelineDetail(event);
           return (
-            <div key={event.id} className="relative flex items-start gap-3 py-1.5">
-              <div className={`absolute -left-[calc(1rem+3px)] top-2.5 h-1.5 w-1.5 rounded-full ${timelineColor(event.type)}`} />
+            <div
+              key={event.id}
+              className="relative flex items-start gap-3 py-1.5"
+            >
+              <div
+                className={`absolute -left-[calc(1rem+3px)] top-2.5 h-1.5 w-1.5 rounded-full ${timelineColor(event)}`}
+              />
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <span className="text-[10px] text-text-tertiary w-32 shrink-0 font-mono">
                   {formatTimelineTs(event.ts)}
@@ -484,7 +575,9 @@ function TaskTimeline({ taskId, status }: { taskId: string; status?: TaskStatus 
                   {event.type}
                 </span>
                 {detail && (
-                  <span className="text-xs text-text-secondary truncate">{detail}</span>
+                  <span className="text-xs text-text-secondary truncate">
+                    {detail}
+                  </span>
                 )}
               </div>
             </div>

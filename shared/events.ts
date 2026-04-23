@@ -384,7 +384,7 @@ export interface AttemptKilled {
 
 export interface AttemptCompleted {
   attempt_id: string;
-  outcome: "approved" | "rejected" | "revised" | "escalated" | "failed";
+  outcome: "approved" | "rejected" | "revised" | "escalated" | "failed" | "no_changes";
   tokens_in_total: number;
   tokens_out_total: number;
   cost_usd_total: number;

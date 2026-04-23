@@ -32,7 +32,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from "@shared/components/ui/dialog";
+} from "@web/src/components/ui/dialog";
 
 // ============================================================================
 // Types
@@ -364,8 +364,8 @@ function ConfirmingView({
           rows={3}
           className={`w-full border px-3 py-2 text-sm font-mono resize-none outline-none ${
             isSquash
-              ? "bg-bg-primary border-border-muted text-text-primary focus:border-purple-500/50"
-              : "bg-bg-tertiary border-border-muted text-text-secondary cursor-not-allowed"
+              ? "border-border-muted text-text-primary focus:border-purple-500/50"
+              : "border-border-muted text-text-secondary cursor-not-allowed"
           }`}
         />
       </div>

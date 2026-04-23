@@ -13,9 +13,9 @@
   "iconLibrary": "phosphor",
   "rtl": false,
   "aliases": {
-    "components": "@shared/components",
+    "components": "@web/src/components",
     "utils": "@shared/lib/utils",
-    "ui": "@shared/components/ui",
+    "ui": "@web/src/components/ui",
     "lib": "@shared/lib",
     "hooks": "@shared/hooks"
   },

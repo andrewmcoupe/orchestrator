@@ -3,7 +3,7 @@ import { Search, GitMerge } from "lucide-react";
 import type { TaskListRow } from "@shared/projections.js";
 import type { TaskStatus } from "@shared/events.js";
 import { useCreateTask } from "../../hooks/useTaskMutations.js";
-import { Button } from "@shared/components/ui/button.js";
+import { Button } from "@web/src/components/ui/button.js";
 
 type StatusFilter = "all" | "active" | "approved" | "done";
 

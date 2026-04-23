@@ -308,6 +308,7 @@ const attemptCompletedSchema = z.object({
     "revised",
     "escalated",
     "failed",
+    "no_changes",
   ]),
   tokens_in_total: z.number(),
   tokens_out_total: z.number(),
