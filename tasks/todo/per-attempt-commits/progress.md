@@ -31,3 +31,17 @@ Added `base_sha` to `task.worktree_created` event and resolved it at worktree cr
 - Updated `taskDetail.test.ts` fixture to include `base_sha`
 
 PRD items 3 and 4 completed.
+
+## 2026-04-23: Per-attempt commit + attempt.committed emission
+
+Replaced inline commit logic in `server/phaseRunner.ts` with injectable `committer` dep and structured per-attempt commits.
+
+- Added `committer` to `PhaseRunnerDeps` — `(worktree_path, message) => { sha, empty }`
+- Default committer: stages, checks porcelain, uses `--allow-empty` when no changes, captures SHA from output
+- Commit message format: `Attempt <N> of <task_id> — <outcome>` with config hash, cost, duration in body
+- Emits `attempt.committed` event with `{ attempt_id, commit_sha, empty }` after successful commit
+- 4 TDD tests: correct SHA, empty flag, message format, single commit after all phases
+- Updated happy-path event sequence to include `attempt.committed`
+- Added `noopCommitter` to `makeTestDeps` to eliminate stderr noise from fake worktree paths
+
+PRD items 5, 6, and 14 completed.

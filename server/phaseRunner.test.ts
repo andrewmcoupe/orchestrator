@@ -259,6 +259,9 @@ function makeFakeGateRunner(
   };
 }
 
+/** No-op committer for tests that don't care about commit behavior. */
+const noopCommitter = async () => ({ sha: "0".repeat(12), empty: true });
+
 /** Standard test deps. */
 function makeTestDeps(invoker?: AdapterInvokeFn): PhaseRunnerDeps {
   return {
@@ -267,6 +270,7 @@ function makeTestDeps(invoker?: AdapterInvokeFn): PhaseRunnerDeps {
     packer: fakePacker,
     cliInvoker: invoker ?? makeFakeCliInvoker(),
     diffCapturer: noDiffCapturer,
+    committer: noopCommitter,
   };
 }
 
@@ -350,6 +354,7 @@ describe("runAttempt", () => {
       "invocation.assistant_message",
       "invocation.completed",
       "phase.completed",
+      "attempt.committed",
       "attempt.completed",
       "task.status_changed",
     ]);
@@ -550,10 +555,7 @@ describe("runAttempt", () => {
 
     const runPromise = runAttempt(db, taskId, {
       deps: {
-        blobStore: fakeBlobStore,
-        worktreeCreator: fakeWorktreeCreator,
-        packer: fakePacker,
-        cliInvoker: countingInvoker,
+        ...makeTestDeps(countingInvoker),
       },
     });
 
@@ -1127,5 +1129,120 @@ describe("runAttempt", () => {
       .prepare("SELECT status FROM proj_task_list WHERE task_id = ?")
       .get(taskId) as { status: string } | undefined;
     expect(taskRow?.status).toBe("draft");
+  });
+
+  // --------------------------------------------------------------------------
+  // Per-attempt commit lifecycle
+  // --------------------------------------------------------------------------
+
+  it("emits attempt.committed with correct commit_sha after a successful attempt", async () => {
+    const taskId = createTask(db);
+    const fakeCommitter = async (_wp: string, _msg: string) => ({
+      sha: "abc123def456",
+      empty: false,
+    });
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: hasDiffCapturer,
+        committer: fakeCommitter,
+      },
+    });
+
+    const committedRow = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'attempt.committed'")
+      .get() as { payload_json: string } | undefined;
+    expect(committedRow).toBeDefined();
+    const payload = JSON.parse(committedRow!.payload_json) as {
+      attempt_id: string;
+      commit_sha: string;
+      empty: boolean;
+    };
+    expect(payload.commit_sha).toBe("abc123def456");
+    expect(payload.empty).toBe(false);
+  });
+
+  it("emits attempt.committed with empty: true when no file changes were produced", async () => {
+    const taskId = createTask(db, auditorConfig);
+    const fakeCommitter = async (_wp: string, _msg: string) => ({
+      sha: "empty0000000",
+      empty: true,
+    });
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: noDiffCapturer,
+        committer: fakeCommitter,
+      },
+    });
+
+    const committedRow = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'attempt.committed'")
+      .get() as { payload_json: string } | undefined;
+    expect(committedRow).toBeDefined();
+    const payload = JSON.parse(committedRow!.payload_json) as {
+      attempt_id: string;
+      commit_sha: string;
+      empty: boolean;
+    };
+    expect(payload.commit_sha).toBe("empty0000000");
+    expect(payload.empty).toBe(true);
+  });
+
+  it("commit message follows the required format with outcome, config hash, cost, and duration", async () => {
+    const taskId = createTask(db);
+    let capturedMessage = "";
+    const fakeCommitter = async (_wp: string, msg: string) => {
+      capturedMessage = msg;
+      return { sha: "aaa111bbb222", empty: false };
+    };
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: hasDiffCapturer,
+        committer: fakeCommitter,
+      },
+    });
+
+    // First line: Attempt <N> of <task_id> — <outcome>
+    const lines = capturedMessage.split("\n");
+    expect(lines[0]).toMatch(/^Attempt 1 of .+ — approved$/);
+    // Body contains config hash, cost, duration
+    expect(capturedMessage).toMatch(/config: [0-9a-f]{12}/);
+    expect(capturedMessage).toMatch(/cost: \$[\d.]+/);
+    expect(capturedMessage).toMatch(/duration: \d+ms/);
+  });
+
+  it("does not commit during the phase loop — only after all phases complete", async () => {
+    const taskId = createTask(db);
+    const commitCalls: number[] = [];
+    const fakeCommitter = async (_wp: string, _msg: string) => {
+      commitCalls.push(Date.now());
+      return { sha: "bbb222ccc333", empty: false };
+    };
+
+    await runAttempt(db, taskId, {
+      deps: {
+        ...makeTestDeps(),
+        diffCapturer: hasDiffCapturer,
+        committer: fakeCommitter,
+      },
+    });
+
+    // Exactly one commit call (per-attempt, not per-phase)
+    expect(commitCalls).toHaveLength(1);
+
+    // attempt.committed appears after attempt.completed in event sequence
+    // (actually it appears before attempt.completed since commit happens in step 3b)
+    const types = getEventTypes(db);
+    const committedIdx = types.indexOf("attempt.committed");
+    const completedIdx = types.indexOf("attempt.completed");
+    expect(committedIdx).toBeGreaterThan(-1);
+    expect(completedIdx).toBeGreaterThan(-1);
+    // Committed before completed (commit is step 3b, completed is step 4)
+    expect(committedIdx).toBeLessThan(completedIdx);
   });
 });

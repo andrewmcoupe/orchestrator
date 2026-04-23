@@ -28,6 +28,7 @@
  * map). Different tasks run in parallel independently.
  */
 
+import { createHash } from "node:crypto";
 import { execa } from "execa";
 import { ulid } from "ulid";
 import type Database from "better-sqlite3";
@@ -96,6 +97,8 @@ export type PhaseRunnerDeps = {
   ) => Promise<GateRunResult>;
   /** Override diff capture for testing — returns the diff string (empty = no changes). */
   diffCapturer?: (worktree_path: string) => Promise<string>;
+  /** Override git commit for testing — returns { sha, empty }. */
+  committer?: (worktree_path: string, message: string) => Promise<{ sha: string; empty: boolean }>;
 };
 
 // ============================================================================
@@ -302,6 +305,27 @@ export async function runAttempt(
       { cwd: wp, stdio: ["ignore", "pipe", "pipe"] },
     );
     return stdout;
+  });
+  const doCommit = deps?.committer ?? (async (wp: string, message: string) => {
+    await execa("git", ["add", "-A", "--", ".", ":!node_modules"], {
+      cwd: wp,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const { stdout: statusOut } = await execa(
+      "git", ["status", "--porcelain"],
+      { cwd: wp, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const empty = !statusOut.trim();
+    const commitArgs = ["commit", "-m", message, "--no-gpg-sign"];
+    if (empty) commitArgs.push("--allow-empty");
+    const { stdout: commitOut } = await execa("git", commitArgs, {
+      cwd: wp,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    // Extract SHA from commit output (first line: "[branch sha] message")
+    const shaMatch = commitOut.match(/\[[\w/.-]+ ([0-9a-f]+)\]/);
+    const sha = shaMatch?.[1] ?? "";
+    return { sha, empty };
   });
 
   try {
@@ -723,31 +747,39 @@ export async function runAttempt(
     } // end phaseLoop
 
     // -----------------------------------------------------------------------
-    // 3b. Commit worktree changes to the branch
+    // 3b. Per-attempt commit + attempt.committed event
     // -----------------------------------------------------------------------
-    // Claude CLI (and other adapters) modify files in the worktree but don't
-    // commit. We need to commit so `git merge --squash wt/{task_id}` has
-    // actual commits to merge from.
+    // Every attempt gets a commit (--allow-empty when no changes) so git
+    // history has one commit per attempt and squash-merge works correctly.
     if (worktree_path && !state.aborted) {
       try {
-        // Stage all changes in the worktree (exclude node_modules symlink
-        // which was created by worktree setup and must not be committed)
-        await execa("git", ["add", "-A", "--", ".", ":!node_modules"], {
-          cwd: worktree_path,
-          stdio: ["ignore", "pipe", "pipe"],
+        const durationMs = Date.now() - startedAt;
+        const configHash = createHash("sha256")
+          .update(JSON.stringify(config))
+          .digest("hex")
+          .slice(0, 12);
+        const commitMessage = [
+          `Attempt ${attempt_number} of ${task_id} — ${finalOutcome}`,
+          "",
+          `config: ${configHash}`,
+          `cost: $${totalCostUsd.toFixed(4)}`,
+          `duration: ${durationMs}ms`,
+        ].join("\n");
+
+        const { sha, empty } = await doCommit(worktree_path, commitMessage);
+
+        appendAndProject(db, {
+          type: "attempt.committed",
+          aggregate_type: "attempt",
+          aggregate_id: attempt_id,
+          actor: systemActor,
+          correlation_id: attempt_id,
+          payload: {
+            attempt_id,
+            commit_sha: sha,
+            empty,
+          },
         });
-        // Check if there's anything to commit
-        const { stdout: statusOut } = await execa(
-          "git", ["status", "--porcelain"],
-          { cwd: worktree_path, stdio: ["ignore", "pipe", "pipe"] },
-        );
-        if (statusOut.trim()) {
-          await execa(
-            "git",
-            ["commit", "-m", `orchestrator: ${taskDetailDbRow.title}\n\nattempt ${attempt_id}`, "--no-gpg-sign"],
-            { cwd: worktree_path, stdio: ["ignore", "pipe", "pipe"] },
-          );
-        }
       } catch (commitErr: unknown) {
         console.error(
           `[phaseRunner] failed to commit worktree changes for ${task_id}:`,

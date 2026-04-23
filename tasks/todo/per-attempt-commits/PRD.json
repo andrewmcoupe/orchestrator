@@ -52,7 +52,7 @@
       "Commit message follows format: Attempt <N> of <task_id> — <outcome> with config hash, cost, and duration in body",
       "git commit --allow-empty is used when no file changes were produced"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 3
   },
   {
@@ -63,7 +63,7 @@
       "commit_sha field contains the actual SHA from the commit",
       "empty field is true when --allow-empty was used (no file changes), false otherwise"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 3
   },
   {
@@ -167,7 +167,7 @@
       "Test that attempt.committed event contains the correct commit_sha",
       "Test that no commit happens during the phase loop (only after all phases complete)"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 1
   },
   {
