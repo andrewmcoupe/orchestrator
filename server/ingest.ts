@@ -21,6 +21,7 @@ import { appendAndProject } from "./projectionRunner.js";
 import type { Actor } from "@shared/events.js";
 import type { PropositionRow } from "@shared/projections.js";
 import { invoke, type Fetcher } from "./adapters/anthropicApi.js";
+import { topoSort } from "@shared/dependency.js";
 
 // ============================================================================
 // Constants
@@ -271,6 +272,26 @@ export async function ingestPrd(
   // Call extraction API (retries up to MAX_RETRIES on failure)
   const extracted = await callExtractionApi(prd_id, content, fetcher);
 
+  // Run topological sort to detect and strip cycle-causing edges
+  const topoResult = topoSort(
+    extracted.draft_tasks.map((t) => ({ id: t.id, depends_on: [...t.depends_on] })),
+  );
+
+  // Apply stripped edges back to the extracted draft tasks
+  if (topoResult.stripped.length > 0) {
+    const strippedEdges = new Map<string, Set<string>>();
+    for (const { from, to } of topoResult.stripped) {
+      if (!strippedEdges.has(from)) strippedEdges.set(from, new Set());
+      strippedEdges.get(from)!.add(to);
+    }
+    for (const draft of extracted.draft_tasks) {
+      const removed = strippedEdges.get(draft.id);
+      if (removed) {
+        draft.depends_on = draft.depends_on.filter((dep) => !removed.has(dep));
+      }
+    }
+  }
+
   // Map extracted prop IDs ("P-001" etc.) → assigned ULIDs
   const idMap = new Map<string, string>();
 
@@ -378,6 +399,39 @@ export async function ingestPrd(
         kind: pushback.kind,
         rationale: pushback.rationale,
         suggested_resolutions: pushback.suggested_resolutions,
+        raised_by: { phase: "ingest" as const, model: INGEST_MODEL },
+      },
+    });
+    pushback_count++;
+  }
+
+  // Emit advisory pushback for any cycle edges that were stripped
+  if (topoResult.stripped.length > 0) {
+    const edgeDescriptions = topoResult.stripped
+      .map(({ from, to }) => `${from} → ${to}`)
+      .join(", ");
+
+    const pushback_id = `PUSHBACK-${ulid()}`;
+    // Use the first proposition ID as a reference anchor (cycle is cross-task)
+    const anchorPropId = extracted.propositions[0]
+      ? idMap.get(extracted.propositions[0].id) ?? ""
+      : "";
+
+    appendAndProject(db, {
+      type: "pushback.raised",
+      aggregate_type: "pushback",
+      aggregate_id: pushback_id,
+      actor: INGEST_ACTOR,
+      correlation_id: prd_id,
+      payload: {
+        pushback_id,
+        proposition_id: anchorPropId,
+        kind: "advisory" as const,
+        rationale: `Circular dependency cycle detected and stripped: ${edgeDescriptions}`,
+        suggested_resolutions: [
+          "Review task ordering to eliminate circular dependencies",
+          "Split tightly-coupled tasks into smaller units",
+        ],
         raised_by: { phase: "ingest" as const, model: INGEST_MODEL },
       },
     });

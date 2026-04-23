@@ -444,6 +444,126 @@ describe("ingestPrd — content mode", () => {
   });
 });
 
+describe("ingestPrd — cycle detection", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+    initProjections(db);
+  });
+
+  afterEach(() => {
+    db.close();
+    eventBus.removeAllListeners();
+  });
+
+  it("strips cycle-causing edges from depends_on in draft tasks", async () => {
+    const cyclicExtraction = {
+      propositions: [
+        { id: "P-001", text: "Feature A", source_span: { section: "A", line_start: 1, line_end: 2 }, confidence: 0.9 },
+      ],
+      draft_tasks: [
+        { id: "DT-001", title: "Task A", proposition_ids: ["P-001"], depends_on: ["DT-002"] },
+        { id: "DT-002", title: "Task B", proposition_ids: ["P-001"], depends_on: ["DT-001"] },
+      ],
+      pushbacks: [],
+    };
+
+    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeFetcher(cyclicExtraction));
+
+    // At least one task should have had its depends_on stripped
+    const taskA = result.draft_tasks.find(t => t.title === "Task A")!;
+    const taskB = result.draft_tasks.find(t => t.title === "Task B")!;
+
+    // One of the two cycle edges must have been removed
+    const totalDeps = taskA.depends_on.length + taskB.depends_on.length;
+    expect(totalDeps).toBeLessThanOrEqual(1);
+  });
+
+  it("emits advisory pushback when cycle edges are stripped", async () => {
+    const cyclicExtraction = {
+      propositions: [
+        { id: "P-001", text: "Feature A", source_span: { section: "A", line_start: 1, line_end: 2 }, confidence: 0.9 },
+      ],
+      draft_tasks: [
+        { id: "DT-001", title: "Task A", proposition_ids: ["P-001"], depends_on: ["DT-002"] },
+        { id: "DT-002", title: "Task B", proposition_ids: ["P-001"], depends_on: ["DT-001"] },
+      ],
+      pushbacks: [],
+    };
+
+    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeFetcher(cyclicExtraction));
+
+    // Should have emitted an advisory pushback for the stripped cycle
+    expect(result.pushback_count).toBeGreaterThanOrEqual(1);
+
+    const pushbackEvents = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'pushback.raised'")
+      .all() as Array<{ payload_json: string }>;
+
+    const cyclePushback = pushbackEvents
+      .map(e => JSON.parse(e.payload_json) as { kind: string; rationale: string })
+      .find(p => p.kind === "advisory" && p.rationale.includes("cycle"));
+
+    expect(cyclePushback).toBeDefined();
+  });
+
+  it("passes valid dependency graphs through unchanged", async () => {
+    const validExtraction = {
+      propositions: [
+        { id: "P-001", text: "Feature A", source_span: { section: "A", line_start: 1, line_end: 2 }, confidence: 0.9 },
+      ],
+      draft_tasks: [
+        { id: "DT-001", title: "Task A", proposition_ids: ["P-001"], depends_on: [] },
+        { id: "DT-002", title: "Task B", proposition_ids: ["P-001"], depends_on: ["DT-001"] },
+        { id: "DT-003", title: "Task C", proposition_ids: ["P-001"], depends_on: ["DT-001", "DT-002"] },
+      ],
+      pushbacks: [],
+    };
+
+    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeFetcher(validExtraction));
+
+    const taskA = result.draft_tasks.find(t => t.title === "Task A")!;
+    const taskB = result.draft_tasks.find(t => t.title === "Task B")!;
+    const taskC = result.draft_tasks.find(t => t.title === "Task C")!;
+
+    expect(taskA.depends_on).toHaveLength(0);
+    expect(taskB.depends_on).toHaveLength(1);
+    expect(taskC.depends_on).toHaveLength(2);
+    // No cycle-related pushbacks
+    expect(result.pushback_count).toBe(0);
+  });
+
+  it("handles 3-node cycle by stripping minimum edges", async () => {
+    const cyclicExtraction = {
+      propositions: [
+        { id: "P-001", text: "Feature A", source_span: { section: "A", line_start: 1, line_end: 2 }, confidence: 0.9 },
+      ],
+      draft_tasks: [
+        { id: "DT-001", title: "Task A", proposition_ids: ["P-001"], depends_on: ["DT-003"] },
+        { id: "DT-002", title: "Task B", proposition_ids: ["P-001"], depends_on: ["DT-001"] },
+        { id: "DT-003", title: "Task C", proposition_ids: ["P-001"], depends_on: ["DT-002"] },
+      ],
+      pushbacks: [],
+    };
+
+    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeFetcher(cyclicExtraction));
+
+    // All 3 tasks should still exist
+    expect(result.draft_tasks).toHaveLength(3);
+
+    // Total deps should be reduced by exactly 1 (one edge stripped)
+    const totalDeps = result.draft_tasks.reduce((sum, t) => sum + t.depends_on.length, 0);
+    expect(totalDeps).toBe(2); // was 3, one stripped
+
+    // Advisory pushback should mention the cycle
+    expect(result.pushback_count).toBe(1);
+  });
+});
+
 describe("seedIngestPromptVersion", () => {
   let db: Database.Database;
 

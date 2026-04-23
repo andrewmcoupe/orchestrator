@@ -42,3 +42,12 @@
 - Added `depends_on` to `TaskDraftSummary` interface.
 - Added 3 new tests in `server/ingest.test.ts`: DT-* → ULID remapping, dependency event emission, no event for empty depends_on.
 - All tests pass (18/18 in ingest suite), typecheck clean.
+
+## 2026-04-23 — Cycle Detection in Ingest Pipeline (PRD item: "Backend — Cycle Detection")
+
+- Integrated `topoSort` from `shared/dependency.ts` into `ingestPrd()` in `server/ingest.ts`.
+- After extraction, `topoSort` runs on draft tasks; cycle-causing edges are stripped from `depends_on` arrays before ID remapping and event emission.
+- When edges are stripped, an advisory `pushback.raised` event is emitted describing which dependency edges were removed.
+- Valid dependency graphs pass through unchanged.
+- Added 4 new tests in `server/ingest.test.ts` covering 2-node cycle stripping, advisory pushback emission, valid graph passthrough, and 3-node cycle minimum edge stripping.
+- All tests pass (22/22 in ingest suite), typecheck clean.
