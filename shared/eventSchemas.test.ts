@@ -162,3 +162,41 @@ describe("phase.diff_snapshotted schema", () => {
     expect(schema.safeParse(rest).success).toBe(false);
   });
 });
+
+describe("task.worktree_created schema", () => {
+  const schema = eventPayloadSchemas["task.worktree_created"];
+
+  const valid = {
+    task_id: "01J000000000000000000001",
+    path: "/tmp/worktrees/01J000000000000000000001",
+    branch: "wt/01J000000000000000000001",
+    base_ref: "main",
+    base_sha: "a".repeat(40),
+  };
+
+  it("accepts valid payload with base_ref and base_sha", () => {
+    const result = schema.safeParse(valid);
+    expect(result.success).toBe(true);
+  });
+
+  it("preserves base_ref unchanged", () => {
+    const result = schema.safeParse(valid);
+    expect(result.success).toBe(true);
+    expect(result.data.base_ref).toBe("main");
+  });
+
+  it("requires base_sha", () => {
+    const { base_sha: _, ...rest } = valid;
+    expect(schema.safeParse(rest).success).toBe(false);
+  });
+
+  it("rejects missing base_ref", () => {
+    const { base_ref: _, ...rest } = valid;
+    expect(schema.safeParse(rest).success).toBe(false);
+  });
+
+  it("rejects missing task_id", () => {
+    const { task_id: _, ...rest } = valid;
+    expect(schema.safeParse(rest).success).toBe(false);
+  });
+});

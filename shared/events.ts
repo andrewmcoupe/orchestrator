@@ -350,6 +350,7 @@ export interface TaskWorktreeCreated {
   path: string;
   branch: string;
   base_ref: string;
+  base_sha: string;
 }
 
 export interface TaskWorktreeDeleted {

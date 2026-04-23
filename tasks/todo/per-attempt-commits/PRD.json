@@ -29,7 +29,7 @@
       "base_ref: string (symbolic reference) is preserved unchanged",
       "Zod schema updated to require base_sha"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 1
   },
   {
@@ -40,7 +40,7 @@
       "task.worktree_created event emitted with both base_ref and base_sha",
       "base_sha is a full 40-character commit SHA, not a symbolic ref"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 2
   },
   {

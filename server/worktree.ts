@@ -156,6 +156,14 @@ export async function createWorktree(
   // Add to .gitignore before creating the worktree
   ensureGitignoreEntry(repoRoot);
 
+  // Resolve the symbolic base_ref to a concrete commit SHA before creating
+  // the worktree. This is the immutable anchor for diff capture.
+  const { stdout: baseSha } = await execa(
+    "git",
+    ["rev-parse", baseRef],
+    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+
   // Create the worktree with a new branch.
   // Explicit stdio avoids inheriting broken FDs from piped dev scripts.
   await execa(
@@ -183,6 +191,7 @@ export async function createWorktree(
       path: wtPath,
       branch,
       base_ref: baseRef,
+      base_sha: baseSha.trim(),
     },
   });
 

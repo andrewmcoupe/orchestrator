@@ -345,6 +345,7 @@ describe("TaskDetail projection", () => {
         path: "/repo/.orchestrator-worktrees/T-001",
         branch: "wt/T-001",
         base_ref: "HEAD",
+        base_sha: "a".repeat(40),
       },
     });
 

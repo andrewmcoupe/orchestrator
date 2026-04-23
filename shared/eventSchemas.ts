@@ -270,6 +270,7 @@ const taskWorktreeCreatedSchema = z.object({
   path: z.string(),
   branch: z.string(),
   base_ref: z.string(),
+  base_sha: z.string(),
 });
 
 const taskWorktreeDeletedSchema = z.object({

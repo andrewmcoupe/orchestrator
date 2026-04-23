@@ -19,3 +19,15 @@ Added `phase.diff_snapshotted` event with TDD tests.
 - `reduceAttempt` handles the event, storing `diff_hash` on the phase's `PhaseRunSummary`
 
 PRD item 2 completed.
+
+## 2026-04-23: base_sha on task.worktree_created + worktree resolution
+
+Added `base_sha` to `task.worktree_created` event and resolved it at worktree creation time.
+
+- `TaskWorktreeCreated` interface in `shared/events.ts` now includes `base_sha: string`
+- Zod schema in `shared/eventSchemas.ts` requires `base_sha`
+- TDD tests added: valid payload, base_ref preserved, base_sha required, missing fields rejected
+- `createWorktree` in `server/worktree.ts` runs `git rev-parse <base_ref>` before worktree creation and emits the resolved 40-char SHA as `base_sha`
+- Updated `taskDetail.test.ts` fixture to include `base_sha`
+
+PRD items 3 and 4 completed.
