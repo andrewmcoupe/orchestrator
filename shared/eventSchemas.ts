@@ -351,6 +351,12 @@ const attemptRetryRequestedSchema = z.object({
   strategy: retryStrategySchema,
 });
 
+const attemptCommittedSchema = z.object({
+  attempt_id: z.string(),
+  commit_sha: z.string(),
+  empty: z.boolean(),
+});
+
 const phaseStartedSchema = z.object({
   attempt_id: z.string(),
   phase_name: z.string(),
@@ -738,6 +744,7 @@ export const eventPayloadSchemas: Record<EventType, z.ZodTypeAny> = {
   "attempt.approved": attemptApprovedSchema,
   "attempt.rejected": attemptRejectedSchema,
   "attempt.retry_requested": attemptRetryRequestedSchema,
+  "attempt.committed": attemptCommittedSchema,
   "phase.started": phaseStartedSchema,
   "phase.context_packed": phaseContextPackedSchema,
   "phase.completed": phaseCompletedSchema,

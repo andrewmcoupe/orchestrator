@@ -329,6 +329,8 @@ export interface AttemptRow {
   files_changed: FileChangeSummary[];
   config_snapshot: TaskConfig;
   previous_attempt_id?: string;
+  commit_sha?: string;
+  empty?: boolean;
   last_event_id: string;
 }
 
@@ -1179,6 +1181,7 @@ export const PROJECTION_SUBSCRIPTIONS: Record<EventType, ProjectionName[]> = {
   "attempt.approved": ["task_list", "attempt"],
   "attempt.rejected": ["task_list", "attempt"],
   "attempt.retry_requested": ["task_list", "attempt"],
+  "attempt.committed": ["attempt"],
 
   // Phase
   "phase.started": ["task_list", "attempt"],
@@ -1354,6 +1357,15 @@ export function reduceAttempt(
     case "attempt.retry_requested":
       if (!current) return null;
       return { ...current, outcome: "revised", last_event_id: event.id };
+
+    case "attempt.committed":
+      if (!current) return null;
+      return {
+        ...current,
+        commit_sha: event.payload.commit_sha,
+        empty: event.payload.empty,
+        last_event_id: event.id,
+      };
 
     // ------------------------------------------------------------------
     // Phase lifecycle

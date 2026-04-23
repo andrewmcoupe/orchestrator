@@ -86,3 +86,38 @@ describe("task.unblocked schema", () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe("attempt.committed schema", () => {
+  const schema = eventPayloadSchemas["attempt.committed"];
+
+  const valid = {
+    attempt_id: "01J000000000000000000001",
+    commit_sha: "a".repeat(40),
+    empty: false,
+  };
+
+  it("accepts valid payload", () => {
+    const result = schema.safeParse(valid);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts empty: true", () => {
+    const result = schema.safeParse({ ...valid, empty: true });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects missing attempt_id", () => {
+    const { attempt_id: _, ...rest } = valid;
+    expect(schema.safeParse(rest).success).toBe(false);
+  });
+
+  it("rejects missing commit_sha", () => {
+    const { commit_sha: _, ...rest } = valid;
+    expect(schema.safeParse(rest).success).toBe(false);
+  });
+
+  it("rejects missing empty", () => {
+    const { empty: _, ...rest } = valid;
+    expect(schema.safeParse(rest).success).toBe(false);
+  });
+});

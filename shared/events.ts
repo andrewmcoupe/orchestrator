@@ -431,6 +431,12 @@ export interface AttemptRetryRequested {
   strategy: RetryStrategy;
 }
 
+export interface AttemptCommitted {
+  attempt_id: string;
+  commit_sha: string;
+  empty: boolean;
+}
+
 // ============================================================================
 // Phase events (boundaries within an attempt)
 // ============================================================================
@@ -909,6 +915,7 @@ export interface EventMap {
   "attempt.approved": AttemptApproved;
   "attempt.rejected": AttemptRejected;
   "attempt.retry_requested": AttemptRetryRequested;
+  "attempt.committed": AttemptCommitted;
 
   // Phase
   "phase.started": PhaseStarted;

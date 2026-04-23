@@ -1,0 +1,195 @@
+[
+  {
+    "category": "Backend — Events",
+    "description": "Add attempt.committed event type with Zod schema to shared/events.ts",
+    "steps_to_verify": [
+      "attempt.committed event type exists in shared/events.ts with payload { attempt_id: string, commit_sha: string, empty: boolean }",
+      "Zod schema validates the payload shape correctly",
+      "Event is included in PROJECTION_SUBSCRIPTIONS for the attempt projection"
+    ],
+    "passes": true,
+    "priority": 1
+  },
+  {
+    "category": "Backend — Events",
+    "description": "Add phase.diff_snapshotted event type with Zod schema to shared/events.ts",
+    "steps_to_verify": [
+      "phase.diff_snapshotted event type exists with payload { attempt_id: string, phase_name: string, diff_hash: string, base_sha: string }",
+      "Zod schema validates the payload shape correctly",
+      "Event is included in PROJECTION_SUBSCRIPTIONS for the attempt projection"
+    ],
+    "passes": false,
+    "priority": 1
+  },
+  {
+    "category": "Backend — Events",
+    "description": "Update task.worktree_created event payload to include base_sha alongside base_ref",
+    "steps_to_verify": [
+      "task.worktree_created payload includes base_sha: string (resolved commit SHA)",
+      "base_ref: string (symbolic reference) is preserved unchanged",
+      "Zod schema updated to require base_sha"
+    ],
+    "passes": false,
+    "priority": 1
+  },
+  {
+    "category": "Backend — Worktree",
+    "description": "Resolve base_ref to base_sha at worktree creation time via git rev-parse",
+    "steps_to_verify": [
+      "createWorktree runs git rev-parse <base_ref> and stores the result as base_sha",
+      "task.worktree_created event emitted with both base_ref and base_sha",
+      "base_sha is a full 40-character commit SHA, not a symbolic ref"
+    ],
+    "passes": false,
+    "priority": 2
+  },
+  {
+    "category": "Backend — Phase Runner",
+    "description": "Move commit from per-phase to per-attempt, firing after all phases/gates/auditor complete",
+    "steps_to_verify": [
+      "Existing per-phase commit logic (step 3b) is removed from the phase loop",
+      "A single commit happens after the phase loop completes, still within runAttempt",
+      "Commit message follows format: Attempt <N> of <task_id> — <outcome> with config hash, cost, and duration in body",
+      "git commit --allow-empty is used when no file changes were produced"
+    ],
+    "passes": false,
+    "priority": 3
+  },
+  {
+    "category": "Backend — Phase Runner",
+    "description": "Emit attempt.committed event after the per-attempt commit with commit SHA and empty flag",
+    "steps_to_verify": [
+      "attempt.committed event is emitted after the git commit succeeds",
+      "commit_sha field contains the actual SHA from the commit",
+      "empty field is true when --allow-empty was used (no file changes), false otherwise"
+    ],
+    "passes": false,
+    "priority": 3
+  },
+  {
+    "category": "Backend — Phase Runner",
+    "description": "Anchor per-phase diff capture to base_sha (attempt 1) or previous attempt commit SHA (attempt 2+)",
+    "steps_to_verify": [
+      "Attempt 1 diff uses base_sha from task.worktree_created as the diff base",
+      "Attempt 2+ diff uses the previous attempt's commit_sha from attempt.committed as the diff base",
+      "phase.diff_snapshotted event is emitted with the diff_hash and base_sha",
+      "Diff blob is stored in the blob store"
+    ],
+    "passes": false,
+    "priority": 3
+  },
+  {
+    "category": "Backend — Phase Runner",
+    "description": "Keep diff_hash on phase.completed populated from the snapshotted blob — do not remove the field",
+    "steps_to_verify": [
+      "phase.completed still includes diff_hash field",
+      "diff_hash value matches the hash from the corresponding phase.diff_snapshotted event",
+      "Review UI continues to work unchanged reading diff_hash from phase.completed"
+    ],
+    "passes": false,
+    "priority": 3
+  },
+  {
+    "category": "Backend — Phase Runner",
+    "description": "Change no_changes outcome status from draft to awaiting_review",
+    "steps_to_verify": [
+      "When finalOutcome is no_changes, newStatus is set to awaiting_review instead of draft",
+      "Task appears in the awaiting_review state in the sidebar after a no-changes attempt",
+      "User can approve, reject, or retry from the awaiting_review state"
+    ],
+    "passes": false,
+    "priority": 4
+  },
+  {
+    "category": "Backend — Projections",
+    "description": "Compute effective_diff_attempt_id on the attempt projection for empty-attempt fallback",
+    "steps_to_verify": [
+      "Non-empty attempts have effective_diff_attempt_id equal to their own attempt_id",
+      "Empty attempts walk back through previous_attempt_id to find the most recent non-empty attempt",
+      "If no prior non-empty attempt exists, effective_diff_attempt_id is null",
+      "Field is computed in the projection reducer, not in the UI"
+    ],
+    "passes": false,
+    "priority": 4
+  },
+  {
+    "category": "Backend — Phase Runner",
+    "description": "Retry attempt starts from prior attempt's commit with delta-only diff semantics",
+    "steps_to_verify": [
+      "Attempt 2 runs in a worktree where HEAD is attempt 1's commit",
+      "Retry prompt references git diff HEAD~1 HEAD as the previous attempt's changes",
+      "Auditor concerns from the prior attempt are included in the retry prompt",
+      "git diff HEAD after attempt 2 shows only attempt 2's delta, not cumulative changes"
+    ],
+    "passes": false,
+    "priority": 5
+  },
+  {
+    "category": "Frontend — Review",
+    "description": "Display empty-attempt banner using effective_diff_attempt_id with fallback to prior attempt diff",
+    "steps_to_verify": [
+      "Review UI reads effective_diff_attempt_id to fetch the diff blob",
+      "When current attempt id differs from effective_diff_attempt_id, a banner renders: 'This attempt made no changes. Showing diff from attempt <M>.'",
+      "When effective_diff_attempt_id is null, renders: 'No attempts have produced changes yet.'",
+      "When attempt is non-empty, no banner is shown and diff displays normally"
+    ],
+    "passes": false,
+    "priority": 6
+  },
+  {
+    "category": "Backend — Crash Recovery",
+    "description": "Discard uncommitted worktree changes on server restart via git reset --hard HEAD",
+    "steps_to_verify": [
+      "On server startup, all known worktree paths are checked for uncommitted changes",
+      "Any uncommitted changes are discarded with git reset --hard HEAD",
+      "Committed state (completed attempts) is preserved",
+      "Recovery runs before any new attempts are started"
+    ],
+    "passes": false,
+    "priority": 7
+  },
+  {
+    "category": "Testing — Phase Runner",
+    "description": "Update existing no_changes test to expect awaiting_review instead of draft",
+    "steps_to_verify": [
+      "phaseRunner.test.ts no_changes test asserts status is awaiting_review",
+      "Test passes with the updated assertion"
+    ],
+    "passes": false,
+    "priority": 1
+  },
+  {
+    "category": "Testing — Phase Runner",
+    "description": "Add tests for per-attempt commit lifecycle",
+    "steps_to_verify": [
+      "Test that a successful attempt produces a git commit with the correct message format",
+      "Test that an empty attempt uses --allow-empty and emits attempt.committed with empty: true",
+      "Test that attempt.committed event contains the correct commit_sha",
+      "Test that no commit happens during the phase loop (only after all phases complete)"
+    ],
+    "passes": false,
+    "priority": 1
+  },
+  {
+    "category": "Testing — Phase Runner",
+    "description": "Add tests for anchored diff capture with base_sha",
+    "steps_to_verify": [
+      "Test that attempt 1 diff uses base_sha from worktree creation as the base",
+      "Test that attempt 2 diff uses attempt 1's commit_sha as the base",
+      "Test that phase.diff_snapshotted event is emitted with correct diff_hash and base_sha"
+    ],
+    "passes": false,
+    "priority": 1
+  },
+  {
+    "category": "Testing — Projections",
+    "description": "Add tests for effective_diff_attempt_id computation",
+    "steps_to_verify": [
+      "Test that non-empty attempt sets effective_diff_attempt_id to its own id",
+      "Test that empty attempt walks back to find the most recent non-empty attempt",
+      "Test that effective_diff_attempt_id is null when no prior non-empty attempt exists"
+    ],
+    "passes": false,
+    "priority": 1
+  }
+]
