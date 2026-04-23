@@ -32,3 +32,13 @@
 - Added `depends_on?: string[]` and `blocked?: boolean` fields to `TaskListRow` in `shared/projections.ts`.
 - Added `task.dependency.set` and `task.unblocked` cases to `reduceTaskList`.
 - All tests pass (19/19 in dependency suite, 86/86 across related files), typecheck clean.
+
+## 2026-04-23 — Extraction Prompt: DT-* IDs and depends_on (PRD item: "Backend — Extraction Prompt")
+
+- Updated `prompts/ingest-v1.md` to instruct the LLM to assign DT-001, DT-002, etc. IDs to draft tasks and output `depends_on` arrays referencing DT-* IDs.
+- Added `id` (DT-* string) and `depends_on` (DT-* string array) fields to the extraction schema (both Zod and JSON Schema) in `server/ingest.ts`.
+- Server builds a `taskIdMap` (DT-* → T-{ULID}) and remaps `depends_on` references in the same pass as proposition ID remapping.
+- Emits `task.dependency.set` events for draft tasks with non-empty `depends_on`.
+- Added `depends_on` to `TaskDraftSummary` interface.
+- Added 3 new tests in `server/ingest.test.ts`: DT-* → ULID remapping, dependency event emission, no event for empty depends_on.
+- All tests pass (18/18 in ingest suite), typecheck clean.

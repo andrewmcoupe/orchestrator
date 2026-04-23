@@ -53,8 +53,10 @@ const extractionSchema = z.object({
   ),
   draft_tasks: z.array(
     z.object({
+      id: z.string(),
       title: z.string().min(1),
       proposition_ids: z.array(z.string()),
+      depends_on: z.array(z.string()),
     }),
   ),
   pushbacks: z.array(
@@ -99,10 +101,12 @@ const EXTRACTION_JSON_SCHEMA: object = {
       items: {
         type: "object",
         properties: {
+          id: { type: "string", description: "Temporary draft task ID using DT-001, DT-002, etc." },
           title: { type: "string" },
           proposition_ids: { type: "array", items: { type: "string" } },
+          depends_on: { type: "array", items: { type: "string" }, description: "Array of DT-* IDs that this task depends on" },
         },
-        required: ["title", "proposition_ids"],
+        required: ["id", "title", "proposition_ids", "depends_on"],
       },
     },
     pushbacks: {
@@ -213,6 +217,7 @@ export interface TaskDraftSummary {
   task_id: string;
   title: string;
   proposition_ids: string[];
+  depends_on: string[];
 }
 
 export interface IngestResult {
@@ -302,13 +307,24 @@ export async function ingestPrd(
     });
   }
 
+  // Map DT-* IDs → assigned T-{ULID} task IDs
+  const taskIdMap = new Map<string, string>();
+  for (const draft of extracted.draft_tasks) {
+    taskIdMap.set(draft.id, `T-${ulid()}`);
+  }
+
   // Emit task.drafted for each draft task grouping
   const draft_tasks: TaskDraftSummary[] = [];
   for (const draft of extracted.draft_tasks) {
-    const task_id = `T-${ulid()}`;
+    const task_id = taskIdMap.get(draft.id)!;
     // Resolve proposition IDs from the LLM's "P-001" style IDs to ULIDs
     const resolvedIds = draft.proposition_ids
       .map((id) => idMap.get(id))
+      .filter((id): id is string => id !== undefined);
+
+    // Resolve DT-* depends_on IDs to T-{ULID} task IDs
+    const resolvedDeps = draft.depends_on
+      .map((id) => taskIdMap.get(id))
       .filter((id): id is string => id !== undefined);
 
     appendAndProject(db, {
@@ -325,7 +341,22 @@ export async function ingestPrd(
       },
     });
 
-    draft_tasks.push({ task_id, title: draft.title, proposition_ids: resolvedIds });
+    // Emit task.dependency.set if this task has dependencies
+    if (resolvedDeps.length > 0) {
+      appendAndProject(db, {
+        type: "task.dependency.set",
+        aggregate_type: "task",
+        aggregate_id: task_id,
+        actor: INGEST_ACTOR,
+        correlation_id: prd_id,
+        payload: {
+          task_id,
+          depends_on: resolvedDeps,
+        },
+      });
+    }
+
+    draft_tasks.push({ task_id, title: draft.title, proposition_ids: resolvedIds, depends_on: resolvedDeps });
   }
 
   // Emit pushback.raised for each flagged proposition

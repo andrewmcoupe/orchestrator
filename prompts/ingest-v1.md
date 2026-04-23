@@ -12,7 +12,7 @@ Extract from the PRD:
    - Reference the section heading and approximate line range in the source document
    - Use IDs like "P-001", "P-002", etc. in order of appearance
 
-2. **Draft Tasks** — Logical groupings of related propositions that should be implemented together. Group propositions that share the same component, domain, or implementation context. Each draft task should have a clear, action-oriented title.
+2. **Draft Tasks** — Logical groupings of related propositions that should be implemented together. Group propositions that share the same component, domain, or implementation context. Each draft task should have a clear, action-oriented title. Assign each draft task a temporary ID using the format "DT-001", "DT-002", etc. in order of appearance. If a task depends on another task being completed first, include a `depends_on` array referencing the DT-* IDs of its dependencies. Use an empty array if the task has no dependencies.
 
 3. **Pushbacks** — Flag any propositions that require clarification before implementation:
    - `blocking`: Cannot proceed without resolution (ambiguous, contradictory, or technically infeasible)
@@ -24,7 +24,7 @@ Extract from the PRD:
 Return a structured JSON response with exactly these three fields:
 
 - `propositions`: Array of extracted propositions
-- `draft_tasks`: Array of draft tasks grouping proposition IDs
+- `draft_tasks`: Array of draft tasks with DT-* IDs, grouped proposition IDs, and `depends_on` arrays referencing other DT-* IDs
 - `pushbacks`: Array of pushbacks referencing proposition IDs by the "P-001" style IDs above
 
 Be thorough and extract ALL testable requirements. Prefer many specific propositions over few broad ones.

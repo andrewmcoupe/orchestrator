@@ -93,7 +93,7 @@
       "Ingest prompt instructs LLM to output depends_on arrays referencing DT-* IDs",
       "Server remaps DT-* IDs to ULIDs in the same pass as proposition ID remapping"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 4
   },
   {

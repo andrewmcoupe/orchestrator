@@ -116,8 +116,8 @@ const SAMPLE_EXTRACTION = {
     },
   ],
   draft_tasks: [
-    { title: "Implement authentication", proposition_ids: ["P-001", "P-002"] },
-    { title: "API error handling", proposition_ids: ["P-003"] },
+    { id: "DT-001", title: "Implement authentication", proposition_ids: ["P-001", "P-002"], depends_on: [] },
+    { id: "DT-002", title: "API error handling", proposition_ids: ["P-003"], depends_on: ["DT-001"] },
   ],
   pushbacks: [
     {
@@ -289,6 +289,47 @@ describe("ingestPrd", () => {
     await expect(
       ingestPrd(db, { path: "/nonexistent/path.md" }, makeFakeFetcher(SAMPLE_EXTRACTION)),
     ).rejects.toThrow();
+  });
+
+  it("remaps DT-* IDs to T-{ULID} task IDs in depends_on", async () => {
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
+
+    // DT-002 depends on DT-001, which should be remapped to the ULID of the auth task
+    const apiTask = result.draft_tasks.find(t => t.title === "API error handling");
+    const authTask = result.draft_tasks.find(t => t.title === "Implement authentication");
+    expect(apiTask).toBeDefined();
+    expect(authTask).toBeDefined();
+    expect(apiTask!.depends_on).toEqual([authTask!.task_id]);
+  });
+
+  it("emits task.dependency.set events for tasks with non-empty depends_on", async () => {
+    await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
+
+    const depEvents = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'task.dependency.set'")
+      .all() as Array<{ payload_json: string }>;
+
+    // Only DT-002 has depends_on, so exactly one event
+    expect(depEvents).toHaveLength(1);
+    const payload = JSON.parse(depEvents[0].payload_json) as { task_id: string; depends_on: string[] };
+    expect(payload.task_id).toMatch(/^T-/);
+    expect(payload.depends_on).toHaveLength(1);
+    expect(payload.depends_on[0]).toMatch(/^T-/);
+  });
+
+  it("does not emit task.dependency.set for tasks with empty depends_on", async () => {
+    const noDepsExtraction = {
+      ...SAMPLE_EXTRACTION,
+      draft_tasks: [
+        { id: "DT-001", title: "Standalone task", proposition_ids: ["P-001"], depends_on: [] },
+      ],
+    };
+    await ingestPrd(db, { path: prdPath }, makeFakeFetcher(noDepsExtraction));
+
+    const depEvents = db
+      .prepare("SELECT * FROM events WHERE type = 'task.dependency.set'")
+      .all();
+    expect(depEvents).toHaveLength(0);
   });
 
   it("all events share the same correlation_id (prd_id)", async () => {
