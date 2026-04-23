@@ -366,6 +366,155 @@ describe("Ingest — accept action", () => {
   });
 });
 
+// ============================================================================
+// Textarea (paste PRD content directly) — requirement 1
+// ============================================================================
+
+describe("Ingest — textarea input", () => {
+  it("renders a textarea for pasting PRD content", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    expect(screen.getByRole("textbox", { name: /paste/i })).toBeTruthy();
+  });
+
+  it("ingest button is enabled when only textarea has content", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    const textarea = screen.getByRole("textbox", { name: /paste/i });
+    fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
+    const btn = screen.getByRole("button", { name: /^ingest$/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("ingest button is disabled when both path and textarea are empty", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    const btn = screen.getByRole("button", { name: /^ingest$/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("Ingest — loading state via pasted content", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => new Promise(() => {/* never resolves */})),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shows loading spinner after clicking Ingest with pasted content", async () => {
+    render(<Ingest onBack={vi.fn()} />);
+    const textarea = screen.getByRole("textbox", { name: /paste/i });
+    fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/ingesting/i)).toBeTruthy();
+    });
+  });
+
+  it("calls the ingest API with pasted content when no path is provided", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Ingest onBack={vi.fn()} />);
+    const textarea = screen.getByRole("textbox", { name: /paste/i });
+    fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/commands/prd/ingest",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("The system shall do things"),
+        }),
+      );
+    });
+  });
+});
+
+describe("Ingest — review state reached via pasted content", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url === "/api/commands/prd/ingest") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mockIngestResult),
+          });
+        }
+        if (url.includes("/api/events/recent")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve([]),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("shows draft task card after ingesting pasted content", async () => {
+    render(<Ingest onBack={vi.fn()} />);
+    const textarea = screen.getByRole("textbox", { name: /paste/i });
+    fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Implement authentication")).toBeTruthy();
+    });
+  });
+});
+
+// ============================================================================
+// File path input — requirement 2 (preservation of existing behaviour)
+// ============================================================================
+
+describe("Ingest — file path input preserved", () => {
+  it("still renders the file path input", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    expect(screen.getByPlaceholderText(/absolute\/path/i)).toBeTruthy();
+  });
+
+  it("ingest button is enabled when only the path input has a value", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
+      target: { value: "/tmp/prd.md" },
+    });
+    const btn = screen.getByRole("button", { name: /^ingest$/i });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("calls the ingest API with path when path input is used and textarea is empty", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Ingest onBack={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
+      target: { value: "/tmp/prd.md" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/commands/prd/ingest",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("/tmp/prd.md"),
+        }),
+      );
+    });
+
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("Ingest — error handling", () => {
   it("shows error message when ingest fails", async () => {
     vi.stubGlobal(

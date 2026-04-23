@@ -341,6 +341,7 @@ type IngestProps = {
 export function Ingest({ onBack }: IngestProps) {
   const [state, setState] = useState<IngestPhase>({ phase: "idle" });
   const [pathInput, setPathInput] = useState("");
+  const [prdContent, setPrdContent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
   // Track which pushbacks have been resolved locally (for re-ingest recovery)
@@ -350,17 +351,20 @@ export function Ingest({ onBack }: IngestProps) {
   // Ingest action
   // --------------------------------------------------------------------------
 
-  const handleIngest = useCallback(async (path: string) => {
-    if (!path.trim()) return;
+  const handleIngest = useCallback(async (path: string, content?: string) => {
+    if (!path.trim() && !content?.trim()) return;
     setError(null);
     setState({ phase: "loading", path });
 
     try {
       // 1. Call ingest command
+      const body = content?.trim()
+        ? JSON.stringify({ content: content.trim() })
+        : JSON.stringify({ path: path.trim() });
       const ingestRes = await fetch("/api/commands/prd/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: path.trim() }),
+        body,
       });
 
       if (!ingestRes.ok) {
@@ -480,13 +484,34 @@ export function Ingest({ onBack }: IngestProps) {
               </div>
             )}
 
+            <div className="mb-4">
+              <label htmlFor="prd-content" className="block text-xs font-medium text-text-secondary mb-1.5">
+                Paste PRD content
+              </label>
+              <textarea
+                id="prd-content"
+                value={prdContent}
+                onChange={(e) => setPrdContent(e.target.value)}
+                placeholder="Paste your PRD markdown here…"
+                disabled={isLoading}
+                rows={6}
+                className="w-full border border-border-default bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-text-secondary transition-colors resize-y disabled:opacity-50"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-1 h-px bg-border-muted" />
+              <span className="text-xs text-text-tertiary">or</span>
+              <div className="flex-1 h-px bg-border-muted" />
+            </div>
+
             <div className="flex gap-2">
               <input
                 type="text"
                 value={pathInput}
                 onChange={(e) => setPathInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !isLoading) void handleIngest(pathInput);
+                  if (e.key === "Enter" && !isLoading) void handleIngest(pathInput, prdContent);
                 }}
                 placeholder="/absolute/path/to/your-prd.md"
                 disabled={isLoading}
@@ -494,8 +519,8 @@ export function Ingest({ onBack }: IngestProps) {
               />
               <button
                 type="button"
-                onClick={() => void handleIngest(pathInput)}
-                disabled={isLoading || !pathInput.trim()}
+                onClick={() => void handleIngest(pathInput, prdContent)}
+                disabled={isLoading || (!pathInput.trim() && !prdContent.trim())}
                 className="border border-transparent bg-bg-inverse px-5 py-2.5 text-sm font-medium text-text-inverse hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer disabled:cursor-default"
               >
                 {isLoading ? (
