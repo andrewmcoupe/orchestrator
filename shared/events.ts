@@ -165,10 +165,11 @@ export type TransportOptions =
   | {
       kind: "cli";
       bare?: boolean;
-      max_turns: number;
+      max_turns?: number;
       max_budget_usd: number;
       permission_mode: "default" | "plan" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "auto";
       allowed_tools?: string[];
+      disallowed_tools?: string[];
       append_system_prompt_path?: string;
       schema?: object; // JSON Schema for structured output via --json-schema
     }

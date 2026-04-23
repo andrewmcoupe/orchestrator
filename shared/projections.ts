@@ -48,8 +48,7 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
       prompt_version_id: "default",
       transport_options: {
         kind: "cli",
-        max_turns: 10,
-        max_budget_usd: 1,
+        max_budget_usd: 5,
         permission_mode: "acceptEdits",
       },
       context_policy: {
@@ -67,8 +66,7 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
       prompt_version_id: "default",
       transport_options: {
         kind: "cli",
-        max_turns: 10,
-        max_budget_usd: 1,
+        max_budget_usd: 5,
         permission_mode: "acceptEdits",
       },
       context_policy: {

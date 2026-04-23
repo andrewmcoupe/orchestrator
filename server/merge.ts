@@ -129,7 +129,7 @@ async function performMerge(
 
     // Commit the squashed changes. Use the UI-provided message if supplied.
     const commitMsg = commitMessageOverride ?? `${title}\n\nAuto-merged by orchestrator`;
-    await execa("git", ["commit", "-m", commitMsg, "--no-gpg-sign"], {
+    await execa("git", ["commit", "--allow-empty", "-m", commitMsg, "--no-gpg-sign"], {
       cwd: repoRoot,
       stdio: ["ignore", "pipe", "pipe"],
     });

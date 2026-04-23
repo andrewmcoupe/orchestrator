@@ -20,7 +20,9 @@ import type Database from "better-sqlite3";
 import { appendAndProject } from "./projectionRunner.js";
 import type { Actor } from "@shared/events.js";
 import type { PropositionRow } from "@shared/projections.js";
-import { invoke, type Fetcher } from "./adapters/anthropicApi.js";
+import { invoke as cliInvoke } from "./adapters/claudeCode.js";
+import { createBlobStore } from "./blobStore.js";
+import { getDefaultRepoRoot, getBlobsDir } from "./paths.js";
 import { topoSort } from "@shared/dependency.js";
 
 // ============================================================================
@@ -149,58 +151,72 @@ function loadPromptTemplate(): string {
 // Extraction — calls the API with retry on validation failure
 // ============================================================================
 
-async function callExtractionApi(
+async function callExtractionCli(
   prd_id: string,
   content: string,
-  fetcher: Fetcher,
 ): Promise<ExtractionResult> {
   const systemPrompt = loadPromptTemplate();
+  const blobStore = createBlobStore(getBlobsDir());
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const invocationId = `INV-${ulid()}`;
     let assistantText = "";
-    let apiErrored = false;
+    let cliErrored = false;
 
-    console.log(`[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${INGEST_MODEL})`);
+    console.log(`[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${INGEST_MODEL}, transport: claude-code)`);
     console.log(`[ingest] content length: ${content.length} chars`);
+
+    const prompt = `${systemPrompt}\n\n---\n\n${content}`;
 
     const opts = {
       invocation_id: invocationId,
       attempt_id: prd_id,
       phase_name: "ingest" as const,
       model: INGEST_MODEL,
-      messages: [{ role: "user" as const, content }],
-      system_prompt: systemPrompt,
+      prompt,
       prompt_version_id: INGEST_PROMPT_VERSION_ID,
       context_manifest_hash: "",
+      cwd: getDefaultRepoRoot(),
       transport_options: {
-        kind: "api" as const,
-        max_tokens: 16384,
+        kind: "cli" as const,
+        max_turns: 1,
+        max_budget_usd: 2,
+        permission_mode: "bypassPermissions" as const,
         schema: EXTRACTION_JSON_SCHEMA,
       },
     };
 
-    console.log(`[ingest] calling API...`);
+    console.log(`[ingest] calling Claude Code CLI...`);
     const startTime = Date.now();
 
-    for await (const event of invoke(opts, fetcher)) {
+    for await (const event of cliInvoke(opts, blobStore)) {
       console.log(`[ingest] received event: ${event.type} (+${Date.now() - startTime}ms)`);
       if (event.type === "invocation.assistant_message") {
         assistantText += (event.payload as { text: string }).text;
       }
+      if (event.type === "invocation.tool_called") {
+        // When using --json-schema, Claude Code returns the structured output
+        // as a tool call. Retrieve the args from the blob store.
+        const payload = event.payload as { args_hash: string };
+        const blob = blobStore.getBlob(payload.args_hash);
+        if (blob) {
+          assistantText = blob.toString("utf-8");
+          console.log(`[ingest] captured tool call args (${assistantText.length} chars)`);
+        }
+      }
       if (event.type === "invocation.errored") {
-        apiErrored = true;
+        cliErrored = true;
         const errorPayload = event.payload as { error: string };
-        console.error(`[ingest] API error: ${errorPayload.error}`);
-        lastError = new Error(errorPayload.error ?? "API error");
+        console.error(`[ingest] CLI error: ${errorPayload.error}`);
+        lastError = new Error(errorPayload.error ?? "CLI error");
         break;
       }
     }
 
-    console.log(`[ingest] API call completed in ${Date.now() - startTime}ms (errored: ${apiErrored}, textLen: ${assistantText.length})`);
+    console.log(`[ingest] CLI call completed in ${Date.now() - startTime}ms (errored: ${cliErrored}, textLen: ${assistantText.length})`);
 
-    if (!apiErrored && assistantText) {
+    if (!cliErrored && assistantText) {
       try {
         const parsed: unknown = JSON.parse(assistantText);
         const result = extractionSchema.parse(parsed);
@@ -212,7 +228,7 @@ async function callExtractionApi(
           err instanceof Error ? err : new Error("Validation failed");
         // continue to next retry
       }
-    } else if (apiErrored && attempt === MAX_RETRIES) {
+    } else if (cliErrored && attempt === MAX_RETRIES) {
       break;
     }
   }
@@ -251,7 +267,6 @@ export type IngestInput = { path: string } | { content: string };
 export async function ingestPrd(
   db: Database.Database,
   input: IngestInput,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
 ): Promise<IngestResult> {
   // Resolve content from either input mode
   const resolvedPath: string | null = "path" in input ? input.path : null;
@@ -282,7 +297,7 @@ export async function ingestPrd(
   });
 
   // Call extraction API (retries up to MAX_RETRIES on failure)
-  const extracted = await callExtractionApi(prd_id, content, fetcher);
+  const extracted = await callExtractionCli(prd_id, content);
 
   // Run topological sort to detect and strip cycle-causing edges
   const topoResult = topoSort(

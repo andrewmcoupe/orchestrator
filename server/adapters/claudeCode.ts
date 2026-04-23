@@ -131,6 +131,9 @@ async function* execaSpawner(
   args: string[],
   opts: { cwd: string },
 ): AsyncIterable<string> {
+  const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+  console.log(`[claudeCode] spawning: ANTHROPIC_API_KEY=${hasApiKey ? "set (" + process.env.ANTHROPIC_API_KEY!.slice(0, 8) + "...)" : "not set"}, cwd=${opts.cwd}`);
+
   const proc = execa(cmd, args, {
     cwd: opts.cwd,
     stdin: "ignore",
@@ -193,9 +196,11 @@ export function buildArgs(opts: InvokeOptions): string[] {
     opts.model,
     "--permission-mode",
     to.permission_mode ?? "acceptEdits",
-    "--max-turns",
-    String(to.max_turns ?? 10),
   ];
+
+  if (to.max_turns != null) {
+    args.push("--max-turns", String(to.max_turns));
+  }
 
   if (to.bare) {
     args.push("--bare");
@@ -212,6 +217,12 @@ export function buildArgs(opts: InvokeOptions): string[] {
 
   if (to.allowed_tools && to.allowed_tools.length > 0) {
     args.push("--allowedTools", to.allowed_tools.join(","));
+  }
+
+  if (to.disallowed_tools && to.disallowed_tools.length > 0) {
+    for (const tool of to.disallowed_tools) {
+      args.push("--disallowedTools", tool);
+    }
   }
 
   if (to.schema) {

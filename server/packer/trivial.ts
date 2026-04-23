@@ -131,10 +131,16 @@ async function defaultFindTestFiles(worktreePath: string): Promise<string[]> {
 // Event log queries
 // ============================================================================
 
-function getPropositionTexts(
+type PropositionDetail = {
+  text: string;
+  prd_id: string;
+  source_span: { section: string; line_start: number; line_end: number } | null;
+};
+
+function getPropositionDetails(
   db: Database.Database,
   ids: string[],
-): string[] {
+): PropositionDetail[] {
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => "?").join(",");
   const rows = db
@@ -144,9 +150,101 @@ function getPropositionTexts(
        AND json_extract(payload_json, '$.proposition_id') IN (${placeholders})`,
     )
     .all(...ids) as Array<{ payload_json: string }>;
-  return rows.map(
-    (r) => (JSON.parse(r.payload_json) as { text: string }).text,
-  );
+  return rows.map((r) => {
+    const p = JSON.parse(r.payload_json) as {
+      text: string;
+      prd_id: string;
+      source_span?: { section: string; line_start: number; line_end: number };
+    };
+    return { text: p.text, prd_id: p.prd_id, source_span: p.source_span ?? null };
+  });
+}
+
+function getPropositionTexts(
+  db: Database.Database,
+  ids: string[],
+): string[] {
+  return getPropositionDetails(db, ids).map((p) => p.text);
+}
+
+function getPrdContent(db: Database.Database, prdId: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT json_extract(payload_json, '$.content') as content FROM events
+       WHERE type = 'prd.ingested'
+       AND json_extract(payload_json, '$.prd_id') = ?
+       LIMIT 1`,
+    )
+    .get(prdId) as { content: string | null } | undefined;
+  return row?.content ?? null;
+}
+
+/**
+ * Extract relevant PRD sections from source spans.
+ * Returns the union of all referenced line ranges with ~1 paragraph of
+ * surrounding context on each side. Non-contiguous gaps are joined with ellipses.
+ */
+function extractPrdSections(
+  prdContent: string,
+  spans: Array<{ section: string; line_start: number; line_end: number }>,
+): string {
+  const lines = prdContent.split("\n");
+  const CONTEXT_LINES = 5; // ~1 paragraph of surrounding context
+
+  // Build a set of line ranges (1-indexed) with context
+  const ranges: Array<[number, number]> = spans.map((s) => [
+    Math.max(1, s.line_start - CONTEXT_LINES),
+    Math.min(lines.length, s.line_end + CONTEXT_LINES),
+  ]);
+
+  // Sort and merge overlapping ranges
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && range[0] <= last[1] + 1) {
+      last[1] = Math.max(last[1], range[1]);
+    } else {
+      merged.push([...range]);
+    }
+  }
+
+  // Extract and join with ellipses between gaps
+  const sections: string[] = [];
+  for (const [start, end] of merged) {
+    sections.push(lines.slice(start - 1, end).join("\n"));
+  }
+  return sections.join("\n\n...\n\n");
+}
+
+/**
+ * Extract the "Implementation Touchpoints" or similar file-change table from the PRD.
+ */
+function extractChangesInScope(prdContent: string): string | null {
+  // Look for a markdown table under a heading containing "touchpoint", "files", or "changes"
+  const lines = prdContent.split("\n");
+  let inTable = false;
+  let tableStart = -1;
+  const tableLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^##\s+.*(touchpoint|implementation|files.*change|changes.*scope)/i.test(line)) {
+      inTable = true;
+      tableStart = i;
+      tableLines.push(line);
+      continue;
+    }
+    if (inTable) {
+      if (/^##\s/.test(line) && i !== tableStart) {
+        break; // hit next section
+      }
+      tableLines.push(line);
+    }
+  }
+
+  if (tableLines.length <= 1) return null;
+  return tableLines.join("\n").trim();
 }
 
 function getRetryFeedback(
@@ -247,12 +345,75 @@ function getTestAuthorFiles(
 // Prompt builders
 // ============================================================================
 
-function propositionsBlock(texts: string[], taskTitle: string): string {
-  if (texts.length === 0) return `## Task\n\n${taskTitle}`;
+function acceptanceCriteriaBlock(texts: string[]): string {
+  if (texts.length === 0) return "";
   return (
-    "## Requirements\n\n" + texts.map((t, i) => `${i + 1}. ${t}`).join("\n")
+    "## Acceptance criteria\n\n" + texts.map((t, i) => `${i + 1}. ${t}`).join("\n")
   );
 }
+
+/**
+ * Build the Background section from PRD content and proposition source spans.
+ * If any proposition lacks a source_span, falls back to the full PRD text.
+ */
+function backgroundBlock(
+  db: Database.Database,
+  propositions: PropositionDetail[],
+): string {
+  if (propositions.length === 0) return "";
+
+  // Get unique PRD IDs
+  const prdIds = [...new Set(propositions.map((p) => p.prd_id))];
+  const prdContents = new Map<string, string>();
+  for (const id of prdIds) {
+    const content = getPrdContent(db, id);
+    if (content) prdContents.set(id, content);
+  }
+
+  if (prdContents.size === 0) return "";
+
+  // Check if any proposition is missing source_span — fallback to full PRD
+  const missingSpans = propositions.some((p) => !p.source_span);
+
+  const sections: string[] = [];
+  for (const [prdId, content] of prdContents) {
+    if (missingSpans) {
+      // Fallback: include full PRD text
+      sections.push(content);
+    } else {
+      const spans = propositions
+        .filter((p) => p.prd_id === prdId && p.source_span)
+        .map((p) => p.source_span!);
+      if (spans.length > 0) {
+        sections.push(extractPrdSections(content, spans));
+      }
+    }
+  }
+
+  if (sections.length === 0) return "";
+  return "## Background\n\n" + sections.join("\n\n---\n\n");
+}
+
+function changesInScopeBlock(
+  db: Database.Database,
+  propositions: PropositionDetail[],
+): string {
+  const prdIds = [...new Set(propositions.map((p) => p.prd_id))];
+  for (const id of prdIds) {
+    const content = getPrdContent(db, id);
+    if (content) {
+      const table = extractChangesInScope(content);
+      if (table) return "\n\n## Changes in scope\n\n" + table;
+    }
+  }
+  return "";
+}
+
+const CONSTRAINTS_BLOCK = `\n\n## Constraints
+
+- Do not run \`git commit\`, \`git reset\`, \`git checkout\`, \`git merge\`, \`git rebase\`, \`git push\`, or any other git commands that modify history or branch state. The orchestrator manages all commits.
+- Make your changes as file edits. They will be committed at the end of the attempt.
+- You may read git state freely: \`git status\`, \`git diff\`, \`git log\`, \`git show\`, \`git blame\`, etc.`;
 
 function formatRetryFeedback(concerns: AuditConcern[]): string {
   if (concerns.length === 0) return "";
@@ -282,8 +443,14 @@ export async function pack(
   const gitDiffPrevAttempt = deps?.gitDiffPrevAttempt ?? defaultGitDiffPrevAttempt;
   const findTestFiles = deps?.findTestFiles ?? defaultFindTestFiles;
 
-  const propTexts = getPropositionTexts(db, task.proposition_ids);
-  const reqs = propositionsBlock(propTexts, task.title);
+  const propDetails = getPropositionDetails(db, task.proposition_ids);
+  const propTexts = propDetails.map((p) => p.text);
+
+  // Common blocks shared across phases
+  const taskBlock = `## Task\n\n${task.title}`;
+  const background = backgroundBlock(db, propDetails);
+  const criteria = acceptanceCriteriaBlock(propTexts);
+  const changesScope = changesInScopeBlock(db, propDetails);
 
   let prompt: string;
   const files: ContextManifest["files"] = [];
@@ -311,8 +478,8 @@ export async function pack(
           : "";
 
       prompt =
-        `${reqs}${fileList}\n\n` +
-        "Write tests for the requirements above. " +
+        `${taskBlock}\n\n${background}\n\n${criteria}${changesScope}${fileList}${CONSTRAINTS_BLOCK}\n\n` +
+        "Write tests covering the acceptance criteria above. " +
         "Focus on behaviour, not implementation details. " +
         "Use the existing test patterns in the codebase.";
       break;
@@ -356,10 +523,10 @@ export async function pack(
           : "";
 
       prompt =
-        `${reqs}${gateBlock}${feedbackBlock}${prevDiffBlock}${fileList}\n\n` +
-        "Implement the requirements. Make the failing tests pass. " +
-        "Keep changes focused and minimal. " +
-        "Claude Code will explore the repo for additional context.";
+        `${taskBlock}\n\n${background}\n\n${criteria}${changesScope}${gateBlock}${feedbackBlock}${prevDiffBlock}${fileList}${CONSTRAINTS_BLOCK}\n\n` +
+        "Implement changes that satisfy the acceptance criteria above. " +
+        "Make the failing tests pass. " +
+        "Keep changes focused and minimal.";
       break;
     }
 
@@ -380,14 +547,15 @@ export async function pack(
       const feedbackBlock = formatRetryFeedback(retryFeedback);
 
       prompt =
-        `${reqs}${diffBlock}${feedbackBlock}\n\n` +
-        "Review the changes against the requirements. " +
+        `${taskBlock}\n\n${background}\n\n${criteria}${diffBlock}${feedbackBlock}\n\n` +
+        "Review the changes against the acceptance criteria. " +
+        "Use the Background section to judge whether the implementation is reasonable in the intended frame. " +
         "Return your verdict as JSON conforming to the schema in the system prompt.";
       break;
     }
 
     default: {
-      prompt = `${reqs}\n\nComplete the task as described.`;
+      prompt = `${taskBlock}\n\n${background}\n\n${criteria}\n\nComplete the task as described.`;
       break;
     }
   }
@@ -401,5 +569,14 @@ export async function pack(
   };
   const { hash: manifest_hash } = blobStore.putBlob(JSON.stringify(manifest));
 
-  return { prompt, manifest, manifest_hash };
+  // Resolve system prompt file for phases that have one
+  let system_prompt_file: string | undefined;
+  if (phase_name === "implementer" || phase_name === "test-author") {
+    const candidate = path.resolve(worktree_path, "prompts", "implementer-v1.md");
+    if (fs.existsSync(candidate)) {
+      system_prompt_file = candidate;
+    }
+  }
+
+  return { prompt, manifest, manifest_hash, system_prompt_file };
 }

@@ -308,9 +308,12 @@ export async function runAttempt(
     return stdout;
   });
   const doCommit = deps?.committer ?? (async (wp: string, message: string) => {
-    await execa("git", ["add", "-A", "--", ".", ":!node_modules"], {
+    // Stage all changes except node_modules. Use reject:false because
+    // git add -A can exit non-zero when only ignored files are present.
+    await execa("git", ["add", "-A", "--", ".", ":(exclude)node_modules"], {
       cwd: wp,
       stdio: ["ignore", "pipe", "pipe"],
+      reject: false,
     });
     const { stdout: statusOut } = await execa(
       "git", ["status", "--porcelain"],
@@ -536,6 +539,25 @@ export async function runAttempt(
               `Transport ${phase.transport} requires cli transport_options`,
             );
           }
+
+          // Deny git-write commands for all phases — the orchestrator manages commits.
+          // Reading git state (status, diff, log) is allowed.
+          const GIT_WRITE_DENY_LIST = [
+            "Bash(git commit:*)",
+            "Bash(git reset:*)",
+            "Bash(git checkout:*)",
+            "Bash(git merge:*)",
+            "Bash(git rebase:*)",
+            "Bash(git push:*)",
+          ];
+          const cliOpts = {
+            ...effectiveTransportOpts,
+            disallowed_tools: [
+              ...(effectiveTransportOpts.disallowed_tools ?? []),
+              ...GIT_WRITE_DENY_LIST,
+            ],
+          };
+
           invoker = doCliInvoke(
             {
               invocation_id,
@@ -549,7 +571,7 @@ export async function runAttempt(
               context_manifest_hash: packResult.manifest_hash,
               systemPromptFile: packResult.system_prompt_file,
               cwd: worktree_path ?? "/tmp/no-worktree",
-              transport_options: effectiveTransportOpts,
+              transport_options: cliOpts,
             } satisfies CliInvokeOptions,
             bs,
           );
