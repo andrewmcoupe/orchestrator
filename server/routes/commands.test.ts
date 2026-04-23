@@ -838,6 +838,39 @@ describe("POST /api/commands/prd/ingest", () => {
     const res = await post(app, "/api/commands/prd/ingest", { path: "" });
     expect(res.status).toBe(400);
   });
+
+  it("accepts { path: string }", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/prd/ingest", {
+      path: "/some/prd.md",
+    });
+    // Validation passes (500 because file doesn't exist, not 400)
+    expect(res.status).not.toBe(400);
+  });
+
+  it("accepts { content: string }", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/prd/ingest", {
+      content: "# My PRD\nSome content here",
+    });
+    // Validation passes (500 from ingestPrd internals, not 400)
+    expect(res.status).not.toBe(400);
+  });
+
+  it("rejects payload with both path and content", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/prd/ingest", {
+      path: "/some/prd.md",
+      content: "# My PRD",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects payload with neither path nor content", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/prd/ingest", {});
+    expect(res.status).toBe(400);
+  });
 });
 
 // ============================================================================

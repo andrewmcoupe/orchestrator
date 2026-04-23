@@ -85,9 +85,10 @@ const rejectBody = z.object({
   rationale: z.string().optional(),
 });
 
-const prdIngestBody = z.object({
-  path: z.string().min(1),
-});
+const prdIngestBody = z.union([
+  z.object({ path: z.string().min(1), content: z.undefined() }),
+  z.object({ content: z.string().min(1), path: z.undefined() }),
+]);
 
 const pushbackResolveBody = z.object({
   resolution: z.enum(["amended", "reply_inline", "deferred", "dismissed"]),

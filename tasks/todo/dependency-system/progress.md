@@ -18,3 +18,9 @@
 - Added 4 new tests in `server/ingest.test.ts` covering content mode behavior; updated existing tests to use new signature.
 - Updated route handler in `server/routes/commands.ts` to pass `parsed.data` directly.
 - All tests pass (15/15 in ingest suite), typecheck clean.
+
+## 2026-04-23 — API Route: discriminated union schema (PRD items: "Testing — API Route", "Backend — API Route")
+
+- Updated `prdIngestBody` Zod schema from `z.object({ path })` to a `z.union` of `{ path }` and `{ content }`, rejecting payloads with both or neither.
+- Added 4 new tests in `server/routes/commands.test.ts` covering path-only, content-only, both-rejected, and neither-rejected cases.
+- All tests pass, typecheck clean.

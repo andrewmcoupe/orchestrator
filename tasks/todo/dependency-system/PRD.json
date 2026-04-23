@@ -32,7 +32,7 @@
       "Test POST with both path and content is rejected",
       "Test POST with neither path nor content is rejected"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 1
   },
   {
@@ -82,7 +82,7 @@
       "Schema rejects payloads with both path and content",
       "Schema rejects payloads with neither path nor content"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 3
   },
   {
