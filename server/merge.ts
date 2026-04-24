@@ -64,7 +64,8 @@ export type MergeResult =
   | { outcome: "merged"; merge_commit_sha: string }
   | { outcome: "drifted"; commits_ahead: number; can_merge_anyway: true }
   | { outcome: "conflicted"; conflicting_paths: string[] }
-  | { outcome: "gate_failed"; failures: GateFailure[] };
+  | { outcome: "gate_failed"; failures: GateFailure[] }
+  | { outcome: "dirty_worktree"; files: string[] };
 
 export type MergeOptions = {
   into_branch?: string;
@@ -268,6 +269,20 @@ export async function mergeTask(
     path.join(repoRoot, ".orchestrator-worktrees", task_id);
 
   const worktreeBranch = `wt/${task_id}`;
+
+  // ── 0. Dirty worktree check ──────────────────────────────────────────────
+  const statusResult = await execa(
+    "git",
+    ["status", "--porcelain"],
+    { cwd: repoRoot, reject: false, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  const dirtyFiles = statusResult.stdout.split("\n").filter(Boolean);
+  if (dirtyFiles.length > 0) {
+    return {
+      outcome: "dirty_worktree",
+      files: dirtyFiles.map((line) => line.slice(3)),
+    };
+  }
 
   // ── 1. Resolve target branch ──────────────────────────────────────────────
   const intoBranch =

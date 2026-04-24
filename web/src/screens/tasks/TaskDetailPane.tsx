@@ -60,6 +60,7 @@ function derivePhaseStatus(
   if (
     taskStatus === "merged" ||
     taskStatus === "awaiting_review" ||
+    taskStatus === "approved" ||
     taskStatus === "rejected"
   )
     return "done";
@@ -123,6 +124,9 @@ function PhaseBox({
       <div className="text-xs text-text-secondary font-mono">
         {model} &middot; {phase.prompt_version_id || "v?"}
       </div>
+      {status === "done" && (
+        <span className="text-xs text-text-tertiary mt-1">Finished</span>
+      )}
     </div>
   );
 }
@@ -475,6 +479,17 @@ export function TaskDetailPane({
               >
                 <ClipboardList className="h-3.5 w-3.5" />
                 Review
+              </Button>
+            ) : detail.status === "approved" ? (
+              <Button
+                type="button"
+                onClick={() =>
+                  onReview(detail.task_id, detail.current_attempt_id!)
+                }
+                title="Review changes from last attempt"
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                Review changes
               </Button>
             ) : detail.status === "merged" || detail.status === "rejected" ? (
               <Button
