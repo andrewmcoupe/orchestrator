@@ -705,6 +705,11 @@ describe("exit reason classification", () => {
       expect(classifySubprocessError(err, "connect ECONNREFUSED 127.0.0.1:443")).toBe("network_error");
     });
 
+    it("classifies 'socket hang up' as network_error (AC7)", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "Error: socket hang up")).toBe("network_error");
+    });
+
     it("classifies schema validation errors as schema_invalid", () => {
       const err = Object.assign(new Error("failed"), { exitCode: 1 });
       expect(classifySubprocessError(err, "schema validation failed")).toBe("schema_invalid");
@@ -715,6 +720,11 @@ describe("exit reason classification", () => {
       expect(classifySubprocessError(err, "Segmentation fault (core dumped)\nSIGSEGV")).toBe("crashed");
     });
 
+    it("classifies stack trace in stderr as crashed (AC9)", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "at Object.<anonymous> (/app/index.js:10:5)\nstack trace")).toBe("crashed");
+    });
+
     it("falls through to unknown with no matching pattern", () => {
       const err = Object.assign(new Error("something went wrong"), { exitCode: 1 });
       expect(classifySubprocessError(err)).toBe("unknown");
@@ -722,7 +732,7 @@ describe("exit reason classification", () => {
   });
 
   describe("budget-exceeded fixture: classifies correctly from structured event", () => {
-    it("translateLine produces exit_reason budget_exceeded from error_budget_exceeded result", () => {
+    it("translateLine produces exit_reason budget_exceeded from error_budget_exceeded result (AC1)", () => {
       const line: ClaudeCodeLine = {
         type: "result",
         subtype: "error_budget_exceeded",
@@ -739,6 +749,27 @@ describe("exit reason classification", () => {
       const completed = inputs.find((i) => i.type === "invocation.completed");
       expect(completed).toBeDefined();
       expect((completed!.payload as { exit_reason: string }).exit_reason).toBe("budget_exceeded");
+    });
+  });
+
+  describe("turn-limit fixture: classifies correctly from structured event", () => {
+    it("translateLine produces exit_reason turn_limit from error_max_turns result (AC2)", () => {
+      const line: ClaudeCodeLine = {
+        type: "result",
+        subtype: "error_max_turns",
+        duration_ms: 800,
+        is_error: true,
+        num_turns: 10,
+        result: "Max turns reached",
+        session_id: "s1",
+        total_cost_usd: 0.5,
+        usage: { input_tokens: 200, output_tokens: 80 },
+      };
+      const blobStore = makeBlobStore();
+      const inputs = translateLine(line, baseOpts, blobStore, {}, 1000);
+      const completed = inputs.find((i) => i.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      expect((completed!.payload as { exit_reason: string }).exit_reason).toBe("turn_limit");
     });
   });
 

@@ -168,7 +168,7 @@ async function* execaSpawner(
   const stderr = proc.stderr;
   if (stderr) {
     stderr.on("data", (chunk: Buffer) => {
-      stderrTail = (stderrTail + chunk.toString()).slice(-2000);
+      stderrTail = (stderrTail + chunk.toString()).slice(-4096);
       if (!permissionHangTimer && /Waiting for permission/i.test(stderrTail)) {
         permissionHangTimer = setTimeout(() => {
           proc.kill("SIGKILL");
