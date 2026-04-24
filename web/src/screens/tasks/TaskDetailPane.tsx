@@ -6,6 +6,7 @@ import type {
   PhaseConfig,
   GateConfig,
   AnyEvent,
+  GateFailed,
 } from "@shared/events.js";
 import { canAddDependency } from "@shared/dependency.js";
 import { topoSort } from "@shared/dependency.js";
@@ -923,10 +924,14 @@ function TaskTimeline({
       <div className="relative pl-4 border-l border-border-muted">
         {[...events].reverse().map((event) => {
           const detail = timelineDetail(event);
+          const gateFailures =
+            event.type === "gate.failed"
+              ? (event.payload as GateFailed).failures
+              : undefined;
           return (
             <div
               key={event.id}
-              className="relative flex items-start gap-3 py-1.5"
+              className="relative py-1.5"
             >
               <div
                 className={`absolute -left-[calc(1rem+3px)] top-2.5 h-1.5 w-1.5 rounded-full ${timelineColor(event)}`}
@@ -944,6 +949,25 @@ function TaskTimeline({
                   </span>
                 )}
               </div>
+              {gateFailures && gateFailures.length > 0 && (
+                <div className="mt-1.5 ml-32 space-y-1">
+                  {gateFailures.map((f, i) => (
+                    <div
+                      key={i}
+                      className="border border-status-danger/20 bg-status-danger/5 px-3 py-1.5 text-xs"
+                    >
+                      {f.location && (
+                        <span className="font-mono text-text-secondary">
+                          {f.location.path}:{f.location.line}
+                          {f.location.col != null ? `:${f.location.col}` : ""}
+                          {" — "}
+                        </span>
+                      )}
+                      <span className="text-text-primary">{f.excerpt}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
