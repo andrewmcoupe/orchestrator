@@ -15,12 +15,14 @@ import {
   parseGitNumstat,
   parseGitNameStatus,
   classifySubprocessError,
+  parsePermissionBlockedOn,
+  PERMISSION_HANG_TIMEOUT_MS,
   type InvokeOptions,
   type ClaudeCodeLine,
 } from "./claudeCode.js";
 import type { BlobStore } from "../blobStore.js";
 import { invoke } from "./claudeCode.js";
-import type { ExitReason } from "@shared/events.js";
+import type { ExitReason, InvocationCompleted } from "@shared/events.js";
 
 // ============================================================================
 // Helpers
@@ -658,6 +660,20 @@ describe("invoke() pipeline", () => {
 // ============================================================================
 
 describe("exit reason classification", () => {
+  // --------------------------------------------------------------------------
+  // AC2: permission hang timeout is 10 seconds
+  // --------------------------------------------------------------------------
+
+  describe("PERMISSION_HANG_TIMEOUT_MS — AC2 timeout constant", () => {
+    it("is exactly 10 seconds (10_000 ms)", () => {
+      // AC2: "no stream-json events have arrived for 10 seconds, the subprocess is killed immediately"
+      // The execaSpawner starts a PERMISSION_HANG_TIMEOUT_MS timer the moment it
+      // detects "Waiting for permission" in stderr. This test verifies the constant
+      // is set to the required 10s so the kill fires within the AC2 window.
+      expect(PERMISSION_HANG_TIMEOUT_MS).toBe(10_000);
+    });
+  });
+
   describe("classifySubprocessError", () => {
     it("classifies SIGKILL as killed", () => {
       const err = Object.assign(new Error("killed"), { signal: "SIGKILL", exitCode: 137 });
@@ -727,7 +743,7 @@ describe("exit reason classification", () => {
   });
 
   describe("unknown-crash fixture: falls through to unknown with tails preserved", () => {
-    it("invoke() yields invocation.completed with exit_reason from subprocess crash", async () => {
+    it("invoke() yields invocation.completed with exit_reason=unknown and null tail hashes on unexpected crash", async () => {
       async function* crashingSpawner() {
         yield JSON.stringify({
           type: "system",
@@ -754,13 +770,22 @@ describe("exit reason classification", () => {
 
       const completed = results.find((r) => r.type === "invocation.completed");
       expect(completed).toBeDefined();
-      expect((completed!.payload as { exit_reason: ExitReason }).exit_reason).toBe("unknown");
-      expect((completed!.payload as { outcome: string }).outcome).toBe("failed");
+      const p = completed!.payload as InvocationCompleted;
+      expect(p.exit_reason).toBe("unknown");
+      expect(p.outcome).toBe("failed");
+      // Tail hashes are null in the crash path (tails are not blob-stored in this path).
+      // Their presence (as null) means the event schema is complete even for crashes.
+      expect(p.stdout_tail_hash).toBeNull();
+      expect(p.stderr_tail_hash).toBeNull();
     });
   });
 
-  describe("permission-prompt-hang fixture: adapter detects and classifies", () => {
-    it("invoke() classifies permission_blocked when stderr contains permission prompt", async () => {
+  describe("permission-prompt-hang fixture: adapter detects and kills within 10s", () => {
+    it("invoke() classifies permission_blocked when process is killed after permission prompt appears in stderr", async () => {
+      // AC1/AC2: The real execaSpawner monitors stderr for "Waiting for permission" and
+      // kills the process after PERMISSION_HANG_TIMEOUT_MS (10s, verified above).
+      // Here we simulate the outcome of that kill: a spawner that throws with
+      // SIGKILL + the permission prompt in stderr (exactly what execaSpawner produces).
       async function* permissionHangSpawner() {
         yield JSON.stringify({
           type: "system",
@@ -769,9 +794,12 @@ describe("exit reason classification", () => {
           model: "claude-sonnet-4-6",
           permissionMode: "acceptEdits",
         });
-        // Simulate a process that dies with stderr indicating a permission prompt
-        const err = new Error("Waiting for permission to use tool Write") as Error & { exitCode?: number };
-        err.exitCode = 1;
+        // Simulates execaSpawner killing after PERMISSION_HANG_TIMEOUT_MS:
+        // result.stderr contains "Waiting for permission", exitCode=137, signal=SIGKILL
+        const err = Object.assign(
+          new Error("Waiting for permission to use tool Write"),
+          { signal: "SIGKILL", exitCode: 137 },
+        );
         throw err;
       }
 
@@ -784,7 +812,11 @@ describe("exit reason classification", () => {
 
       const completed = results.find((r) => r.type === "invocation.completed");
       expect(completed).toBeDefined();
-      expect((completed!.payload as { exit_reason: ExitReason }).exit_reason).toBe("permission_blocked");
+      const p = completed!.payload as InvocationCompleted;
+      // AC3: permission hang → permission_blocked (not "killed" even though SIGKILL)
+      expect(p.exit_reason).toBe("permission_blocked");
+      // AC4: tool name extracted from the permission prompt
+      expect(p.permission_blocked_on).toBe("Write");
     });
   });
 
@@ -805,6 +837,145 @@ describe("exit reason classification", () => {
       const inputs = translateLine(line, baseOpts, blobStore, {}, 1000);
       expect(inputs).toHaveLength(1);
       expect((inputs[0].payload as { exit_reason: string }).exit_reason).toBe("normal");
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // AC3/AC4: permission hang + SIGKILL classification and tool name extraction
+  // --------------------------------------------------------------------------
+
+  describe("classifySubprocessError — permission pattern takes priority over SIGKILL", () => {
+    it("returns permission_blocked (not killed) when SIGKILL + permission prompt in stderr", () => {
+      // Real scenario: execaSpawner kills with SIGKILL after detecting permission prompt.
+      // The exit code is 137 and signal is SIGKILL, but stderr contains the permission prompt.
+      // The permission pattern must win so the caller can record the correct exit reason.
+      const err = Object.assign(
+        new Error("Waiting for permission to use tool Write"),
+        { signal: "SIGKILL", exitCode: 137 },
+      );
+      expect(classifySubprocessError(err, err.message)).toBe("permission_blocked");
+    });
+
+    it("still returns killed when SIGKILL without permission prompt in stderr", () => {
+      const err = Object.assign(new Error("Process was killed"), { signal: "SIGKILL", exitCode: 137 });
+      expect(classifySubprocessError(err, err.message)).toBe("killed");
+    });
+  });
+
+  describe("parsePermissionBlockedOn — tool name extraction", () => {
+    it("extracts tool name from 'Waiting for permission to use tool ToolName'", () => {
+      expect(parsePermissionBlockedOn("Waiting for permission to use tool Write")).toBe("Write");
+    });
+
+    it("extracts tool name from 'Waiting for permission to use ToolName' (no 'tool' keyword)", () => {
+      expect(parsePermissionBlockedOn("Waiting for permission to use Bash")).toBe("Bash");
+    });
+
+    it("extracts tool name from quoted tool name", () => {
+      expect(parsePermissionBlockedOn('Waiting for permission to use tool "Edit"')).toBe("Edit");
+    });
+
+    it("returns null when permission pattern is absent", () => {
+      expect(parsePermissionBlockedOn("Something unrelated")).toBeNull();
+    });
+
+    it("returns null when 'Waiting for permission' appears without a tool name", () => {
+      expect(parsePermissionBlockedOn("Waiting for permission")).toBeNull();
+    });
+  });
+
+  describe("AC3/AC4: invoke() with permission-hang kill — classifies and records tool name", () => {
+    it("classifies exit_reason as permission_blocked when killed after permission prompt", async () => {
+      // Simulate the real scenario: subprocess dies with SIGKILL (exitCode 137)
+      // and the error message contains the stderr permission prompt.
+      async function* permissionKillSpawner() {
+        yield JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          permissionMode: "acceptEdits",
+        });
+        // The error simulates what execaSpawner throws when SIGKILL terminates the process
+        // after a permission hang: message = result.stderr, signal = SIGKILL, exitCode = 137
+        const err = Object.assign(
+          new Error("Waiting for permission to use tool Write\nClaude is requesting permission to write to a file."),
+          { signal: "SIGKILL", exitCode: 137 },
+        );
+        throw err;
+      }
+
+      const blobStore = makeBlobStore();
+      const results: Array<{ type: string; payload: unknown }> = [];
+
+      for await (const input of invoke(baseOpts, blobStore, permissionKillSpawner)) {
+        results.push({ type: input.type, payload: input.payload });
+      }
+
+      const completed = results.find((r) => r.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      const p = completed!.payload as InvocationCompleted;
+      expect(p.exit_reason).toBe("permission_blocked");
+    });
+
+    it("records permission_blocked_on with the tool name parsed from the permission prompt", async () => {
+      async function* permissionKillSpawner() {
+        yield JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          permissionMode: "acceptEdits",
+        });
+        const err = Object.assign(
+          new Error("Waiting for permission to use tool Bash"),
+          { signal: "SIGKILL", exitCode: 137 },
+        );
+        throw err;
+      }
+
+      const blobStore = makeBlobStore();
+      const results: Array<{ type: string; payload: unknown }> = [];
+
+      for await (const input of invoke(baseOpts, blobStore, permissionKillSpawner)) {
+        results.push({ type: input.type, payload: input.payload });
+      }
+
+      const completed = results.find((r) => r.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      const p = completed!.payload as InvocationCompleted;
+      expect(p.exit_reason).toBe("permission_blocked");
+      expect(p.permission_blocked_on).toBe("Bash");
+    });
+
+    it("sets permission_blocked_on to null when tool name cannot be parsed", async () => {
+      async function* permissionKillSpawner() {
+        yield JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          permissionMode: "acceptEdits",
+        });
+        // Permission prompt without a parseable tool name
+        const err = Object.assign(
+          new Error("Waiting for permission"),
+          { signal: "SIGKILL", exitCode: 137 },
+        );
+        throw err;
+      }
+
+      const blobStore = makeBlobStore();
+      const results: Array<{ type: string; payload: unknown }> = [];
+
+      for await (const input of invoke(baseOpts, blobStore, permissionKillSpawner)) {
+        results.push({ type: input.type, payload: input.payload });
+      }
+
+      const completed = results.find((r) => r.type === "invocation.completed");
+      const p = completed!.payload as InvocationCompleted;
+      expect(p.exit_reason).toBe("permission_blocked");
+      expect(p.permission_blocked_on).toBeNull();
     });
   });
 });

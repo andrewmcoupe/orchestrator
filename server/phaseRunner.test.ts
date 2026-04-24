@@ -1467,6 +1467,62 @@ describe("runAttempt", () => {
     expect(payload.permission_blocked_on).toBeNull();
   });
 
+  it("mirrors non-null permission_blocked_on from invocation.completed onto phase.completed", async () => {
+    const taskId = createTask(db);
+
+    const invokerWithPermissionBlock: AdapterInvokeFn = async function* (opts) {
+      const attempt_id = (opts as { attempt_id: string }).attempt_id;
+      const invocation_id = (opts as { invocation_id: string }).invocation_id;
+      const actor = { kind: "cli" as const, transport: "claude-code" as const, invocation_id };
+      const base = {
+        aggregate_type: "attempt" as const,
+        aggregate_id: attempt_id,
+        actor,
+        correlation_id: attempt_id,
+      };
+
+      yield {
+        ...base,
+        type: "invocation.started" as const,
+        payload: {
+          invocation_id,
+          attempt_id,
+          phase_name: "implementer",
+          transport: "claude-code" as const,
+          model: "sonnet-4-6",
+          prompt_version_id: "pv-test",
+          context_manifest_hash: "abc",
+        },
+      } satisfies AppendEventInput<"invocation.started">;
+
+      yield {
+        ...base,
+        type: "invocation.completed" as const,
+        payload: {
+          invocation_id,
+          outcome: "failed" as const,
+          tokens_in: 0,
+          tokens_out: 0,
+          cost_usd: 0,
+          duration_ms: 500,
+          turns: 0,
+          exit_reason: "permission_blocked" as const,
+          permission_blocked_on: "Write",
+        },
+      } satisfies AppendEventInput<"invocation.completed">;
+    };
+
+    await runAttempt(db, taskId, { deps: makeTestDeps(invokerWithPermissionBlock) });
+
+    const phaseCompletedRow = db
+      .prepare("SELECT payload_json FROM events WHERE type = 'phase.completed'")
+      .get() as { payload_json: string };
+    const payload = JSON.parse(phaseCompletedRow.payload_json) as PhaseCompleted;
+
+    expect(payload.exit_reason).toBe("permission_blocked");
+    expect(payload.permission_blocked_on).toBe("Write");
+  });
+
   // --------------------------------------------------------------------------
   // on_exit_reason retry policy evaluation
   // --------------------------------------------------------------------------

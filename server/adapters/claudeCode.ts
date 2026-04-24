@@ -122,8 +122,11 @@ export type Spawner = (
   opts: { cwd: string },
 ) => AsyncIterable<string>;
 
-/** How long to wait after detecting a permission prompt before killing. */
-const PERMISSION_HANG_TIMEOUT_MS = 10_000;
+/**
+ * How long to wait after detecting a permission prompt before killing.
+ * Exported for test verification (AC2: kills within 10 seconds).
+ */
+export const PERMISSION_HANG_TIMEOUT_MS = 10_000;
 
 /**
  * Default spawner: reads stdout line-by-line from the claude subprocess.
@@ -190,9 +193,13 @@ async function* execaSpawner(
     if (result.exitCode !== 0) {
       const err = new Error(
         result.stderr ?? `claude exited with code ${result.exitCode}`,
-      ) as Error & { exitCode?: number; signal?: string };
+      ) as Error & { exitCode?: number; signal?: string; stderrTail?: string };
       err.exitCode = result.exitCode ?? 1;
       if (result.signal) err.signal = result.signal;
+      // Attach the locally-captured stderrTail so the invoke catch block can
+      // classify permission_blocked correctly even if OS-level buffering caused
+      // execa not to flush the full stderr into result.stderr before SIGKILL.
+      err.stderrTail = stderrTail || result.stderr || "";
       throw err;
     }
   } finally {
@@ -604,22 +611,42 @@ function mapExitReason(subtype: string, isError: boolean): ExitReason {
   }
 }
 
+/**
+ * Parses the blocked tool name from a Claude Code permission prompt message.
+ *
+ * Claude Code emits messages like:
+ *   "Waiting for permission to use Bash"
+ *   "Waiting for permission to use tool Write"
+ *   "Waiting for permission to use tool \"Edit\""
+ *
+ * Returns the tool name, or null if the pattern is not recognised.
+ */
+export function parsePermissionBlockedOn(text: string): string | null {
+  // Match: "Waiting for permission to use [tool] ToolName"
+  const match = text.match(
+    /Waiting for permission(?:\s+to\s+use(?:\s+tool)?\s+["']?([\w]+)["']?)?/i,
+  );
+  if (match && match[1]) return match[1];
+  return null;
+}
+
 /** Classifies exit reason from a subprocess error (catch block). */
 export function classifySubprocessError(
   error: Error & { exitCode?: number; signal?: string },
   stderrTail?: string,
 ): ExitReason {
-  // Check signal/exit code
-  if (error.signal === "SIGKILL" || error.exitCode === 137) return "killed";
-  if (error.exitCode === 124) return "timeout";
-
-  // Pattern match on stderr
+  // Check stderr patterns first — permission hang kills arrive as SIGKILL
+  // but should be classified as permission_blocked, not killed.
   if (stderrTail) {
     if (/Waiting for permission/i.test(stderrTail)) return "permission_blocked";
     if (/ENOTFOUND|ECONNREFUSED|socket hang up/i.test(stderrTail)) return "network_error";
     if (/schema.*(?:invalid|validation)|(?:invalid|validation).*schema/i.test(stderrTail)) return "schema_invalid";
     if (/segfault|SIGSEGV|stack trace|Traceback/i.test(stderrTail)) return "crashed";
   }
+
+  // Fall back to signal/exit code
+  if (error.signal === "SIGKILL" || error.exitCode === 137) return "killed";
+  if (error.exitCode === 124) return "timeout";
 
   return "unknown";
 }
@@ -709,8 +736,16 @@ export async function* invoke(
   } catch (err: unknown) {
     // Subprocess exited without emitting a normal result line — it was
     // killed, crashed, or errored before completion.
-    const error = err as Error & { exitCode?: number; signal?: string };
-    const exitReason = classifySubprocessError(error, error.message);
+    const error = err as Error & { exitCode?: number; signal?: string; stderrTail?: string };
+    // Prefer the locally-captured stderrTail (attached by execaSpawner) over
+    // error.message — it is more reliable when OS buffering prevents execa from
+    // flushing the full stderr into result.stderr before SIGKILL completes.
+    const stderrForClassify = error.stderrTail ?? error.message;
+    const exitReason = classifySubprocessError(error, stderrForClassify);
+    const permissionBlockedOn =
+      exitReason === "permission_blocked"
+        ? parsePermissionBlockedOn(stderrForClassify)
+        : null;
 
     const actor = {
       kind: "cli" as const,
@@ -749,6 +784,12 @@ export async function* invoke(
         turns: 0,
         exit_code: error.exitCode ?? 1,
         exit_reason: exitReason,
+        // Tail hashes are null in the crash path (no blob store available here).
+        // The execaSpawner captures stderrTail for pattern matching only;
+        // full tail persistence requires additional plumbing outside this scope.
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: permissionBlockedOn,
       },
     };
     yield completedInput;

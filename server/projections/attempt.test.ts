@@ -11,7 +11,7 @@ import Database from "better-sqlite3";
 import { runMigrations } from "../eventStore.js";
 import { appendAndProject, initProjections, rebuildProjection } from "../projectionRunner.js";
 import "./register.js";
-import type { Actor, TaskConfig } from "@shared/events.js";
+import type { Actor, TaskConfig, ExitReason } from "@shared/events.js";
 import type { AttemptRow } from "@shared/projections.js";
 
 // ============================================================================
@@ -115,7 +115,7 @@ function getAttemptRow(db: Database.Database, attempt_id: string): AttemptRow | 
     commit_sha: (raw.commit_sha ?? undefined) as string | undefined,
     empty: raw.empty === 1 ? true : raw.empty === 0 ? false : undefined,
     effective_diff_attempt_id: (raw.effective_diff_attempt_id ?? undefined) as string | undefined,
-    last_failure_reason: (raw.last_failure_reason ?? null) as string | null,
+    last_failure_reason: (raw.last_failure_reason ?? null) as ExitReason | null,
     last_event_id: raw.last_event_id as string,
   };
 }

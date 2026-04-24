@@ -15,7 +15,7 @@
  */
 
 import type Database from "better-sqlite3";
-import type { AnyEvent } from "@shared/events.js";
+import type { AnyEvent, ExitReason } from "@shared/events.js";
 import { reduceAttempt, type AttemptRow } from "@shared/projections.js";
 import { registerProjection, type Projection } from "../projectionRunner.js";
 
@@ -70,7 +70,7 @@ function rowFromRaw(raw: RawAttemptRow): AttemptRow {
     commit_sha: raw.commit_sha ?? undefined,
     empty: raw.empty === 1 ? true : raw.empty === 0 ? false : undefined,
     effective_diff_attempt_id: raw.effective_diff_attempt_id ?? undefined,
-    last_failure_reason: raw.last_failure_reason,
+    last_failure_reason: raw.last_failure_reason as ExitReason | null,
     last_event_id: raw.last_event_id,
   };
 }
