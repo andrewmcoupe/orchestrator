@@ -328,21 +328,24 @@ export function createCommandRoutes(db: Database.Database) {
     }
 
     const attempt_id = task.current_attempt_id;
-    if (!attempt_id) return conflict("No active attempt to pause");
 
     const events = [];
 
-    events.push(
-      appendAndProject(db, {
-        type: "attempt.paused",
-        aggregate_type: "attempt",
-        aggregate_id: attempt_id,
-        actor: DEFAULT_ACTOR,
-        correlation_id: attempt_id,
-        payload: { attempt_id, reason: "User requested pause" },
-      }),
-    );
+    if (attempt_id) {
+      events.push(
+        appendAndProject(db, {
+          type: "attempt.paused",
+          aggregate_type: "attempt",
+          aggregate_id: attempt_id,
+          actor: DEFAULT_ACTOR,
+          correlation_id: attempt_id,
+          payload: { attempt_id, reason: "User requested pause" },
+        }),
+      );
+      pauseAttempt(attempt_id);
+    }
 
+    // Always transition the task — handles stuck tasks with no attempt
     events.push(
       appendAndProject(db, {
         type: "task.status_changed",
@@ -356,9 +359,6 @@ export function createCommandRoutes(db: Database.Database) {
         },
       }),
     );
-
-    // Signal the in-flight phase runner to pause between phases
-    pauseAttempt(attempt_id);
 
     return c.json(events);
   });
@@ -413,21 +413,26 @@ export function createCommandRoutes(db: Database.Database) {
     }
 
     const attempt_id = task.current_attempt_id;
-    if (!attempt_id) return conflict("No active attempt to kill");
 
     const events = [];
 
-    events.push(
-      appendAndProject(db, {
-        type: "attempt.killed",
-        aggregate_type: "attempt",
-        aggregate_id: attempt_id,
-        actor: DEFAULT_ACTOR,
-        correlation_id: attempt_id,
-        payload: { attempt_id, reason: "User requested kill" },
-      }),
-    );
+    // If there's an active attempt, kill it and signal the phase runner
+    if (attempt_id) {
+      events.push(
+        appendAndProject(db, {
+          type: "attempt.killed",
+          aggregate_type: "attempt",
+          aggregate_id: attempt_id,
+          actor: DEFAULT_ACTOR,
+          correlation_id: attempt_id,
+          payload: { attempt_id, reason: "User requested kill" },
+        }),
+      );
+      killAttempt(attempt_id);
+    }
 
+    // Always transition the task out of running — handles stuck tasks
+    // where runAttempt crashed before creating an attempt
     events.push(
       appendAndProject(db, {
         type: "task.status_changed",
@@ -441,9 +446,6 @@ export function createCommandRoutes(db: Database.Database) {
         },
       }),
     );
-
-    // Signal the in-flight phase runner to abort
-    killAttempt(attempt_id);
 
     return c.json(events);
   });

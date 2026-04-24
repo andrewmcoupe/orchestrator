@@ -1,5 +1,5 @@
 import { useCallback, useState, useMemo } from "react";
-import { SlidersHorizontal, ClipboardList, Plus, X } from "lucide-react";
+import { SlidersHorizontal, ClipboardList, Plus, X, Info } from "lucide-react";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
   TaskStatus,
@@ -12,6 +12,11 @@ import { topoSort } from "@shared/dependency.js";
 import { useTaskTimelineQuery } from "../../hooks/useQueries.js";
 import { MergeDialog } from "../review/MergeDialog.js";
 import { Button } from "@web/src/components/ui/button";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@web/src/components/ui/popover";
 
 type TaskDetailPaneProps = {
   detail: TaskDetailRow;
@@ -440,6 +445,130 @@ function DependencySection({
 // Main component
 // ============================================================================
 
+// ============================================================================
+// Task preview popover — shows what the task will have before implementation
+// ============================================================================
+
+function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
+  const enabledPhases = detail.config.phases.filter((p) => p.enabled);
+
+  return (
+    <div className="space-y-4">
+      {/* Phases overview */}
+      <div>
+        <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+          Phases
+        </h4>
+        <div className="space-y-2">
+          {enabledPhases.map((phase) => (
+            <div
+              key={phase.name}
+              className="border border-border-muted bg-bg-secondary p-2.5"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-medium text-text-primary">
+                  {phase.name}
+                </span>
+                <span className="text-[10px] font-mono text-text-tertiary">
+                  {phase.transport}
+                </span>
+              </div>
+              <div className="text-[11px] text-text-secondary font-mono space-y-0.5">
+                <div>model: {phase.model}</div>
+                <div>prompt: {phase.prompt_version_id || "default"}</div>
+                {phase.transport_options.kind === "cli" && (
+                  <>
+                    {phase.transport_options.max_turns != null && (
+                      <div>max turns: {phase.transport_options.max_turns}</div>
+                    )}
+                    <div>budget: ${phase.transport_options.max_budget_usd}</div>
+                    <div>permissions: {phase.transport_options.permission_mode}</div>
+                  </>
+                )}
+                {phase.transport_options.kind === "api" && (
+                  <div>max tokens: {phase.transport_options.max_tokens}</div>
+                )}
+              </div>
+              {/* Context policy */}
+              <div className="mt-1.5 pt-1.5 border-t border-border-muted text-[11px] text-text-tertiary">
+                <span className="text-text-secondary">context:</span>{" "}
+                depth {phase.context_policy.symbol_graph_depth},{" "}
+                {phase.context_policy.token_budget.toLocaleString()} tokens
+                {phase.context_policy.include_tests && ", +tests"}
+                {phase.context_policy.include_similar_patterns && ", +patterns"}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Gates */}
+      {detail.config.gates.length > 0 && (
+        <div>
+          <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+            Gates
+          </h4>
+          <div className="space-y-1">
+            {detail.config.gates.map((gate) => (
+              <div
+                key={gate.name}
+                className="flex items-center justify-between text-[11px] px-2 py-1 bg-bg-secondary border border-border-muted"
+              >
+                <span className="font-mono text-text-primary">{gate.name}</span>
+                <span className="text-text-tertiary">{gate.on_fail}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Propositions */}
+      {detail.proposition_ids.length > 0 && (
+        <div>
+          <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+            Propositions ({detail.proposition_ids.length})
+          </h4>
+          <div className="space-y-1">
+            {detail.proposition_ids.map((id) => (
+              <div
+                key={id}
+                className="text-[11px] font-mono text-text-secondary px-2 py-1 bg-bg-secondary border border-border-muted truncate"
+              >
+                {id}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Retry policy summary */}
+      <div>
+        <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+          Retry policy
+        </h4>
+        <div className="text-[11px] text-text-secondary font-mono bg-bg-secondary border border-border-muted p-2 space-y-0.5">
+          <div>max attempts: {detail.config.retry_policy.max_total_attempts}</div>
+          <div>on typecheck: {detail.config.retry_policy.on_typecheck_fail.strategy} ({detail.config.retry_policy.on_typecheck_fail.max_attempts}x)</div>
+          <div>on test fail: {detail.config.retry_policy.on_test_fail.strategy} ({detail.config.retry_policy.on_test_fail.max_attempts}x)</div>
+          <div>on audit reject: {detail.config.retry_policy.on_audit_reject}</div>
+        </div>
+      </div>
+
+      {/* Auto-merge */}
+      <div className="flex items-center gap-3 text-[11px] text-text-secondary">
+        <span>auto-merge: <span className="text-text-primary font-mono">{detail.config.auto_merge_policy ?? "off"}</span></span>
+        {detail.config.shadow_mode && (
+          <span className="text-status-warning">shadow mode</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Main component
+// ============================================================================
+
 export function TaskDetailPane({
   detail,
   listRow,
@@ -529,9 +658,19 @@ export function TaskDetailPane({
             </span>
           )}
         </div>
-        <h2 className="text-xl font-semibold text-text-primary">
-          {detail.title}
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-semibold text-text-primary">
+            {detail.title}
+          </h2>
+          <Popover>
+            <PopoverTrigger className="p-1 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer">
+              <Info size={16} />
+            </PopoverTrigger>
+            <PopoverContent className="w-96 max-h-[70vh] overflow-y-auto" side="bottom" align="start">
+              <TaskPreviewPanel detail={detail} />
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       {/* Merge confirmation dialog */}

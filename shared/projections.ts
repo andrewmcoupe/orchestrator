@@ -378,6 +378,7 @@ export interface GateRunSummary {
 export interface AuditSummary {
   verdict: "approve" | "revise" | "reject";
   confidence: number;
+  summary: string;
   concern_count: number;
   blocking_count: number;
   concerns: AuditConcern[]; // full concerns for review screen rendering
@@ -1598,6 +1599,7 @@ export function reduceAttempt(
         audit: {
           verdict: p.verdict,
           confidence: p.confidence,
+          summary: p.summary,
           concern_count: p.concerns.length,
           blocking_count: p.concerns.filter((c: AuditConcern) => c.severity === "blocking").length,
           concerns: p.concerns,

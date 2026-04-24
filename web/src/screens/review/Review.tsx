@@ -271,6 +271,10 @@ function VerdictCard({ audit }: { audit: AuditSummary }) {
         </span>
       </div>
 
+      {audit.summary && (
+        <p className="text-sm text-text-secondary mb-3">{audit.summary}</p>
+      )}
+
       {audit.concerns.length > 0 && (
         <ol className="mt-3 space-y-2">
           {audit.concerns.map((c, i) => (
