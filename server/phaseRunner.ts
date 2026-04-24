@@ -450,22 +450,11 @@ export async function runAttempt(
     // -----------------------------------------------------------------------
     // 2b. Resolve diff base SHA
     // -----------------------------------------------------------------------
-    // Attempt 1: base_sha from task.worktree_created (the commit the worktree branched from)
-    // Attempt 2+: commit_sha from the previous attempt's attempt.committed event
+    // Always use the original base_sha from task.worktree_created so the diff
+    // captures ALL accumulated changes on the branch, not just the delta from
+    // the previous attempt. This ensures the review screen shows the full picture.
     let diffBaseSha = "HEAD"; // fallback
-    if (options?.previous_attempt_id) {
-      // Look up previous attempt's commit SHA from events
-      const prevCommitRow = db
-        .prepare(
-          "SELECT payload_json FROM events WHERE type = 'attempt.committed' AND aggregate_id = ? LIMIT 1",
-        )
-        .get(options.previous_attempt_id) as { payload_json: string } | undefined;
-      if (prevCommitRow) {
-        const prevPayload = JSON.parse(prevCommitRow.payload_json) as { commit_sha: string };
-        diffBaseSha = prevPayload.commit_sha;
-      }
-    } else {
-      // Re-read base_sha from the task detail projection (may have been set by worktree creation above)
+    {
       const freshDetail = getTaskDetailRow(db, task_id);
       if (freshDetail?.base_sha) {
         diffBaseSha = freshDetail.base_sha;

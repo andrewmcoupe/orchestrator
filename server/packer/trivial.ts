@@ -47,7 +47,7 @@ export type PackResult = {
 /** Injectable dependencies — swap out for tests without touching the FS. */
 export type TrivialPackerDeps = {
   gitDiff?: (worktreePath: string) => Promise<string>;
-  gitDiffPrevAttempt?: (worktreePath: string) => Promise<string>;
+  gitDiffFromBase?: (worktreePath: string, baseSha?: string) => Promise<string>;
   findTestFiles?: (worktreePath: string) => Promise<string[]>;
 };
 
@@ -114,9 +114,15 @@ async function defaultGitDiff(worktreePath: string): Promise<string> {
   }
 }
 
-async function defaultGitDiffPrevAttempt(worktreePath: string): Promise<string> {
+/**
+ * Returns the full accumulated diff from base_sha to the working tree.
+ * This includes both committed changes from previous attempts AND any
+ * unstaged changes from the current attempt.
+ */
+async function defaultGitDiffFromBase(worktreePath: string, baseSha?: string): Promise<string> {
+  if (!baseSha) return "";
   try {
-    const result = await execa("git", ["diff", "HEAD~1", "HEAD"], { cwd: worktreePath });
+    const result = await execa("git", ["diff", baseSha], { cwd: worktreePath });
     return result.stdout;
   } catch {
     return "";
@@ -440,7 +446,7 @@ export async function pack(
     input;
 
   const gitDiff = deps?.gitDiff ?? defaultGitDiff;
-  const gitDiffPrevAttempt = deps?.gitDiffPrevAttempt ?? defaultGitDiffPrevAttempt;
+  const gitDiffFromBase = deps?.gitDiffFromBase ?? defaultGitDiffFromBase;
   const findTestFiles = deps?.findTestFiles ?? defaultFindTestFiles;
 
   const propDetails = getPropositionDetails(db, task.proposition_ids);
@@ -510,9 +516,9 @@ export async function pack(
 
       let prevDiffBlock = "";
       if (isRetry) {
-        const prevDiff = await gitDiffPrevAttempt(worktree_path);
-        if (prevDiff) {
-          prevDiffBlock = `\n\n## Previous Attempt Changes\n\n\`\`\`diff\n${prevDiff}\n\`\`\``;
+        const accumulatedDiff = await gitDiffFromBase(worktree_path, task.base_sha);
+        if (accumulatedDiff) {
+          prevDiffBlock = `\n\n## Existing Changes on Branch\n\nThese changes were made by previous attempts. Review them to understand what has already been done — do NOT assume they are correct or complete.\n\n\`\`\`diff\n${accumulatedDiff}\n\`\`\``;
         }
       }
 
@@ -524,14 +530,23 @@ export async function pack(
 
       prompt =
         `${taskBlock}\n\n${background}\n\n${criteria}${changesScope}${gateBlock}${feedbackBlock}${prevDiffBlock}${fileList}${CONSTRAINTS_BLOCK}\n\n` +
-        "Implement changes that satisfy the acceptance criteria above. " +
-        "Make the failing tests pass. " +
-        "Keep changes focused and minimal.";
+        "## Instructions\n\n" +
+        "You MUST implement ALL of the acceptance criteria listed above. " +
+        "Do not stop until every criterion is addressed with working code. " +
+        "Do not fix unrelated issues — stay focused on the task.\n\n" +
+        "Before finishing, review the acceptance criteria checklist and confirm each one is satisfied by your changes. " +
+        "If a criterion is not yet met, continue working.\n\n" +
+        "If test files are listed above, make them pass. Otherwise, use the Background and Changes in scope sections " +
+        "to identify which files to modify and write the implementation.";
       break;
     }
 
     case "auditor": {
-      const diff = await gitDiff(worktree_path);
+      // Use the full diff from base_sha so the auditor sees all accumulated
+      // changes, not just the current attempt's unstaged edits.
+      const diff = task.base_sha
+        ? await gitDiffFromBase(worktree_path, task.base_sha)
+        : await gitDiff(worktree_path);
       const retryFeedback = attempt
         ? getRetryFeedback(db, attempt.attempt_id)
         : [];

@@ -383,11 +383,11 @@ index 1234567..abcdefg 100644
       {
         gitDiff: noGitDiff,
         findTestFiles: noTestFiles,
-        gitDiffPrevAttempt: async () => fakePrevDiff,
+        gitDiffFromBase: async () => fakePrevDiff,
       },
     );
 
-    expect(result.prompt).toContain("Previous Attempt Changes");
+    expect(result.prompt).toContain("Existing Changes on Branch");
     expect(result.prompt).toContain("bcrypt.hash");
   });
 
@@ -405,11 +405,11 @@ index 1234567..abcdefg 100644
       {
         gitDiff: noGitDiff,
         findTestFiles: noTestFiles,
-        gitDiffPrevAttempt: async () => "should not appear",
+        gitDiffFromBase: async () => "should not appear",
       },
     );
 
-    expect(result.prompt).not.toContain("Previous Attempt Changes");
+    expect(result.prompt).not.toContain("Existing Changes on Branch");
   });
 
   it("includes files written by test-author in the manifest", async () => {

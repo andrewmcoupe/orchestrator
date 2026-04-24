@@ -1259,7 +1259,7 @@ describe("runAttempt", () => {
     expect(capturedBaseSha).toBe(fakeBaseSha);
   });
 
-  it("attempt 2 diff uses attempt 1's commit_sha as the diff base", async () => {
+  it("attempt 2 diff uses original base_sha from worktree creation (not attempt 1's commit)", async () => {
     const taskId = createTask(db);
     const fakeBaseSha = "b".repeat(40);
     const attempt1CommitSha = "c".repeat(12);
@@ -1316,7 +1316,8 @@ describe("runAttempt", () => {
       },
     });
 
-    expect(capturedBaseSha).toBe(attempt1CommitSha);
+    // Should use the original worktree base_sha, not the previous attempt's commit
+    expect(capturedBaseSha).toBe(fakeBaseSha);
   });
 
   it("emits phase.diff_snapshotted with correct diff_hash and base_sha after diff capture", async () => {
