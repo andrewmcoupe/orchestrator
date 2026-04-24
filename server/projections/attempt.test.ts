@@ -115,6 +115,7 @@ function getAttemptRow(db: Database.Database, attempt_id: string): AttemptRow | 
     commit_sha: (raw.commit_sha ?? undefined) as string | undefined,
     empty: raw.empty === 1 ? true : raw.empty === 0 ? false : undefined,
     effective_diff_attempt_id: (raw.effective_diff_attempt_id ?? undefined) as string | undefined,
+    last_failure_reason: (raw.last_failure_reason ?? null) as string | null,
     last_event_id: raw.last_event_id as string,
   };
 }

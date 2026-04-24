@@ -318,6 +318,7 @@ export interface PropositionRow {
  *     files_changed_json  TEXT NOT NULL,  -- FileChangeSummary[]
  *     config_snapshot_json TEXT NOT NULL,
  *     previous_attempt_id TEXT,
+ *     last_failure_reason TEXT,
  *     last_event_id       TEXT NOT NULL
  *   );
  *   CREATE INDEX idx_attempt_task     ON proj_attempt(task_id, attempt_number DESC);
@@ -344,6 +345,7 @@ export interface AttemptRow {
   commit_sha?: string;
   empty?: boolean;
   effective_diff_attempt_id?: string;
+  /** Exit reason from the most recent phase.completed where exit_reason !== "normal". Null if no failure. */
   last_failure_reason?: ExitReason | null;
   last_event_id: string;
 }
@@ -1318,6 +1320,7 @@ export function reduceAttempt(
         files_changed: [],
         config_snapshot: p.config_snapshot,
         previous_attempt_id: p.previous_attempt_id,
+        last_failure_reason: null,
         last_event_id: event.id,
       };
     }
@@ -1425,8 +1428,12 @@ export function reduceAttempt(
       if (!current) return null;
       const p = event.payload;
       const existing = current.phases[p.phase_name];
+      const exitReason = p.exit_reason;
+      const lastFailureReason =
+        exitReason && exitReason !== "normal" ? exitReason : current.last_failure_reason;
       return {
         ...current,
+        last_failure_reason: lastFailureReason,
         phases: {
           ...current.phases,
           [p.phase_name]: {

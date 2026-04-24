@@ -497,6 +497,7 @@ export interface PhaseCompleted {
   duration_ms: number;
   /** SHA-256 hash of the unified diff captured at phase completion, stored in the blob store. */
   diff_hash?: string;
+  /** Structured reason the phase ended. "normal" means clean success. */
   exit_reason?: ExitReason;
   stdout_tail_hash?: string | null;
   stderr_tail_hash?: string | null;
