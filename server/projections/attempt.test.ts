@@ -488,6 +488,168 @@ describe("attempt projection", () => {
     expect(row!.effective_diff_attempt_id).toBeUndefined();
   });
 
+  // ============================================================================
+  // last_failure_reason
+  // ============================================================================
+
+  it("last_failure_reason is null initially", () => {
+    appendAndProject(db, {
+      type: "attempt.started",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: { attempt_id, task_id, attempt_number: 1, config_snapshot: minimalConfig, triggered_by: "user_start" },
+    });
+
+    const row = getAttemptRow(db, attempt_id);
+    expect(row!.last_failure_reason).toBeNull();
+  });
+
+  it("last_failure_reason is populated from phase.completed with a non-normal exit_reason", () => {
+    appendAndProject(db, {
+      type: "attempt.started",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: { attempt_id, task_id, attempt_number: 1, config_snapshot: minimalConfig, triggered_by: "user_start" },
+    });
+    appendAndProject(db, {
+      type: "phase.completed",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: {
+        attempt_id,
+        phase_name: "implementer",
+        outcome: "failed",
+        tokens_in: 10,
+        tokens_out: 0,
+        cost_usd: 0,
+        duration_ms: 500,
+        exit_reason: "permission_blocked",
+        permission_blocked_on: "Write",
+      },
+    });
+
+    const row = getAttemptRow(db, attempt_id);
+    expect(row!.last_failure_reason).toBe("permission_blocked");
+  });
+
+  it("last_failure_reason is not updated when exit_reason is 'normal'", () => {
+    appendAndProject(db, {
+      type: "attempt.started",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: { attempt_id, task_id, attempt_number: 1, config_snapshot: minimalConfig, triggered_by: "user_start" },
+    });
+    appendAndProject(db, {
+      type: "phase.completed",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: {
+        attempt_id,
+        phase_name: "implementer",
+        outcome: "success",
+        tokens_in: 100,
+        tokens_out: 50,
+        cost_usd: 0.001,
+        duration_ms: 1000,
+        exit_reason: "normal",
+      },
+    });
+
+    const row = getAttemptRow(db, attempt_id);
+    expect(row!.last_failure_reason).toBeNull();
+  });
+
+  it("last_failure_reason is not updated when exit_reason is absent", () => {
+    appendAndProject(db, {
+      type: "attempt.started",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: { attempt_id, task_id, attempt_number: 1, config_snapshot: minimalConfig, triggered_by: "user_start" },
+    });
+    appendAndProject(db, {
+      type: "phase.completed",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: {
+        attempt_id,
+        phase_name: "implementer",
+        outcome: "success",
+        tokens_in: 100,
+        tokens_out: 50,
+        cost_usd: 0.001,
+        duration_ms: 1000,
+      },
+    });
+
+    const row = getAttemptRow(db, attempt_id);
+    expect(row!.last_failure_reason).toBeNull();
+  });
+
+  it("last_failure_reason retains the most recent non-normal exit_reason across multiple phases", () => {
+    appendAndProject(db, {
+      type: "attempt.started",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: { attempt_id, task_id, attempt_number: 1, config_snapshot: minimalConfig, triggered_by: "user_start" },
+    });
+    // First phase: budget_exceeded
+    appendAndProject(db, {
+      type: "phase.completed",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: {
+        attempt_id,
+        phase_name: "implementer",
+        outcome: "failed",
+        tokens_in: 5000,
+        tokens_out: 0,
+        cost_usd: 10,
+        duration_ms: 60000,
+        exit_reason: "budget_exceeded",
+      },
+    });
+    // Second phase: timeout (overwrites)
+    appendAndProject(db, {
+      type: "phase.completed",
+      aggregate_type: "attempt",
+      aggregate_id: attempt_id,
+      actor,
+      correlation_id: attempt_id,
+      payload: {
+        attempt_id,
+        phase_name: "auditor",
+        outcome: "failed",
+        tokens_in: 100,
+        tokens_out: 0,
+        cost_usd: 0,
+        duration_ms: 120000,
+        exit_reason: "timeout",
+      },
+    });
+
+    const row = getAttemptRow(db, attempt_id);
+    // Most recent non-normal exit_reason wins
+    expect(row!.last_failure_reason).toBe("timeout");
+  });
+
   it("rebuild produces identical state", () => {
     appendAndProject(db, {
       type: "attempt.started",
