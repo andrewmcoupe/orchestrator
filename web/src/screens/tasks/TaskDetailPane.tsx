@@ -59,19 +59,28 @@ function derivePhaseStatus(
   enabledPhases: PhaseConfig[],
   currentPhase?: string,
   taskStatus?: TaskStatus,
+  completedPhases?: string[],
 ): PhaseStatus {
   if (!taskStatus || taskStatus === "draft" || taskStatus === "queued")
     return "pending";
+  // Terminal states — all phases are done
   if (
     taskStatus === "merged" ||
     taskStatus === "awaiting_review" ||
     taskStatus === "approved" ||
-    taskStatus === "rejected"
+    taskStatus === "rejected" ||
+    taskStatus === "awaiting_merge" ||
+    taskStatus === "archived"
   )
     return "done";
+  // Explicitly completed phases are always done
+  if (completedPhases?.includes(phase.name)) return "done";
   if (currentPhase === phase.name) return "running";
-  // If the task is running, phases before the current one are done
-  if (taskStatus === "running" && currentPhase) {
+  // If the task is active, phases before the current one are done
+  if (
+    (taskStatus === "running" || taskStatus === "revising" || taskStatus === "paused" || taskStatus === "blocked") &&
+    currentPhase
+  ) {
     const currentIdx = enabledPhases.findIndex((p) => p.name === currentPhase);
     const thisIdx = enabledPhases.findIndex((p) => p.name === phase.name);
     if (currentIdx >= 0 && thisIdx >= 0 && thisIdx < currentIdx) return "done";
@@ -96,17 +105,20 @@ function PhaseBox({
   enabledPhases,
   currentPhase,
   taskStatus,
+  completedPhases,
 }: {
   phase: PhaseConfig;
   enabledPhases: PhaseConfig[];
   currentPhase?: string;
   taskStatus?: TaskStatus;
+  completedPhases?: string[];
 }) {
   const status = derivePhaseStatus(
     phase,
     enabledPhases,
     currentPhase,
     taskStatus,
+    completedPhases,
   );
   const model = phase.model.split("/").pop() ?? phase.model;
 
@@ -767,6 +779,7 @@ export function TaskDetailPane({
                 enabledPhases={enabledPhases}
                 currentPhase={listRow?.current_phase ?? undefined}
                 taskStatus={detail.status}
+                completedPhases={listRow?.completed_phases}
               />
             ))}
             {enabledPhases.length === 0 && (

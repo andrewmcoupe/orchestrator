@@ -15,11 +15,12 @@ import { registerProjection, type Projection } from "../projectionRunner.js";
 // Raw DB row (phase_models stored as JSON text)
 // ============================================================================
 
-type RawTaskListRow = Omit<TaskListRow, "phase_models" | "auto_merged" | "depends_on" | "blocked"> & {
+type RawTaskListRow = Omit<TaskListRow, "phase_models" | "auto_merged" | "depends_on" | "blocked" | "completed_phases"> & {
   phase_models_json: string | null;
   auto_merged: number;
   depends_on_json: string | null;
   blocked: number;
+  completed_phases_json: string | null;
 };
 
 // ============================================================================
@@ -94,13 +95,14 @@ function resolvePropositionId(
 }
 
 function rowFromRaw(raw: RawTaskListRow): TaskListRow {
-  const { phase_models_json, auto_merged: autoMergedInt, depends_on_json, blocked: blockedInt, ...rest } = raw;
+  const { phase_models_json, auto_merged: autoMergedInt, depends_on_json, blocked: blockedInt, completed_phases_json, ...rest } = raw;
   return {
     ...rest,
     phase_models: phase_models_json ? JSON.parse(phase_models_json) : {},
     auto_merged: autoMergedInt === 1,
     depends_on: depends_on_json ? JSON.parse(depends_on_json) : [],
     blocked: blockedInt === 1,
+    completed_phases: completed_phases_json ? JSON.parse(completed_phases_json) : [],
   };
 }
 
@@ -113,20 +115,21 @@ export const taskListProjection: Projection<TaskListRow> = {
 
   createSql: `
     CREATE TABLE IF NOT EXISTS proj_task_list (
-      task_id            TEXT PRIMARY KEY,
-      prd_id             TEXT,
-      title              TEXT NOT NULL,
-      status             TEXT NOT NULL,
-      current_phase      TEXT,
-      current_attempt_id TEXT,
-      attempt_count      INTEGER NOT NULL DEFAULT 0,
-      pushback_count     INTEGER NOT NULL DEFAULT 0,
-      phase_models_json  TEXT,
-      auto_merged        INTEGER NOT NULL DEFAULT 0,
-      depends_on_json    TEXT NOT NULL DEFAULT '[]',
-      blocked            INTEGER NOT NULL DEFAULT 0,
-      last_event_ts      TEXT NOT NULL,
-      updated_at         TEXT NOT NULL
+      task_id                TEXT PRIMARY KEY,
+      prd_id                 TEXT,
+      title                  TEXT NOT NULL,
+      status                 TEXT NOT NULL,
+      current_phase          TEXT,
+      completed_phases_json  TEXT NOT NULL DEFAULT '[]',
+      current_attempt_id     TEXT,
+      attempt_count          INTEGER NOT NULL DEFAULT 0,
+      pushback_count         INTEGER NOT NULL DEFAULT 0,
+      phase_models_json      TEXT,
+      auto_merged            INTEGER NOT NULL DEFAULT 0,
+      depends_on_json        TEXT NOT NULL DEFAULT '[]',
+      blocked                INTEGER NOT NULL DEFAULT 0,
+      last_event_ts          TEXT NOT NULL,
+      updated_at             TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_task_list_prd     ON proj_task_list(prd_id);
     CREATE INDEX IF NOT EXISTS idx_task_list_status  ON proj_task_list(status);
@@ -154,30 +157,32 @@ export const taskListProjection: Projection<TaskListRow> = {
 
     db.prepare(
       `INSERT INTO proj_task_list
-         (task_id, prd_id, title, status, current_phase, current_attempt_id,
-          attempt_count, pushback_count, phase_models_json, auto_merged,
-          depends_on_json, blocked, last_event_ts, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (task_id, prd_id, title, status, current_phase, completed_phases_json,
+          current_attempt_id, attempt_count, pushback_count, phase_models_json,
+          auto_merged, depends_on_json, blocked, last_event_ts, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(task_id) DO UPDATE SET
-         prd_id             = excluded.prd_id,
-         title              = excluded.title,
-         status             = excluded.status,
-         current_phase      = excluded.current_phase,
-         current_attempt_id = excluded.current_attempt_id,
-         attempt_count      = excluded.attempt_count,
-         pushback_count     = excluded.pushback_count,
-         phase_models_json  = excluded.phase_models_json,
-         auto_merged        = excluded.auto_merged,
-         depends_on_json    = excluded.depends_on_json,
-         blocked            = excluded.blocked,
-         last_event_ts      = excluded.last_event_ts,
-         updated_at         = excluded.updated_at`,
+         prd_id                = excluded.prd_id,
+         title                 = excluded.title,
+         status                = excluded.status,
+         current_phase         = excluded.current_phase,
+         completed_phases_json = excluded.completed_phases_json,
+         current_attempt_id    = excluded.current_attempt_id,
+         attempt_count         = excluded.attempt_count,
+         pushback_count        = excluded.pushback_count,
+         phase_models_json     = excluded.phase_models_json,
+         auto_merged           = excluded.auto_merged,
+         depends_on_json       = excluded.depends_on_json,
+         blocked               = excluded.blocked,
+         last_event_ts         = excluded.last_event_ts,
+         updated_at            = excluded.updated_at`,
     ).run(
       next.task_id,
       next.prd_id ?? null,
       next.title,
       next.status,
       next.current_phase ?? null,
+      JSON.stringify(next.completed_phases ?? []),
       next.current_attempt_id ?? null,
       next.attempt_count,
       next.pushback_count,

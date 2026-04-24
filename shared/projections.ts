@@ -188,6 +188,8 @@ export interface TaskListRow {
   title: string;
   status: TaskStatus;
   current_phase?: PhaseName;
+  /** Phase names that have completed in the current attempt. */
+  completed_phases?: string[];
   current_attempt_id?: string;
   attempt_count: number;
   pushback_count: number;
@@ -634,6 +636,8 @@ export function reduceTaskList(
         current_attempt_id: event.payload.attempt_id,
         attempt_count: current.attempt_count + 1,
         status: "running",
+        current_phase: undefined,
+        completed_phases: [],
         updated_at: event.ts,
       };
 
@@ -642,6 +646,32 @@ export function reduceTaskList(
       return {
         ...current,
         current_phase: event.payload.phase_name,
+        updated_at: event.ts,
+      };
+
+    case "phase.completed":
+      if (!current) return null;
+      return {
+        ...current,
+        completed_phases: [
+          ...(current.completed_phases ?? []).filter(
+            (n) => n !== event.payload.phase_name,
+          ),
+          event.payload.phase_name,
+        ],
+        updated_at: event.ts,
+      };
+
+    case "phase.failed":
+      if (!current) return null;
+      return {
+        ...current,
+        completed_phases: [
+          ...(current.completed_phases ?? []).filter(
+            (n) => n !== event.payload.phase_name,
+          ),
+          event.payload.phase_name,
+        ],
         updated_at: event.ts,
       };
 
@@ -1204,8 +1234,8 @@ export const PROJECTION_SUBSCRIPTIONS: Record<EventType, ProjectionName[]> = {
   // Phase
   "phase.started": ["task_list", "attempt"],
   "phase.context_packed": ["attempt"],
-  "phase.completed": ["attempt"],
-  "phase.failed": ["attempt"],
+  "phase.completed": ["task_list", "attempt"],
+  "phase.failed": ["task_list", "attempt"],
   "phase.diff_snapshotted": ["attempt"],
 
   // Invocation

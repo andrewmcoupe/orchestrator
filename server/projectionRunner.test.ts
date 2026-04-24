@@ -86,17 +86,18 @@ const taskListProjection: Projection<TaskListRow> = {
   name: "task_list",
   createSql: `
     CREATE TABLE IF NOT EXISTS proj_task_list (
-      task_id            TEXT PRIMARY KEY,
-      prd_id             TEXT,
-      title              TEXT NOT NULL,
-      status             TEXT NOT NULL,
-      current_phase      TEXT,
-      current_attempt_id TEXT,
-      attempt_count      INTEGER NOT NULL DEFAULT 0,
-      pushback_count     INTEGER NOT NULL DEFAULT 0,
-      phase_models_json  TEXT,
-      last_event_ts      TEXT NOT NULL,
-      updated_at         TEXT NOT NULL
+      task_id               TEXT PRIMARY KEY,
+      prd_id                TEXT,
+      title                 TEXT NOT NULL,
+      status                TEXT NOT NULL,
+      current_phase         TEXT,
+      completed_phases_json TEXT NOT NULL DEFAULT '[]',
+      current_attempt_id    TEXT,
+      attempt_count         INTEGER NOT NULL DEFAULT 0,
+      pushback_count        INTEGER NOT NULL DEFAULT 0,
+      phase_models_json     TEXT,
+      last_event_ts         TEXT NOT NULL,
+      updated_at            TEXT NOT NULL
     );
   `,
 
@@ -114,6 +115,9 @@ const taskListProjection: Projection<TaskListRow> = {
       phase_models: row.phase_models_json
         ? JSON.parse(row.phase_models_json)
         : {},
+      completed_phases: (row as unknown as Record<string, string>).completed_phases_json
+        ? JSON.parse((row as unknown as Record<string, string>).completed_phases_json)
+        : [],
     };
   },
 
@@ -131,14 +135,16 @@ const taskListProjection: Projection<TaskListRow> = {
 
     db.prepare(
       `INSERT INTO proj_task_list
-         (task_id, prd_id, title, status, current_phase, current_attempt_id,
-          attempt_count, pushback_count, phase_models_json, last_event_ts, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (task_id, prd_id, title, status, current_phase, completed_phases_json,
+          current_attempt_id, attempt_count, pushback_count, phase_models_json,
+          last_event_ts, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(task_id) DO UPDATE SET
          prd_id = excluded.prd_id,
          title = excluded.title,
          status = excluded.status,
          current_phase = excluded.current_phase,
+         completed_phases_json = excluded.completed_phases_json,
          current_attempt_id = excluded.current_attempt_id,
          attempt_count = excluded.attempt_count,
          pushback_count = excluded.pushback_count,
@@ -151,6 +157,7 @@ const taskListProjection: Projection<TaskListRow> = {
       next.title,
       next.status,
       next.current_phase ?? null,
+      JSON.stringify(next.completed_phases ?? []),
       next.current_attempt_id ?? null,
       next.attempt_count,
       next.pushback_count,
@@ -161,8 +168,9 @@ const taskListProjection: Projection<TaskListRow> = {
   },
 };
 
-type RawTaskListRow = Omit<TaskListRow, "phase_models"> & {
+type RawTaskListRow = Omit<TaskListRow, "phase_models" | "completed_phases"> & {
   phase_models_json: string | null;
+  completed_phases_json: string | null;
 };
 
 /** Extract task_id from various event payloads. */
