@@ -1446,8 +1446,6 @@ export function reduceAttempt(
             diff_hash: p.diff_hash,
           },
         },
-        last_failure_reason:
-          p.outcome !== "success" && p.exit_reason ? p.exit_reason : current.last_failure_reason,
         last_event_id: event.id,
       };
     }

@@ -264,9 +264,12 @@ export type IngestInput = { path: string } | { content: string };
  * Accepts either `{ path }` (reads the file) or `{ content }` (uses the
  * string directly, sets path to null in the event payload).
  */
+export type Extractor = (prd_id: string, content: string) => Promise<ExtractionResult>;
+
 export async function ingestPrd(
   db: Database.Database,
   input: IngestInput,
+  extractor?: Extractor,
 ): Promise<IngestResult> {
   // Resolve content from either input mode
   const resolvedPath: string | null = "path" in input ? input.path : null;
@@ -296,8 +299,9 @@ export async function ingestPrd(
     },
   });
 
-  // Call extraction API (retries up to MAX_RETRIES on failure)
-  const extracted = await callExtractionCli(prd_id, content);
+  // Call extraction (injectable for tests, defaults to real CLI)
+  const extract = extractor ?? callExtractionCli;
+  const extracted = await extract(prd_id, content);
 
   // Run topological sort to detect and strip cycle-causing edges
   const topoResult = topoSort(

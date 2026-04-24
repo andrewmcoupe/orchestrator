@@ -84,7 +84,7 @@ const transportOptionsSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("cli"),
     bare: z.boolean().optional(),
-    max_turns: z.number(),
+    max_turns: z.number().optional(),
     max_budget_usd: z.number(),
     permission_mode: z.enum(["default", "plan", "acceptEdits", "bypassPermissions", "dontAsk", "auto"]),
     allowed_tools: z.array(z.string()).optional(),

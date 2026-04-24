@@ -273,10 +273,12 @@ export async function mergeTask(
   // ── 0. Dirty worktree check ──────────────────────────────────────────────
   const statusResult = await execa(
     "git",
-    ["status", "--porcelain"],
+    ["status", "--porcelain", "--ignore-submodules"],
     { cwd: repoRoot, reject: false, stdio: ["ignore", "pipe", "pipe"] },
   );
-  const dirtyFiles = statusResult.stdout.split("\n").filter(Boolean);
+  const dirtyFiles = statusResult.stdout
+    .split("\n")
+    .filter((line) => line && !line.includes(".orchestrator-worktrees"));
   if (dirtyFiles.length > 0) {
     return {
       outcome: "dirty_worktree",
