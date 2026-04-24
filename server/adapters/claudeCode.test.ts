@@ -19,6 +19,7 @@ import {
   PERMISSION_HANG_TIMEOUT_MS,
   type InvokeOptions,
   type ClaudeCodeLine,
+  type SpawnerContext,
 } from "./claudeCode.js";
 import type { BlobStore } from "../blobStore.js";
 import { invoke } from "./claudeCode.js";
@@ -1008,5 +1009,217 @@ describe("exit reason classification", () => {
       expect(p.exit_reason).toBe("permission_blocked");
       expect(p.permission_blocked_on).toBeNull();
     });
+  });
+});
+
+// ============================================================================
+// Stdout/stderr tail capture
+// ============================================================================
+
+describe("stdout/stderr tail capture", () => {
+  it("AC1/AC3/AC5: stores stdout tail in blob store and attaches non-null hash to invocation.completed", async () => {
+    async function* fakeSpawner() {
+      yield JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "s1",
+        model: "claude-sonnet-4-6",
+        permissionMode: "acceptEdits",
+      });
+      yield JSON.stringify({
+        type: "result",
+        subtype: "success",
+        duration_ms: 500,
+        is_error: false,
+        num_turns: 1,
+        result: "Done",
+        session_id: "s1",
+        total_cost_usd: 0.0001,
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+    }
+
+    const blobStore = makeBlobStore();
+    const results: Array<{ type: string; payload: unknown }> = [];
+
+    for await (const input of invoke(baseOpts, blobStore, fakeSpawner)) {
+      results.push({ type: input.type, payload: input.payload });
+    }
+
+    const completed = results.find((r) => r.type === "invocation.completed");
+    expect(completed).toBeDefined();
+    const p = completed!.payload as InvocationCompleted;
+    // stdout was produced (the NDJSON lines), so hash must be a non-null string
+    expect(typeof p.stdout_tail_hash).toBe("string");
+    expect(p.stdout_tail_hash).not.toBeNull();
+    // The blob must be retrievable from the store
+    const stored = blobStore.getBlob(p.stdout_tail_hash!);
+    expect(stored).not.toBeNull();
+  });
+
+  it("AC2/AC4/AC6: stores stderr tail in blob store when spawner sets stderrTail on context", async () => {
+    const stderrContent = "Some stderr output from claude subprocess";
+
+    async function* spawnerWithStderr(
+      _cmd: string,
+      _args: string[],
+      _opts: { cwd: string },
+      context?: SpawnerContext,
+    ) {
+      yield JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "s1",
+        model: "claude-sonnet-4-6",
+        permissionMode: "acceptEdits",
+      });
+      yield JSON.stringify({
+        type: "result",
+        subtype: "success",
+        duration_ms: 500,
+        is_error: false,
+        num_turns: 1,
+        result: "Done",
+        session_id: "s1",
+        total_cost_usd: 0.0001,
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+      // Simulates execaSpawner setting stderrTail after subprocess exits
+      if (context) context.stderrTail = stderrContent;
+    }
+
+    const blobStore = makeBlobStore();
+    const results: Array<{ type: string; payload: unknown }> = [];
+
+    for await (const input of invoke(baseOpts, blobStore, spawnerWithStderr)) {
+      results.push({ type: input.type, payload: input.payload });
+    }
+
+    const completed = results.find((r) => r.type === "invocation.completed");
+    expect(completed).toBeDefined();
+    const p = completed!.payload as InvocationCompleted;
+    expect(typeof p.stderr_tail_hash).toBe("string");
+    expect(p.stderr_tail_hash).not.toBeNull();
+    const stored = blobStore.getBlob(p.stderr_tail_hash!);
+    expect(stored!.toString()).toBe(stderrContent);
+  });
+
+  it("stderr_tail_hash is null when no stderr was produced", async () => {
+    async function* fakeSpawner() {
+      yield JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "s1",
+        model: "claude-sonnet-4-6",
+        permissionMode: "acceptEdits",
+      });
+      yield JSON.stringify({
+        type: "result",
+        subtype: "success",
+        duration_ms: 500,
+        is_error: false,
+        num_turns: 1,
+        result: "Done",
+        session_id: "s1",
+        total_cost_usd: 0.0001,
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+      // context.stderrTail left unset — simulates a subprocess with no stderr
+    }
+
+    const blobStore = makeBlobStore();
+    const results: Array<{ type: string; payload: unknown }> = [];
+
+    for await (const input of invoke(baseOpts, blobStore, fakeSpawner)) {
+      results.push({ type: input.type, payload: input.payload });
+    }
+
+    const completed = results.find((r) => r.type === "invocation.completed");
+    const p = completed!.payload as InvocationCompleted;
+    expect(p.stderr_tail_hash).toBeNull();
+  });
+
+  it("AC7: invocation completes normally with null hashes when blob store throws", async () => {
+    async function* fakeSpawner() {
+      yield JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "s1",
+        model: "claude-sonnet-4-6",
+        permissionMode: "acceptEdits",
+      });
+      yield JSON.stringify({
+        type: "result",
+        subtype: "success",
+        duration_ms: 500,
+        is_error: false,
+        num_turns: 1,
+        result: "Done",
+        session_id: "s1",
+        total_cost_usd: 0.0001,
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+    }
+
+    const throwingBlobStore: BlobStore & { stored: Map<string, string> } = {
+      stored: new Map(),
+      putBlob(_content) {
+        throw new Error("blob store unavailable");
+      },
+      getBlob(_hash) { return null; },
+      hasBlob(_hash) { return false; },
+    };
+
+    const results: Array<{ type: string; payload: unknown }> = [];
+
+    // Must not throw even though blob store throws on putBlob
+    for await (const input of invoke(baseOpts, throwingBlobStore, fakeSpawner)) {
+      results.push({ type: input.type, payload: input.payload });
+    }
+
+    const completed = results.find((r) => r.type === "invocation.completed");
+    expect(completed).toBeDefined();
+    const p = completed!.payload as InvocationCompleted;
+    // Best-effort: hashes are null when blob store throws
+    expect(p.stdout_tail_hash).toBeNull();
+    expect(p.stderr_tail_hash).toBeNull();
+  });
+
+  it("stdout tail is capped at ~4KB (last 4096 bytes)", async () => {
+    // Generate more than 4KB of stdout content
+    const largeLine = "x".repeat(1000);
+    const resultLine = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      duration_ms: 500,
+      is_error: false,
+      num_turns: 1,
+      result: "Done",
+      session_id: "s1",
+      total_cost_usd: 0.0001,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    async function* fakeSpawner() {
+      // Yield 6 large lines = 6000+ bytes of stdout (> 4KB)
+      for (let i = 0; i < 6; i++) {
+        yield largeLine;
+      }
+      yield resultLine;
+    }
+
+    const blobStore = makeBlobStore();
+    const results: Array<{ type: string; payload: unknown }> = [];
+
+    for await (const input of invoke(baseOpts, blobStore, fakeSpawner)) {
+      results.push({ type: input.type, payload: input.payload });
+    }
+
+    const completed = results.find((r) => r.type === "invocation.completed");
+    const p = completed!.payload as InvocationCompleted;
+    expect(p.stdout_tail_hash).not.toBeNull();
+    // The stored blob must be at most 4096 bytes
+    const stored = blobStore.getBlob(p.stdout_tail_hash!);
+    expect(stored!.length).toBeLessThanOrEqual(4096);
   });
 });

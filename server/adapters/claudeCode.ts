@@ -113,6 +113,14 @@ export type ClaudeCodeLine =
 // ============================================================================
 
 /**
+ * Context object populated by the spawner after the subprocess exits.
+ * Allows the spawner to expose captured tails to the caller (invoke).
+ */
+export type SpawnerContext = {
+  stderrTail?: string;
+};
+
+/**
  * Async generator yielding raw NDJSON lines from the claude subprocess.
  * Default implementation uses execa; inject a fake in tests.
  */
@@ -120,6 +128,7 @@ export type Spawner = (
   cmd: string,
   args: string[],
   opts: { cwd: string },
+  context?: SpawnerContext,
 ) => AsyncIterable<string>;
 
 /**
@@ -140,6 +149,7 @@ async function* execaSpawner(
   cmd: string,
   args: string[],
   opts: { cwd: string },
+  context?: SpawnerContext,
 ): AsyncIterable<string> {
   const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
   console.log(`[claudeCode] spawning: ANTHROPIC_API_KEY=${hasApiKey ? "set (" + process.env.ANTHROPIC_API_KEY!.slice(0, 8) + "...)" : "not set"}, cwd=${opts.cwd}`);
@@ -202,6 +212,8 @@ async function* execaSpawner(
       err.stderrTail = stderrTail || result.stderr || "";
       throw err;
     }
+    // Success: expose stderr tail to the caller via context
+    if (context) context.stderrTail = stderrTail;
   } finally {
     if (permissionHangTimer) clearTimeout(permissionHangTimer);
   }
@@ -688,8 +700,18 @@ export async function* invoke(
     { lines_added: number; lines_removed: number; operation: string }
   >();
 
+  // Rolling buffer of the last ~4KB of raw stdout lines for the tail blob
+  let stdoutTailBuf = "";
+  // Context for the spawner to expose the captured stderr tail
+  const spawnerCtx: SpawnerContext = {};
+  // Buffer the invocation.completed event so we can add tail hashes after the loop
+  let bufferedCompleted: AppendEventInput<"invocation.completed"> | null = null;
+
   try {
-    for await (const rawLine of spawner("claude", args, { cwd: opts.cwd })) {
+    for await (const rawLine of spawner("claude", args, { cwd: opts.cwd }, spawnerCtx)) {
+      // Accumulate last ~4KB of stdout
+      stdoutTailBuf = (stdoutTailBuf + rawLine + "\n").slice(-4096);
+
       let parsed: ClaudeCodeLine;
       try {
         parsed = JSON.parse(rawLine) as ClaudeCodeLine;
@@ -710,7 +732,12 @@ export async function* invoke(
 
       const inputs = translateLine(parsed, opts, blobStore, toolCallTimes, startedAt);
       for (const input of inputs) {
-        yield input;
+        if (input.type === "invocation.completed") {
+          // Buffer instead of yielding — tail hashes are added after the loop
+          bufferedCompleted = input as AppendEventInput<"invocation.completed">;
+        } else {
+          yield input;
+        }
       }
 
       // After a tool_result for a file-editing tool, detect file changes
@@ -732,6 +759,35 @@ export async function* invoke(
           }
         }
       }
+    }
+
+    // Store stdout/stderr tails in the blob store (best-effort)
+    let stdoutTailHash: string | null = null;
+    let stderrTailHash: string | null = null;
+    try {
+      if (stdoutTailBuf) {
+        stdoutTailHash = blobStore.putBlob(stdoutTailBuf).hash;
+      }
+      const stderrContent = spawnerCtx.stderrTail ?? "";
+      if (stderrContent) {
+        stderrTailHash = blobStore.putBlob(stderrContent).hash;
+      }
+    } catch {
+      // Best-effort: blob store failure keeps hashes null
+      stdoutTailHash = null;
+      stderrTailHash = null;
+    }
+
+    // Yield the buffered invocation.completed with tail hashes attached
+    if (bufferedCompleted) {
+      yield {
+        ...bufferedCompleted,
+        payload: {
+          ...bufferedCompleted.payload,
+          stdout_tail_hash: stdoutTailHash,
+          stderr_tail_hash: stderrTailHash,
+        },
+      } as AppendEventInput<"invocation.completed">;
     }
   } catch (err: unknown) {
     // Subprocess exited without emitting a normal result line — it was
