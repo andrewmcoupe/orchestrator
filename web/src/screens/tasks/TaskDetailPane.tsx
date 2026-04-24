@@ -1,5 +1,5 @@
-import { useCallback, useState, useMemo, useEffect } from "react";
-import { SlidersHorizontal, ClipboardList, Plus, X, Info } from "lucide-react";
+import { Fragment, useCallback, useState, useMemo, useEffect } from "react";
+import { SlidersHorizontal, ClipboardList, Plus, X, Info, ChevronRight } from "lucide-react";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
   TaskStatus,
@@ -124,7 +124,7 @@ function PhaseBox({
 
   return (
     <div
-      className={`flex-1 border px-4 py-3 min-w-[140px] ${PHASE_STATUS_STYLES[status]}`}
+      className={`border px-4 py-3 min-w-[140px] ${PHASE_STATUS_STYLES[status]}`}
     >
       <div className="flex items-center gap-1.5 mb-1">
         {status === "running" ? (
@@ -771,16 +771,27 @@ export function TaskDetailPane({
           <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
             Phases
           </h3>
-          <div className="flex gap-3">
-            {enabledPhases.map((phase) => (
-              <PhaseBox
-                key={phase.name}
-                phase={phase}
-                enabledPhases={enabledPhases}
-                currentPhase={listRow?.current_phase ?? undefined}
-                taskStatus={detail.status}
-                completedPhases={listRow?.completed_phases}
-              />
+          <div
+            className="grid items-stretch gap-3"
+            style={{
+              gridTemplateColumns: enabledPhases
+                .map((_, i) => (i > 0 ? "auto 1fr" : "1fr"))
+                .join(" "),
+            }}
+          >
+            {enabledPhases.map((phase, i) => (
+              <Fragment key={phase.name}>
+                {i > 0 && (
+                  <ChevronRight size={14} className="text-text-tertiary self-center" />
+                )}
+                <PhaseBox
+                  phase={phase}
+                  enabledPhases={enabledPhases}
+                  currentPhase={listRow?.current_phase ?? undefined}
+                  taskStatus={detail.status}
+                  completedPhases={listRow?.completed_phases}
+                />
+              </Fragment>
             ))}
             {enabledPhases.length === 0 && (
               <p className="text-sm text-text-tertiary">
@@ -910,7 +921,7 @@ function TaskTimeline({
         Timeline
       </h3>
       <div className="relative pl-4 border-l border-border-muted">
-        {events.map((event) => {
+        {[...events].reverse().map((event) => {
           const detail = timelineDetail(event);
           return (
             <div
