@@ -223,7 +223,7 @@ export type ExitReason =
   | "crashed"
   | "unknown";
 
-export type ExitReasonPolicy = "retry_same" | "escalate_to_human";
+export type ExitReasonPolicy = "retry_same" | "retry_different" | "escalate_to_human";
 
 export interface AuditConcern {
   category:
@@ -498,10 +498,10 @@ export interface PhaseCompleted {
   /** SHA-256 hash of the unified diff captured at phase completion, stored in the blob store. */
   diff_hash?: string;
   /** Structured reason the phase ended. "normal" means clean success. */
-  exit_reason?: ExitReason;
-  stdout_tail_hash?: string | null;
-  stderr_tail_hash?: string | null;
-  permission_blocked_on?: string | null;
+  exit_reason: ExitReason;
+  stdout_tail_hash: string | null;
+  stderr_tail_hash: string | null;
+  permission_blocked_on: string | null;
 }
 
 export interface PhaseFailed {
@@ -573,10 +573,10 @@ export interface InvocationCompleted {
   duration_ms: number;
   turns: number;
   exit_code?: number;
-  exit_reason?: ExitReason;
-  stdout_tail_hash?: string | null;
-  stderr_tail_hash?: string | null;
-  permission_blocked_on?: string | null;
+  exit_reason: ExitReason;
+  stdout_tail_hash: string | null;
+  stderr_tail_hash: string | null;
+  permission_blocked_on: string | null;
 }
 
 export interface InvocationErrored {
