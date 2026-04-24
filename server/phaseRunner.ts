@@ -546,10 +546,10 @@ export async function runAttempt(
       let phaseTokensOut = 0;
       let phaseCostUsd = 0;
       let phaseOutcome: "success" | "failed" | "aborted" = "success";
-      let phaseExitReason: ExitReason | undefined;
-      let phaseStdoutTailHash: string | null | undefined;
-      let phaseStderrTailHash: string | null | undefined;
-      let phasePermissionBlockedOn: string | null | undefined;
+      let phaseExitReason: ExitReason = "unknown";
+      let phaseStdoutTailHash: string | null = null;
+      let phaseStderrTailHash: string | null = null;
+      let phasePermissionBlockedOn: string | null = null;
 
       // For the auditor phase, capture the last assistant message text
       // (it will contain the structured-output JSON verdict).

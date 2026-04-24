@@ -152,6 +152,10 @@ function makeFakeCliInvoker(
         cost_usd: 0.001,
         duration_ms: 1000,
         turns: 1,
+        exit_reason: "normal" as const,
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
         ...overrides,
       },
     } satisfies AppendEventInput<"invocation.completed">;
@@ -199,6 +203,10 @@ function makeSlowCliInvoker(signal: Promise<void>): AdapterInvokeFn {
         cost_usd: 0,
         duration_ms: 0,
         turns: 1,
+        exit_reason: "normal" as const,
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
       },
     } satisfies AppendEventInput<"invocation.completed">;
   };
@@ -541,7 +549,7 @@ describe("runAttempt", () => {
       const base = { aggregate_type: "attempt" as const, aggregate_id: attempt_id, actor, correlation_id: attempt_id };
 
       yield { ...base, type: "invocation.started" as const, payload: { invocation_id, attempt_id, phase_name: "implementer", transport: "claude-code" as const, model: "m", prompt_version_id: "pv", context_manifest_hash: "h" } } satisfies AppendEventInput<"invocation.started">;
-      yield { ...base, type: "invocation.completed" as const, payload: { invocation_id, outcome: "success" as const, tokens_in: 0, tokens_out: 0, cost_usd: 0, duration_ms: 0, turns: 1 } } satisfies AppendEventInput<"invocation.completed">;
+      yield { ...base, type: "invocation.completed" as const, payload: { invocation_id, outcome: "success" as const, tokens_in: 0, tokens_out: 0, cost_usd: 0, duration_ms: 0, turns: 1, exit_reason: "normal" as const, stdout_tail_hash: null, stderr_tail_hash: null, permission_blocked_on: null } } satisfies AppendEventInput<"invocation.completed">;
     };
 
     const taskId = createTask(db, twoPhaseConfig);
@@ -774,6 +782,10 @@ describe("runAttempt", () => {
           cost_usd: 0.01,
           duration_ms: 1500,
           turns: 1,
+          exit_reason: "normal" as const,
+          stdout_tail_hash: null,
+          stderr_tail_hash: null,
+          permission_blocked_on: null,
         },
       } satisfies AppendEventInput<"invocation.completed">;
     };
@@ -1507,6 +1519,8 @@ describe("runAttempt", () => {
           duration_ms: 500,
           turns: 0,
           exit_reason: "permission_blocked" as const,
+          stdout_tail_hash: null,
+          stderr_tail_hash: null,
           permission_blocked_on: "Write",
         },
       } satisfies AppendEventInput<"invocation.completed">;
@@ -1578,6 +1592,8 @@ describe("runAttempt", () => {
             duration_ms: 500,
             turns: 0,
             exit_reason: "permission_blocked" as const,
+            stdout_tail_hash: null,
+            stderr_tail_hash: null,
             permission_blocked_on: "Write",
           },
         } satisfies AppendEventInput<"invocation.completed">;
@@ -1643,6 +1659,9 @@ describe("runAttempt", () => {
             duration_ms: 30000,
             turns: 0,
             exit_reason: "timeout" as const,
+            stdout_tail_hash: null,
+            stderr_tail_hash: null,
+            permission_blocked_on: null,
           },
         } satisfies AppendEventInput<"invocation.completed">;
       };
@@ -1711,6 +1730,9 @@ describe("runAttempt", () => {
             duration_ms: 100,
             turns: 0,
             exit_reason: "killed" as const,
+            stdout_tail_hash: null,
+            stderr_tail_hash: null,
+            permission_blocked_on: null,
           },
         } satisfies AppendEventInput<"invocation.completed">;
       };
