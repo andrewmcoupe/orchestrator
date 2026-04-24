@@ -429,6 +429,23 @@ export function createProjectionRoutes(db: Database.Database): Hono {
     return c.json(rows.map(parsePromptVersionRow));
   });
 
+  // -- prompt_template/:id — fetch the raw template text for a prompt version
+  routes.get("/api/projections/prompt_template/:id", (c) => {
+    const pvId = c.req.param("id");
+    const row = db
+      .prepare(
+        "SELECT payload_json FROM events WHERE type = 'prompt_version.created' AND aggregate_id = ? LIMIT 1",
+      )
+      .get(pvId) as { payload_json: string } | undefined;
+
+    if (!row) {
+      return c.json({ error: "Prompt version not found" }, 404);
+    }
+
+    const payload = JSON.parse(row.payload_json) as { template: string };
+    return c.json({ template: payload.template });
+  });
+
   // -- ab_experiment?phase_class=
   routes.get("/api/projections/ab_experiment", (c) => {
     const phaseClass = c.req.query("phase_class");

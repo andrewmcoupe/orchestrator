@@ -236,12 +236,20 @@ function PhaseCard({
             <select
               id={`transport-${index}`}
               value={phase.transport}
-              onChange={(e) =>
+              onChange={(e) => {
+                const newTransport = e.target.value as Transport;
+                const isCli = ["claude-code", "codex", "aider", "gemini-cli"].includes(newTransport);
+                const wasCli = phase.transport_options.kind === "cli";
                 update({
-                  transport: e.target.value as Transport,
-                  model: MODELS_BY_TRANSPORT[e.target.value as Transport]?.[0] ?? phase.model,
-                })
-              }
+                  transport: newTransport,
+                  model: MODELS_BY_TRANSPORT[newTransport]?.[0] ?? phase.model,
+                  transport_options: isCli && !wasCli
+                    ? { kind: "cli" as const, max_turns: 10, max_budget_usd: 5, permission_mode: "acceptEdits" as const }
+                    : !isCli && wasCli
+                    ? { kind: "api" as const, max_tokens: 4096 }
+                    : phase.transport_options,
+                });
+              }}
               className="flex-1 border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
             >
               {TRANSPORTS.map((t) => (

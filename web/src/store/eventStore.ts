@@ -108,6 +108,13 @@ export const useEventStore = create<EventStoreState & EventStoreActions>()(
     applyEvent(event: AnyEvent) {
       const subscriptions = PROJECTION_SUBSCRIPTIONS[event.type];
       const state = get();
+
+      // Deduplicate — SSE may replay events already present from hydration
+      // or after reconnection
+      if (state.recentEvents.length > 0 && state.recentEvents.some((e) => e.id === event.id)) {
+        return;
+      }
+
       const updates: Partial<EventStoreState> = {};
 
       for (const projection of subscriptions) {

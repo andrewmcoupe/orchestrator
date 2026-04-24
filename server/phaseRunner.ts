@@ -667,16 +667,18 @@ export async function runAttempt(
 
           // Capture the auditor response text — could arrive as a plain
           // assistant_message (API path) or as a StructuredOutput tool_use
-          // (CLI --json-schema path).
+          // (CLI --json-schema path). StructuredOutput takes priority over
+          // assistant_message to avoid the free-text summary overwriting
+          // the structured JSON verdict.
           if (isAuditorPhase) {
-            if (event.type === "invocation.assistant_message") {
-              auditorResponseText = (event.payload as InvocationAssistantMessage).text;
-            } else if (event.type === "invocation.tool_called") {
+            if (event.type === "invocation.tool_called") {
               const p = event.payload as InvocationToolCalled;
               if (p.tool_name === "StructuredOutput") {
                 const blob = bs.getBlob(p.args_hash);
                 if (blob) auditorResponseText = blob.toString("utf8");
               }
+            } else if (event.type === "invocation.assistant_message" && !auditorResponseText) {
+              auditorResponseText = (event.payload as InvocationAssistantMessage).text;
             }
           }
 
@@ -700,6 +702,12 @@ export async function runAttempt(
         }
 
         // After a successful auditor invocation, parse the verdict and emit auditor.judged
+        if (isAuditorPhase && phaseOutcome === "success" && !auditorResponseText) {
+          console.error(
+            `[phaseRunner] auditor produced no verdict output for attempt ${attempt_id} — model may have exhausted turns without using StructuredOutput`,
+          );
+          phaseOutcome = "failed";
+        }
         if (isAuditorPhase && phaseOutcome === "success" && auditorResponseText) {
           try {
             const verdict = parseVerdict(auditorResponseText);
@@ -764,7 +772,11 @@ export async function runAttempt(
             }
           } catch (parseErr: unknown) {
             // Verdict JSON was malformed — treat auditor phase as failed
-            void parseErr;
+            const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+            console.error(
+              `[phaseRunner] auditor verdict parse failed for attempt ${attempt_id}: ${msg}`,
+              `\n  response text (first 200 chars): ${auditorResponseText?.slice(0, 200)}`,
+            );
             phaseOutcome = "failed";
           }
         }

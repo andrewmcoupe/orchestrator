@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo, useEffect } from "react";
 import { SlidersHorizontal, ClipboardList, Plus, X, Info } from "lucide-react";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
@@ -449,6 +449,50 @@ function DependencySection({
 // Task preview popover — shows what the task will have before implementation
 // ============================================================================
 
+function PromptPreview({ promptVersionId }: { promptVersionId: string }) {
+  const [template, setTemplate] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/projections/prompt_template/${encodeURIComponent(promptVersionId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { template: string } | null) => {
+        setTemplate(data?.template ?? null);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [promptVersionId]);
+
+  if (loading) {
+    return <span className="text-[10px] text-text-tertiary">loading…</span>;
+  }
+  if (!template) {
+    return <span className="text-[10px] text-text-tertiary">template not found</span>;
+  }
+
+  const preview = template.slice(0, 200);
+  const truncated = template.length > 200;
+
+  return (
+    <div className="mt-1.5">
+      <pre className="text-[10px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words bg-bg-primary border border-border-muted p-2 max-h-48 overflow-y-auto">
+        {expanded ? template : preview}
+        {truncated && !expanded && "…"}
+      </pre>
+      {truncated && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-[10px] text-text-tertiary hover:text-text-secondary mt-1 cursor-pointer"
+        >
+          {expanded ? "show less" : `show all (${template.length.toLocaleString()} chars)`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
   const enabledPhases = detail.config.phases.filter((p) => p.enabled);
 
@@ -459,7 +503,7 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
         <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
           Phases
         </h4>
-        <div className="space-y-2">
+        <div className="space-y-3">
           {enabledPhases.map((phase) => (
             <div
               key={phase.name}
@@ -470,25 +514,20 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
                   {phase.name}
                 </span>
                 <span className="text-[10px] font-mono text-text-tertiary">
-                  {phase.transport}
+                  {phase.transport} · {phase.model}
                 </span>
               </div>
-              <div className="text-[11px] text-text-secondary font-mono space-y-0.5">
-                <div>model: {phase.model}</div>
-                <div>prompt: {phase.prompt_version_id || "default"}</div>
-                {phase.transport_options.kind === "cli" && (
-                  <>
-                    {phase.transport_options.max_turns != null && (
-                      <div>max turns: {phase.transport_options.max_turns}</div>
-                    )}
-                    <div>budget: ${phase.transport_options.max_budget_usd}</div>
-                    <div>permissions: {phase.transport_options.permission_mode}</div>
-                  </>
-                )}
-                {phase.transport_options.kind === "api" && (
-                  <div>max tokens: {phase.transport_options.max_tokens}</div>
-                )}
-              </div>
+
+              {/* Prompt template */}
+              {phase.prompt_version_id && (
+                <div>
+                  <span className="text-[10px] text-text-tertiary">
+                    prompt: {phase.prompt_version_id}
+                  </span>
+                  <PromptPreview promptVersionId={phase.prompt_version_id} />
+                </div>
+              )}
+
               {/* Context policy */}
               <div className="mt-1.5 pt-1.5 border-t border-border-muted text-[11px] text-text-tertiary">
                 <span className="text-text-secondary">context:</span>{" "}
@@ -548,18 +587,8 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
         </h4>
         <div className="text-[11px] text-text-secondary font-mono bg-bg-secondary border border-border-muted p-2 space-y-0.5">
           <div>max attempts: {detail.config.retry_policy.max_total_attempts}</div>
-          <div>on typecheck: {detail.config.retry_policy.on_typecheck_fail.strategy} ({detail.config.retry_policy.on_typecheck_fail.max_attempts}x)</div>
-          <div>on test fail: {detail.config.retry_policy.on_test_fail.strategy} ({detail.config.retry_policy.on_test_fail.max_attempts}x)</div>
           <div>on audit reject: {detail.config.retry_policy.on_audit_reject}</div>
         </div>
-      </div>
-
-      {/* Auto-merge */}
-      <div className="flex items-center gap-3 text-[11px] text-text-secondary">
-        <span>auto-merge: <span className="text-text-primary font-mono">{detail.config.auto_merge_policy ?? "off"}</span></span>
-        {detail.config.shadow_mode && (
-          <span className="text-status-warning">shadow mode</span>
-        )}
       </div>
     </div>
   );
