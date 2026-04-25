@@ -135,7 +135,7 @@
       "Status bar shows: toggle button, PRD filter dropdown, compact status counts (N ready, N running, N done, N blocked)",
       "Toggle state persists across re-renders (useState, not URL-based)"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 12
   },
   {
