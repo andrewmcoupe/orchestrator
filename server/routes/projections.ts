@@ -550,7 +550,8 @@ export function createProjectionRoutes(db: Database.Database): Hono {
     for (const [taskId, pos] of Object.entries(layout.nodes)) {
       const task = taskMap.get(taskId);
       if (!task) continue;
-      if (prdId && task.prd_id !== prdId) continue;
+      if (prdId === "standalone" && task.prd_id != null) continue;
+      if (prdId && prdId !== "standalone" && task.prd_id !== prdId) continue;
       nodes[taskId] = {
         x: pos.x,
         y: pos.y,

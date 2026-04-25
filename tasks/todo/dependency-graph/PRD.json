@@ -147,7 +147,7 @@
       "Standalone tasks (no prd_id) appear under 'Standalone' option",
       "Filter triggers a re-fetch of the layout endpoint with prd_id parameter"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 13
   },
   {

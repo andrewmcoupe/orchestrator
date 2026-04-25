@@ -31,6 +31,7 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
   const tasks = useTaskList();
   const [selectedId, selectTask] = useSelectedTaskId();
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [selectedPrdId, setSelectedPrdId] = useState<string>("all");
 
   // Fetch task detail when selected (the store may not have it from hydration)
   const taskDetail = useTaskDetail(selectedId ?? undefined);
@@ -43,6 +44,21 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
   const approvedCount = tasks.filter((t) =>
     APPROVED_STATUSES.has(t.status),
   ).length;
+
+  const prdOptions = useMemo(() => {
+    const prdIds = new Set<string>();
+    let hasStandalone = false;
+    for (const t of tasks) {
+      if (t.prd_id) prdIds.add(t.prd_id);
+      else hasStandalone = true;
+    }
+    const opts: { value: string; label: string }[] = [{ value: "all", label: "All" }];
+    for (const id of Array.from(prdIds).sort()) {
+      opts.push({ value: id, label: id });
+    }
+    if (hasStandalone) opts.push({ value: "standalone", label: "Standalone" });
+    return opts;
+  }, [tasks]);
 
   const statusCounts = useMemo(() => {
     let ready = 0, running = 0, done = 0, blocked = 0;
@@ -207,6 +223,23 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
             <span className="text-status-danger font-medium">{statusCounts.blocked}</span> blocked
           </span>
         </div>
+
+        {viewMode === "graph" && prdOptions.length > 1 && (
+          <>
+            <div className="w-px h-4 bg-border-default" />
+            <select
+              value={selectedPrdId}
+              onChange={(e) => setSelectedPrdId(e.target.value)}
+              className="text-xs bg-bg-primary border border-border-default rounded px-2 py-1 text-text-primary cursor-pointer"
+            >
+              {prdOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
       </div>
 
       {/* ── View content ───────────────────────────────────────────── */}
@@ -261,7 +294,10 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
         </div>
       ) : (
         <div className="flex-1 min-h-0">
-          <DependencyGraph onViewDetails={handleViewDetails} />
+          <DependencyGraph
+            onViewDetails={handleViewDetails}
+            prdId={selectedPrdId === "all" ? undefined : selectedPrdId}
+          />
         </div>
       )}
 

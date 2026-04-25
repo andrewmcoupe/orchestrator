@@ -18,5 +18,5 @@
 - [x] Critical path highlighting (amber outline + glow on critical-path nodes, edges already styled)
 - [x] Floating detail card (TaskDetailCard component with status pill, actions, view details link)
 - [x] List/graph toggle overlay (status bar with toggle, status counts; graph replaces sidebar+detail; "View details" switches back to list)
-- [ ] PRD filter dropdown
+- [x] PRD filter dropdown (select in status bar, filters graph via API prd_id param; supports All/PRD-specific/Standalone)
 - [ ] Visual QA

@@ -72,10 +72,11 @@ function toReactFlowElements(layout: GraphLayoutResponse) {
 
 type DependencyGraphProps = {
   onViewDetails?: (taskId: string) => void;
+  prdId?: string;
 };
 
-function GraphInner({ onViewDetails }: DependencyGraphProps) {
-  const { data: layout, isLoading, error } = useGraphLayoutQuery();
+function GraphInner({ onViewDetails, prdId }: DependencyGraphProps) {
+  const { data: layout, isLoading, error } = useGraphLayoutQuery(prdId);
   const { fitView } = useReactFlow();
   const [selectedCard, setSelectedCard] = useState<TaskDetailCardData | null>(
     null,
@@ -173,11 +174,11 @@ function GraphInner({ onViewDetails }: DependencyGraphProps) {
   );
 }
 
-export function DependencyGraph({ onViewDetails }: DependencyGraphProps) {
+export function DependencyGraph({ onViewDetails, prdId }: DependencyGraphProps) {
   return (
     <div className="flex-1 h-full relative" data-testid="dependency-graph">
       <ReactFlowProvider>
-        <GraphInner onViewDetails={onViewDetails} />
+        <GraphInner onViewDetails={onViewDetails} prdId={prdId} />
       </ReactFlowProvider>
     </div>
   );
