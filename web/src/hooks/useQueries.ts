@@ -155,4 +155,19 @@ export function useTaskTimelineQuery(taskId: string | undefined, status?: TaskSt
   return { data: timeline, isLoading };
 }
 
+// ============================================================================
+// Graph layout
+// ============================================================================
+
+export function useGraphLayoutQuery(prdId?: string) {
+  const url = prdId
+    ? `/api/projections/graph_layout?prd_id=${encodeURIComponent(prdId)}`
+    : "/api/projections/graph_layout";
+  return useQuery({
+    queryKey: ["graph_layout", prdId ?? "all"],
+    queryFn: () => fetchJson<import("@shared/projections.js").GraphLayoutResponse>(url),
+    refetchInterval: 5_000,
+  });
+}
+
 export type { LibraryGate, GatesResponse };

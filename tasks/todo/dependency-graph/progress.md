@@ -10,7 +10,7 @@
 
 ## Phase 2: React Flow graph view
 - [x] Install @xyflow/react
-- [ ] DependencyGraph component
+- [x] DependencyGraph component
 - [ ] Custom TaskNode component
 - [ ] Edge styling (done dimming)
 

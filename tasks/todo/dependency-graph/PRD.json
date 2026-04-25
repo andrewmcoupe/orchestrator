@@ -75,7 +75,7 @@
       "Graph supports zoom and pan via React Flow built-in controls",
       "Graph fits to view on initial render"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 7
   },
   {
