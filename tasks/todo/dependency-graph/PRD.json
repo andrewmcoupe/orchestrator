@@ -30,7 +30,7 @@
       "layout_json shape: { nodes: { [task_id]: {x, y, width, height} }, edges: { source, target }[], meta: { critical_path: string[], direction: string } }",
       "Layout blob is atomically replaced on each recomputation"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 3
   },
   {

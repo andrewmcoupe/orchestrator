@@ -4,7 +4,7 @@
 - [x] Install elkjs
 - [x] Layout computation module
 - [x] Critical path computation
-- [ ] proj_graph_layout table
+- [x] proj_graph_layout table
 - [ ] eventBus debounced hook
 - [ ] API endpoint
 
