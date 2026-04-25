@@ -12,7 +12,7 @@
 - [x] Install @xyflow/react
 - [x] DependencyGraph component
 - [x] Custom TaskNode component
-- [ ] Edge styling (done dimming)
+- [x] Edge styling (done dimming, critical path highlighting on edges)
 
 ## Phase 3: Interaction layer
 - [ ] Critical path highlighting

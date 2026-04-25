@@ -98,7 +98,7 @@
       "Edges between active tasks render as solid lines at full opacity",
       "Critical path edges are visually distinct (thicker or highlighted colour) when critical path is shown"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 9
   },
   {

@@ -12,12 +12,26 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useGraphLayoutQuery } from "../../hooks/useQueries.js";
 import type { GraphLayoutResponse } from "@shared/projections.js";
+import type { TaskStatus } from "@shared/events.js";
 import { TaskNode } from "./TaskNode.js";
 
 const nodeTypes = { task: TaskNode };
 
+const DONE_STATUSES: Set<TaskStatus> = new Set([
+  "merged",
+  "approved",
+  "awaiting_merge",
+  "archived",
+]);
+
 /** Convert server layout blob into React Flow nodes and edges. */
 function toReactFlowElements(layout: GraphLayoutResponse) {
+  const criticalSet = new Set<string>();
+  const cp = layout.meta.critical_path;
+  for (let i = 0; i < cp.length - 1; i++) {
+    criticalSet.add(`${cp[i]}->${cp[i + 1]}`);
+  }
+
   const nodes: Node[] = Object.entries(layout.nodes).map(([id, info]) => ({
     id,
     position: { x: info.x, y: info.y },
@@ -31,11 +45,23 @@ function toReactFlowElements(layout: GraphLayoutResponse) {
     type: "task",
   }));
 
-  const edges: Edge[] = layout.edges.map((e, i) => ({
-    id: `e-${e.source}-${e.target}-${i}`,
-    source: e.source,
-    target: e.target,
-  }));
+  const edges: Edge[] = layout.edges.map((e, i) => {
+    const targetStatus = layout.nodes[e.target]?.status;
+    const isDone = targetStatus != null && DONE_STATUSES.has(targetStatus);
+    const isCritical = criticalSet.has(`${e.source}->${e.target}`);
+
+    return {
+      id: `e-${e.source}-${e.target}-${i}`,
+      source: e.source,
+      target: e.target,
+      style: {
+        opacity: isDone ? 0.3 : 1,
+        strokeDasharray: isDone ? "5 3" : undefined,
+        stroke: isCritical ? "#f59e0b" : undefined,
+        strokeWidth: isCritical ? 2.5 : 1,
+      },
+    };
+  });
 
   return { nodes, edges };
 }
