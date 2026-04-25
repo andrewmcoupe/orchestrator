@@ -12,6 +12,9 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useGraphLayoutQuery } from "../../hooks/useQueries.js";
 import type { GraphLayoutResponse } from "@shared/projections.js";
+import { TaskNode } from "./TaskNode.js";
+
+const nodeTypes = { task: TaskNode };
 
 /** Convert server layout blob into React Flow nodes and edges. */
 function toReactFlowElements(layout: GraphLayoutResponse) {
@@ -22,9 +25,10 @@ function toReactFlowElements(layout: GraphLayoutResponse) {
       label: info.title,
       status: info.status,
       attempt_count: info.attempt_count,
+      max_total_attempts: info.max_total_attempts,
     },
     style: { width: info.width, height: info.height },
-    type: "default",
+    type: "task",
   }));
 
   const edges: Edge[] = layout.edges.map((e, i) => ({
@@ -77,6 +81,7 @@ function GraphInner() {
     <ReactFlow
       nodes={elements.nodes}
       edges={elements.edges}
+      nodeTypes={nodeTypes}
       onInit={onInit}
       fitView
       nodesDraggable={false}

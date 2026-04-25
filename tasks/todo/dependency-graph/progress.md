@@ -11,7 +11,7 @@
 ## Phase 2: React Flow graph view
 - [x] Install @xyflow/react
 - [x] DependencyGraph component
-- [ ] Custom TaskNode component
+- [x] Custom TaskNode component
 - [ ] Edge styling (done dimming)
 
 ## Phase 3: Interaction layer

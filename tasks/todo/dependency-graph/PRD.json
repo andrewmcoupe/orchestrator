@@ -87,7 +87,7 @@
       "Attempt counter shows as 'N/M' badge (current/max)",
       "Done tasks (merged/archived) render at 30% opacity"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 8
   },
   {

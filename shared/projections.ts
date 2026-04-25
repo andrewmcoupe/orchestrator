@@ -1982,6 +1982,7 @@ export interface GraphLayoutNodeInfo {
   title: string;
   status: TaskStatus;
   attempt_count: number;
+  max_total_attempts: number;
   prd_id?: string;
 }
 

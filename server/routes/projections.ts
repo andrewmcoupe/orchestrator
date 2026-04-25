@@ -536,10 +536,12 @@ export function createProjectionRoutes(db: Database.Database): Hono {
 
     const prdId = c.req.query("prd_id");
 
-    // Fetch task metadata to enrich nodes with title, status, attempt_count
-    const taskRows = safeAll<{ task_id: string; title: string; status: string; attempt_count: number; prd_id: string | null }>(
+    // Fetch task metadata to enrich nodes with title, status, attempt_count, max_total_attempts
+    const taskRows = safeAll<{ task_id: string; title: string; status: string; attempt_count: number; prd_id: string | null; config_json: string | null }>(
       db,
-      "SELECT task_id, title, status, attempt_count, prd_id FROM proj_task_list",
+      `SELECT tl.task_id, tl.title, tl.status, tl.attempt_count, tl.prd_id, td.config_json
+       FROM proj_task_list tl
+       LEFT JOIN proj_task_detail td ON tl.task_id = td.task_id`,
     );
     const taskMap = new Map(taskRows.map((r) => [r.task_id, r]));
 
@@ -557,6 +559,7 @@ export function createProjectionRoutes(db: Database.Database): Hono {
         title: task.title,
         status: task.status as TaskStatus,
         attempt_count: task.attempt_count,
+        max_total_attempts: task.config_json ? (JSON.parse(task.config_json) as TaskConfig).retry_policy.max_total_attempts : 3,
         prd_id: task.prd_id ?? undefined,
       };
     }
