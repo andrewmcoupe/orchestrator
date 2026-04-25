@@ -19,8 +19,11 @@ import type {
   AbExperimentRow,
   CostRollupRow,
   PresetRow,
+  GraphLayoutResponse,
+  GraphLayoutNodeInfo,
 } from "@shared/projections.js";
 import type { TaskConfig, TaskStatus, Transport, PhaseName } from "@shared/events.js";
+import { readGraphLayout } from "../graphLayoutStore.js";
 
 // ============================================================================
 // Helpers
@@ -524,6 +527,53 @@ export function createProjectionRoutes(db: Database.Database): Hono {
     );
 
     return c.json(rows.map(parsePresetRow));
+  });
+
+  // -- graph_layout: dependency graph with node positions and task metadata
+  routes.get("/api/projections/graph_layout", (c) => {
+    const layout = readGraphLayout(db);
+    if (!layout) return c.json({ nodes: {}, edges: [], meta: { critical_path: [], direction: "DOWN" } } satisfies GraphLayoutResponse);
+
+    const prdId = c.req.query("prd_id");
+
+    // Fetch task metadata to enrich nodes with title, status, attempt_count
+    const taskRows = safeAll<{ task_id: string; title: string; status: string; attempt_count: number; prd_id: string | null }>(
+      db,
+      "SELECT task_id, title, status, attempt_count, prd_id FROM proj_task_list",
+    );
+    const taskMap = new Map(taskRows.map((r) => [r.task_id, r]));
+
+    // Build enriched nodes, optionally filtering by prd_id
+    const nodes: Record<string, GraphLayoutNodeInfo> = {};
+    for (const [taskId, pos] of Object.entries(layout.nodes)) {
+      const task = taskMap.get(taskId);
+      if (!task) continue;
+      if (prdId && task.prd_id !== prdId) continue;
+      nodes[taskId] = {
+        x: pos.x,
+        y: pos.y,
+        width: pos.width,
+        height: pos.height,
+        title: task.title,
+        status: task.status as TaskStatus,
+        attempt_count: task.attempt_count,
+        prd_id: task.prd_id ?? undefined,
+      };
+    }
+
+    // Filter edges to only include those between included nodes
+    const edges = layout.edges.filter((e) => e.source in nodes && e.target in nodes);
+
+    // Filter critical path to included nodes
+    const critical_path = layout.meta.critical_path.filter((id) => id in nodes);
+
+    const response: GraphLayoutResponse = {
+      nodes,
+      edges,
+      meta: { critical_path, direction: layout.meta.direction },
+    };
+
+    return c.json(response);
   });
 
   return routes;

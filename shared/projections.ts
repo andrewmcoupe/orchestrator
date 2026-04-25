@@ -1969,3 +1969,24 @@ export function reduceGateLibrary(
       return current;
   }
 }
+
+// ============================================================================
+// GraphLayoutResponse — dependency graph visualisation
+// ============================================================================
+
+export interface GraphLayoutNodeInfo {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  title: string;
+  status: TaskStatus;
+  attempt_count: number;
+  prd_id?: string;
+}
+
+export interface GraphLayoutResponse {
+  nodes: Record<string, GraphLayoutNodeInfo>;
+  edges: { source: string; target: string }[];
+  meta: { critical_path: string[]; direction: string };
+}

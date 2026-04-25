@@ -6,7 +6,7 @@
 - [x] Critical path computation
 - [x] proj_graph_layout table
 - [x] eventBus debounced hook
-- [ ] API endpoint
+- [x] API endpoint
 
 ## Phase 2: React Flow graph view
 - [ ] Install @xyflow/react

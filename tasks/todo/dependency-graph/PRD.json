@@ -53,7 +53,7 @@
       "GET /api/projections/graph_layout?prd_id=X returns layout filtered to tasks belonging to that PRD",
       "Response includes task status and title alongside coordinates so the client doesn't need a separate fetch"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 5
   },
   {
