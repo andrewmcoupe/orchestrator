@@ -9,7 +9,7 @@
 - [x] API endpoint
 
 ## Phase 2: React Flow graph view
-- [ ] Install @xyflow/react
+- [x] Install @xyflow/react
 - [ ] DependencyGraph component
 - [ ] Custom TaskNode component
 - [ ] Edge styling (done dimming)

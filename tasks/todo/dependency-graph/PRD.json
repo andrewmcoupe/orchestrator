@@ -63,7 +63,7 @@
       "@xyflow/react is listed in package.json dependencies",
       "React Flow CSS is imported in the graph component"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 6
   },
   {
