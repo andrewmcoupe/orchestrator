@@ -33,6 +33,7 @@
     "chokidar": "^4.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "elkjs": "^0.11.1",
     "execa": "^9.5.3",
     "hono": "^4.7.10",
     "lucide-react": "^0.488.0",
