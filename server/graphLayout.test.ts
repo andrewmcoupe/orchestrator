@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { computeGraphLayout, type GraphInput } from "./graphLayout.js";
+import {
+  computeGraphLayout,
+  computeCriticalPath,
+  type GraphInput,
+  type GraphInputEdge,
+} from "./graphLayout.js";
 
 describe("computeGraphLayout", () => {
   it("returns empty layout for empty input", async () => {
@@ -124,5 +129,94 @@ describe("computeGraphLayout", () => {
     const result = await computeGraphLayout(input);
     // Verify the function accepted 200x72 without error
     expect(result.nodes).toHaveLength(1);
+  });
+
+  it("includes critical path in layout result", async () => {
+    const input: GraphInput = {
+      nodes: [
+        { id: "a", width: 200, height: 72 },
+        { id: "b", width: 200, height: 72 },
+        { id: "c", width: 200, height: 72 },
+      ],
+      edges: [
+        { source: "a", target: "b" },
+        { source: "b", target: "c" },
+      ],
+    };
+    const result = await computeGraphLayout(input);
+    expect(result.meta.critical_path).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("computeCriticalPath", () => {
+  it("returns empty array for no nodes", () => {
+    expect(computeCriticalPath([], [])).toEqual([]);
+  });
+
+  it("returns single node when there are no edges", () => {
+    const result = computeCriticalPath(["a"], []);
+    expect(result).toEqual(["a"]);
+  });
+
+  it("returns the full chain for a linear graph", () => {
+    const edges: GraphInputEdge[] = [
+      { source: "a", target: "b" },
+      { source: "b", target: "c" },
+    ];
+    expect(computeCriticalPath(["a", "b", "c"], edges)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("picks the longest branch in a diamond", () => {
+    // a -> b -> d -> e
+    // a -> c -> d -> e
+    // longest is 4 nodes: a -> b -> d -> e (or a -> c -> d -> e)
+    const edges: GraphInputEdge[] = [
+      { source: "a", target: "b" },
+      { source: "a", target: "c" },
+      { source: "b", target: "d" },
+      { source: "c", target: "d" },
+      { source: "d", target: "e" },
+    ];
+    const result = computeCriticalPath(["a", "b", "c", "d", "e"], edges);
+    expect(result).toHaveLength(4);
+    expect(result[0]).toBe("a");
+    expect(result[result.length - 1]).toBe("e");
+    // Middle should be either b or c, then d
+    expect(result[2]).toBe("d");
+  });
+
+  it("handles disconnected subgraphs — picks longest across all", () => {
+    // Subgraph 1: a -> b (length 2)
+    // Subgraph 2: x -> y -> z (length 3)
+    const edges: GraphInputEdge[] = [
+      { source: "a", target: "b" },
+      { source: "x", target: "y" },
+      { source: "y", target: "z" },
+    ];
+    const result = computeCriticalPath(
+      ["a", "b", "x", "y", "z"],
+      edges,
+    );
+    expect(result).toEqual(["x", "y", "z"]);
+  });
+
+  it("handles a wide graph with many short branches", () => {
+    // a -> b, a -> c, a -> d, b -> e
+    // Longest: a -> b -> e (length 3)
+    const edges: GraphInputEdge[] = [
+      { source: "a", target: "b" },
+      { source: "a", target: "c" },
+      { source: "a", target: "d" },
+      { source: "b", target: "e" },
+    ];
+    const result = computeCriticalPath(
+      ["a", "b", "c", "d", "e"],
+      edges,
+    );
+    expect(result).toEqual(["a", "b", "e"]);
   });
 });

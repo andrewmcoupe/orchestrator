@@ -19,7 +19,7 @@
       "Result includes meta.critical_path as string[] of ordered task IDs",
       "Disconnected subgraphs are handled — critical path is the longest across all subgraphs"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 2
   },
   {

@@ -3,7 +3,7 @@
 ## Phase 1: Server-side layout engine
 - [x] Install elkjs
 - [x] Layout computation module
-- [ ] Critical path computation
+- [x] Critical path computation
 - [ ] proj_graph_layout table
 - [ ] eventBus debounced hook
 - [ ] API endpoint

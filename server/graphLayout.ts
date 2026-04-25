@@ -45,9 +45,91 @@ export interface GraphOutputEdge {
   sections?: EdgeSection[];
 }
 
+export interface GraphLayoutMeta {
+  critical_path: string[];
+}
+
 export interface GraphLayoutResult {
   nodes: GraphOutputNode[];
   edges: GraphOutputEdge[];
+  meta: GraphLayoutMeta;
+}
+
+// ============================================================================
+// Critical path computation
+// ============================================================================
+
+/**
+ * Compute the critical path (longest chain by node count) through a DAG.
+ * Handles disconnected subgraphs — returns the longest path across all of them.
+ */
+export function computeCriticalPath(
+  nodeIds: string[],
+  edges: GraphInputEdge[],
+): string[] {
+  if (nodeIds.length === 0) return [];
+
+  // Build adjacency list and in-degree map
+  const adj = new Map<string, string[]>();
+  const inDegree = new Map<string, number>();
+  for (const id of nodeIds) {
+    adj.set(id, []);
+    inDegree.set(id, 0);
+  }
+  for (const e of edges) {
+    adj.get(e.source)?.push(e.target);
+    inDegree.set(e.target, (inDegree.get(e.target) ?? 0) + 1);
+  }
+
+  // Topological sort (Kahn's algorithm) + longest path via DP
+  const dist = new Map<string, number>(); // longest path length ending at node
+  const prev = new Map<string, string | null>(); // predecessor on longest path
+  const queue: string[] = [];
+
+  for (const id of nodeIds) {
+    dist.set(id, 1);
+    prev.set(id, null);
+    if (inDegree.get(id) === 0) {
+      queue.push(id);
+    }
+  }
+
+  let i = 0;
+  while (i < queue.length) {
+    const u = queue[i++];
+    for (const v of adj.get(u) ?? []) {
+      const newDist = (dist.get(u) ?? 1) + 1;
+      if (newDist > (dist.get(v) ?? 1)) {
+        dist.set(v, newDist);
+        prev.set(v, u);
+      }
+      inDegree.set(v, (inDegree.get(v) ?? 1) - 1);
+      if (inDegree.get(v) === 0) {
+        queue.push(v);
+      }
+    }
+  }
+
+  // Find the node with the maximum distance
+  let maxNode = nodeIds[0];
+  let maxDist = 0;
+  for (const id of nodeIds) {
+    const d = dist.get(id) ?? 0;
+    if (d > maxDist) {
+      maxDist = d;
+      maxNode = id;
+    }
+  }
+
+  // Trace back the path
+  const path: string[] = [];
+  let cur: string | null = maxNode;
+  while (cur !== null) {
+    path.push(cur);
+    cur = prev.get(cur) ?? null;
+  }
+  path.reverse();
+  return path;
 }
 
 // ============================================================================
@@ -66,7 +148,7 @@ export async function computeGraphLayout(
   input: GraphInput,
 ): Promise<GraphLayoutResult> {
   if (input.nodes.length === 0) {
-    return { nodes: [], edges: [] };
+    return { nodes: [], edges: [], meta: { critical_path: [] } };
   }
 
   const graph = {
@@ -109,5 +191,10 @@ export async function computeGraphLayout(
     })),
   }));
 
-  return { nodes, edges };
+  const critical_path = computeCriticalPath(
+    input.nodes.map((n) => n.id),
+    input.edges,
+  );
+
+  return { nodes, edges, meta: { critical_path } };
 }
