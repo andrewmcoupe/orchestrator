@@ -122,7 +122,7 @@
       "Clicking outside the card or pressing Escape dismisses it",
       "Only one card visible at a time"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 11
   },
   {

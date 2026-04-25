@@ -16,7 +16,7 @@
 
 ## Phase 3: Interaction layer
 - [x] Critical path highlighting (amber outline + glow on critical-path nodes, edges already styled)
-- [ ] Floating detail card
+- [x] Floating detail card (TaskDetailCard component with status pill, actions, view details link)
 - [ ] List/graph toggle overlay
 - [ ] PRD filter dropdown
 - [ ] Visual QA

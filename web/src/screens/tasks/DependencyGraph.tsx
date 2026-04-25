@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useState } from "react";
 import {
   ReactFlow,
   Controls,
@@ -8,12 +8,14 @@ import {
   ReactFlowProvider,
   type Node,
   type Edge,
+  type NodeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useGraphLayoutQuery } from "../../hooks/useQueries.js";
 import type { GraphLayoutResponse } from "@shared/projections.js";
 import type { TaskStatus } from "@shared/events.js";
 import { TaskNode } from "./TaskNode.js";
+import { TaskDetailCard, type TaskDetailCardData } from "./TaskDetailCard.js";
 
 const nodeTypes = { task: TaskNode };
 
@@ -68,9 +70,16 @@ function toReactFlowElements(layout: GraphLayoutResponse) {
   return { nodes, edges };
 }
 
-function GraphInner() {
+type DependencyGraphProps = {
+  onViewDetails?: (taskId: string) => void;
+};
+
+function GraphInner({ onViewDetails }: DependencyGraphProps) {
   const { data: layout, isLoading, error } = useGraphLayoutQuery();
   const { fitView } = useReactFlow();
+  const [selectedCard, setSelectedCard] = useState<TaskDetailCardData | null>(
+    null,
+  );
 
   const elements = useMemo(
     () => (layout ? toReactFlowElements(layout) : { nodes: [], edges: [] }),
@@ -80,6 +89,36 @@ function GraphInner() {
   const onInit = useCallback(() => {
     setTimeout(() => fitView({ padding: 0.15 }), 50);
   }, [fitView]);
+
+  const onNodeClick: NodeMouseHandler = useCallback(
+    (event, node) => {
+      const nodeInfo = layout?.nodes[node.id];
+      if (!nodeInfo) return;
+
+      // Position the card near the click, offset slightly so it doesn't cover the node
+      const target = event.currentTarget as HTMLElement;
+      const container = target.closest(
+        '[data-testid="dependency-graph"]',
+      ) as HTMLElement | null;
+      const containerRect = container?.getBoundingClientRect() ?? {
+        left: 0,
+        top: 0,
+      };
+
+      setSelectedCard({
+        taskId: node.id,
+        title: nodeInfo.title,
+        status: nodeInfo.status,
+        attempt_count: nodeInfo.attempt_count,
+        max_total_attempts: nodeInfo.max_total_attempts,
+        screenX: (event as unknown as MouseEvent).clientX - containerRect.left + 8,
+        screenY: (event as unknown as MouseEvent).clientY - containerRect.top + 8,
+      });
+    },
+    [layout],
+  );
+
+  const handleDismiss = useCallback(() => setSelectedCard(null), []);
 
   if (isLoading) {
     return (
@@ -106,28 +145,39 @@ function GraphInner() {
   }
 
   return (
-    <ReactFlow
-      nodes={elements.nodes}
-      edges={elements.edges}
-      nodeTypes={nodeTypes}
-      onInit={onInit}
-      fitView
-      nodesDraggable={false}
-      nodesConnectable={false}
-      proOptions={{ hideAttribution: true }}
-      className="bg-bg-primary"
-    >
-      <Controls />
-      <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-    </ReactFlow>
+    <>
+      <ReactFlow
+        nodes={elements.nodes}
+        edges={elements.edges}
+        nodeTypes={nodeTypes}
+        onInit={onInit}
+        onNodeClick={onNodeClick}
+        onPaneClick={handleDismiss}
+        fitView
+        nodesDraggable={false}
+        nodesConnectable={false}
+        proOptions={{ hideAttribution: true }}
+        className="bg-bg-primary"
+      >
+        <Controls />
+        <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+      </ReactFlow>
+      {selectedCard && (
+        <TaskDetailCard
+          data={selectedCard}
+          onDismiss={handleDismiss}
+          onViewDetails={onViewDetails}
+        />
+      )}
+    </>
   );
 }
 
-export function DependencyGraph() {
+export function DependencyGraph({ onViewDetails }: DependencyGraphProps) {
   return (
-    <div className="flex-1 h-full" data-testid="dependency-graph">
+    <div className="flex-1 h-full relative" data-testid="dependency-graph">
       <ReactFlowProvider>
-        <GraphInner />
+        <GraphInner onViewDetails={onViewDetails} />
       </ReactFlowProvider>
     </div>
   );
