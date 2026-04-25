@@ -5,7 +5,7 @@
 - [x] Layout computation module
 - [x] Critical path computation
 - [x] proj_graph_layout table
-- [ ] eventBus debounced hook
+- [x] eventBus debounced hook
 - [ ] API endpoint
 
 ## Phase 2: React Flow graph view

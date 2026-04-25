@@ -42,7 +42,7 @@
       "Layout computation runs async, outside the event transaction",
       "Errors in layout computation are logged but do not crash the server"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 4
   },
   {
