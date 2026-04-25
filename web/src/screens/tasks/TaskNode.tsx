@@ -7,6 +7,7 @@ type TaskNodeData = {
   status: TaskStatus;
   attempt_count: number;
   max_total_attempts: number;
+  isCritical: boolean;
 };
 
 type TaskNodeType = Node<TaskNodeData, "task">;
@@ -49,6 +50,8 @@ export const TaskNode = memo(function TaskNode({ data }: NodeProps<TaskNodeType>
         style={{
           borderLeft: `3px solid ${borderColor(data.status)}`,
           opacity: isDone ? 0.3 : 1,
+          boxShadow: data.isCritical && !isDone ? "0 0 8px 1px rgba(245, 158, 11, 0.5)" : undefined,
+          outline: data.isCritical && !isDone ? "1.5px solid #f59e0b" : undefined,
         }}
       >
         <div className="line-clamp-2 text-text-primary leading-tight font-medium">

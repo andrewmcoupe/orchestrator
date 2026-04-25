@@ -26,10 +26,11 @@ const DONE_STATUSES: Set<TaskStatus> = new Set([
 
 /** Convert server layout blob into React Flow nodes and edges. */
 function toReactFlowElements(layout: GraphLayoutResponse) {
-  const criticalSet = new Set<string>();
+  const criticalEdgeSet = new Set<string>();
+  const criticalNodeSet = new Set(layout.meta.critical_path);
   const cp = layout.meta.critical_path;
   for (let i = 0; i < cp.length - 1; i++) {
-    criticalSet.add(`${cp[i]}->${cp[i + 1]}`);
+    criticalEdgeSet.add(`${cp[i]}->${cp[i + 1]}`);
   }
 
   const nodes: Node[] = Object.entries(layout.nodes).map(([id, info]) => ({
@@ -40,6 +41,7 @@ function toReactFlowElements(layout: GraphLayoutResponse) {
       status: info.status,
       attempt_count: info.attempt_count,
       max_total_attempts: info.max_total_attempts,
+      isCritical: criticalNodeSet.has(id),
     },
     style: { width: info.width, height: info.height },
     type: "task",
@@ -48,7 +50,7 @@ function toReactFlowElements(layout: GraphLayoutResponse) {
   const edges: Edge[] = layout.edges.map((e, i) => {
     const targetStatus = layout.nodes[e.target]?.status;
     const isDone = targetStatus != null && DONE_STATUSES.has(targetStatus);
-    const isCritical = criticalSet.has(`${e.source}->${e.target}`);
+    const isCritical = criticalEdgeSet.has(`${e.source}->${e.target}`);
 
     return {
       id: `e-${e.source}-${e.target}-${i}`,

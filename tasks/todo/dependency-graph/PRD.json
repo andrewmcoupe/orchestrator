@@ -109,7 +109,7 @@
       "Critical path data comes from meta.critical_path in the layout blob (no client computation)",
       "Non-critical-path elements remain visible but are visually secondary when critical path is highlighted"
     ],
-    "passes": false,
+    "passes": true,
     "priority": 10
   },
   {

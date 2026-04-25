@@ -15,7 +15,7 @@
 - [x] Edge styling (done dimming, critical path highlighting on edges)
 
 ## Phase 3: Interaction layer
-- [ ] Critical path highlighting
+- [x] Critical path highlighting (amber outline + glow on critical-path nodes, edges already styled)
 - [ ] Floating detail card
 - [ ] List/graph toggle overlay
 - [ ] PRD filter dropdown
