@@ -277,7 +277,7 @@ function makeTestDeps(invoker?: AdapterInvokeFn): PhaseRunnerDeps {
     blobStore: fakeBlobStore,
     worktreeCreator: fakeWorktreeCreator,
     packer: fakePacker,
-    cliInvoker: invoker ?? makeFakeCliInvoker(),
+    claudeCodeInvoker: invoker ?? makeFakeCliInvoker(),
     diffCapturer: noDiffCapturer,
     committer: noopCommitter,
   };
@@ -418,7 +418,7 @@ describe("runAttempt", () => {
     };
 
     const taskId = createTask(db);
-    await runAttempt(db, taskId, { deps: { ...makeTestDeps(), cliInvoker: failInvoker } });
+    await runAttempt(db, taskId, { deps: { ...makeTestDeps(), claudeCodeInvoker: failInvoker } });
 
     const taskRow = db
       .prepare("SELECT status FROM proj_task_list WHERE task_id = ?")
@@ -1864,6 +1864,109 @@ describe("runAttempt", () => {
         on_exit_reason: {},
       }, 1);
       expect(result?.action).toBe("retry_same");
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Codex transport routing
+  // --------------------------------------------------------------------------
+
+  describe("codex transport routing", () => {
+    it("routes codex transport to codexInvoker dep", async () => {
+      const codexConfig: TaskConfig = {
+        ...minimalCliConfig,
+        phases: [
+          {
+            ...minimalCliConfig.phases[0],
+            transport: "codex",
+          },
+        ],
+      };
+
+      let codexInvokerCalled = false;
+      const fakeCodexInvoker: AdapterInvokeFn = async function* (opts) {
+        codexInvokerCalled = true;
+        const attempt_id = (opts as { attempt_id: string }).attempt_id;
+        const invocation_id = (opts as { invocation_id: string }).invocation_id;
+        const actor = { kind: "cli" as const, transport: "codex" as const, invocation_id };
+        const base = {
+          aggregate_type: "attempt" as const,
+          aggregate_id: attempt_id,
+          actor,
+          correlation_id: attempt_id,
+        };
+
+        yield {
+          ...base,
+          type: "invocation.started" as const,
+          payload: {
+            invocation_id,
+            attempt_id,
+            phase_name: "implementer",
+            transport: "codex" as const,
+            model: "o3",
+            prompt_version_id: "pv-test",
+            context_manifest_hash: "abc",
+          },
+        } satisfies AppendEventInput<"invocation.started">;
+
+        yield {
+          ...base,
+          type: "invocation.completed" as const,
+          payload: {
+            invocation_id,
+            outcome: "success" as const,
+            tokens_in: 50,
+            tokens_out: 25,
+            cost_usd: 0.001,
+            duration_ms: 500,
+            turns: 1,
+            exit_reason: "normal" as const,
+            stdout_tail_hash: null,
+            stderr_tail_hash: null,
+            permission_blocked_on: null,
+          },
+        } satisfies AppendEventInput<"invocation.completed">;
+      };
+
+      const taskId = createTask(db, codexConfig);
+      await runAttempt(db, taskId, {
+        deps: {
+          ...makeTestDeps(),
+          codexInvoker: fakeCodexInvoker,
+        },
+      });
+
+      expect(codexInvokerCalled).toBe(true);
+
+      const types = getEventTypes(db);
+      expect(types).toContain("invocation.started");
+      expect(types).toContain("invocation.completed");
+    });
+
+    it("routes claude-code transport to claudeCodeInvoker dep, not codexInvoker", async () => {
+      let claudeCodeCalled = false;
+      let codexCalled = false;
+
+      const fakeClaudeCodeInvoker: AdapterInvokeFn = async function* (opts) {
+        claudeCodeCalled = true;
+        yield* makeFakeCliInvoker()(opts, fakeBlobStore);
+      };
+      const fakeCodexInvoker: AdapterInvokeFn = async function* () {
+        codexCalled = true;
+      };
+
+      const taskId = createTask(db);
+      await runAttempt(db, taskId, {
+        deps: {
+          ...makeTestDeps(),
+          claudeCodeInvoker: fakeClaudeCodeInvoker,
+          codexInvoker: fakeCodexInvoker,
+        },
+      });
+
+      expect(claudeCodeCalled).toBe(true);
+      expect(codexCalled).toBe(false);
     });
   });
 });

@@ -36,8 +36,10 @@ import { appendAndProject } from "./projectionRunner.js";
 import { createWorktree } from "./worktree.js";
 import { pack } from "./packer/trivial.js";
 import type { PackInput, PackResult } from "./packer/trivial.js";
-import { invoke as cliInvoke } from "./adapters/claudeCode.js";
-import type { InvokeOptions as CliInvokeOptions } from "./adapters/claudeCode.js";
+import { invoke as claudeCodeInvoke } from "./adapters/claudeCode.js";
+import type { InvokeOptions as ClaudeCodeInvokeOptions } from "./adapters/claudeCode.js";
+import { invoke as codexInvoke } from "./adapters/codex.js";
+import type { InvokeOptions as CodexInvokeOptions } from "./adapters/codex.js";
 import { invoke as apiInvoke } from "./adapters/anthropicApi.js";
 import type { ApiInvokeOptions } from "./adapters/anthropicApi.js";
 import { runGate } from "./gates/runner.js";
@@ -141,7 +143,8 @@ export type PhaseRunnerDeps = {
     taskId: string,
   ) => Promise<{ path: string; branch: string }>;
   packer?: (input: PackInput) => Promise<PackResult>;
-  cliInvoker?: AdapterInvokeFn;
+  claudeCodeInvoker?: AdapterInvokeFn;
+  codexInvoker?: AdapterInvokeFn;
   apiInvoker?: AdapterInvokeFn;
   gateRunner?: (
     db: Database.Database,
@@ -348,9 +351,12 @@ export async function runAttempt(
     ((d: Database.Database, id: string) => createWorktree(d, id));
   const doPack = deps?.packer ?? pack;
   const doGate = deps?.gateRunner ?? runGate;
-  const doCliInvoke: AdapterInvokeFn =
-    deps?.cliInvoker ??
-    ((opts, blobStore) => cliInvoke(opts as CliInvokeOptions, blobStore));
+  const doClaudeCodeInvoke: AdapterInvokeFn =
+    deps?.claudeCodeInvoker ??
+    ((opts, blobStore) => claudeCodeInvoke(opts as ClaudeCodeInvokeOptions, blobStore));
+  const doCodexInvoke: AdapterInvokeFn =
+    deps?.codexInvoker ??
+    ((opts, blobStore) => codexInvoke(opts as CodexInvokeOptions, blobStore));
   const doApiInvoke: AdapterInvokeFn =
     deps?.apiInvoker ??
     ((opts, _blobStore) => apiInvoke(opts as ApiInvokeOptions));
@@ -606,8 +612,7 @@ export async function runAttempt(
             ],
           };
 
-          invoker = doCliInvoke(
-            {
+          const cliInvokeOpts = {
               invocation_id,
               attempt_id,
               phase_name: phase.name,
@@ -620,9 +625,13 @@ export async function runAttempt(
               systemPromptFile: packResult.system_prompt_file,
               cwd: worktree_path ?? "/tmp/no-worktree",
               transport_options: cliOpts,
-            } satisfies CliInvokeOptions,
-            bs,
-          );
+            };
+
+          if (phase.transport === "codex") {
+            invoker = doCodexInvoke(cliInvokeOpts as CodexInvokeOptions, bs);
+          } else {
+            invoker = doClaudeCodeInvoke(cliInvokeOpts as ClaudeCodeInvokeOptions, bs);
+          }
         } else {
           // API transport (anthropic-api, openai-api)
           if (effectiveTransportOpts.kind !== "api") {
