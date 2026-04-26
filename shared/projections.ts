@@ -348,7 +348,7 @@ export interface AttemptRow {
   empty?: boolean;
   effective_diff_attempt_id?: string;
   /** Exit reason from the most recent phase.completed where exit_reason !== "normal". Null if no failure. */
-  last_failure_reason?: ExitReason | null;
+  last_failure_reason: string | null;
   last_event_id: string;
 }
 
