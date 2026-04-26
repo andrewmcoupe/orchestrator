@@ -314,13 +314,6 @@ export function EventStreamStrip({
           >
             filter
           </button>
-          <button
-            type="button"
-            onClick={onToggleVisible}
-            className="border border-border-default px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
-          >
-            hide
-          </button>
         </div>
       </footer>
     </div>
