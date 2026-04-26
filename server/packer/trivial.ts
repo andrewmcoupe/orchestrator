@@ -586,7 +586,18 @@ export async function pack(
 
   // Resolve system prompt file for phases that have one
   let system_prompt_file: string | undefined;
-  if (phase_name === "implementer" || phase_name === "test-author") {
+  if (phase_name === "test-author") {
+    const candidate = path.resolve(worktree_path, "prompts", "test-author-v1.md");
+    if (fs.existsSync(candidate)) {
+      system_prompt_file = candidate;
+    } else {
+      // Fall back to implementer prompt if test-author prompt not in worktree
+      const fallback = path.resolve(worktree_path, "prompts", "implementer-v1.md");
+      if (fs.existsSync(fallback)) {
+        system_prompt_file = fallback;
+      }
+    }
+  } else if (phase_name === "implementer") {
     const candidate = path.resolve(worktree_path, "prompts", "implementer-v1.md");
     if (fs.existsSync(candidate)) {
       system_prompt_file = candidate;

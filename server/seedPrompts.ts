@@ -70,8 +70,11 @@ const SEED_ACTOR = { kind: "system" as const, component: "gate_runner" as const 
  * Returns the default prompts directory bundled with the package.
  */
 export function getPackagePromptsDir(): string {
-  // From dist/server/ we need to go up two levels to reach the package root
+  // Works in both dev (server/seedPrompts.ts → ..) and
+  // prod (dist/server/seedPrompts.js → ../..)
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const candidate = path.join(__dirname, "..", "prompts");
+  if (fs.existsSync(candidate)) return candidate;
   return path.join(__dirname, "..", "..", "prompts");
 }
 
@@ -88,20 +91,19 @@ export function seedPrompts(
   promptsDir?: string,
   blobStore?: BlobStore,
 ): void {
-  // Check if any prompt events already exist
-  const existing = db
-    .prepare(
-      "SELECT id FROM events WHERE type = 'prompt_version.created' LIMIT 1",
-    )
-    .get();
-
-  if (existing) return;
-
   const dir = promptsDir ?? getPackagePromptsDir();
   const files = discoverPromptFiles(dir);
   const store = blobStore ?? { putBlob, getBlob: () => null, hasBlob: () => false };
 
   for (const file of files) {
+    // Skip if this specific prompt version was already seeded
+    const existing = db
+      .prepare(
+        "SELECT id FROM events WHERE type = 'prompt_version.created' AND aggregate_id = ? LIMIT 1",
+      )
+      .get(file.id);
+    if (existing) continue;
+
     const template = fs.readFileSync(file.filePath, "utf-8");
     const template_hash = createHash("sha256").update(template).digest("hex");
 
