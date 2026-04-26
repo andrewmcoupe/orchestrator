@@ -419,6 +419,9 @@ export function translateLine(
           turns: line.num_turns,
           exit_code: 1,
           exit_reason: exitReason,
+          stdout_tail_hash: null,
+          stderr_tail_hash: null,
+          permission_blocked_on: null,
         },
       } satisfies AppendEventInput<"invocation.completed">);
       return inputs;
@@ -438,6 +441,9 @@ export function translateLine(
         turns: line.num_turns,
         exit_code: 0,
         exit_reason: "normal",
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
       },
     };
     return [input];
@@ -823,6 +829,22 @@ export async function* invoke(
     };
     yield errInput;
 
+    // Store stdout/stderr tails in the blob store (best-effort)
+    let stdoutTailHashCrash: string | null = null;
+    let stderrTailHashCrash: string | null = null;
+    try {
+      if (stdoutTailBuf) {
+        stdoutTailHashCrash = blobStore.putBlob(stdoutTailBuf).hash;
+      }
+      const stderrContent = error.stderrTail ?? "";
+      if (stderrContent) {
+        stderrTailHashCrash = blobStore.putBlob(stderrContent).hash;
+      }
+    } catch {
+      stdoutTailHashCrash = null;
+      stderrTailHashCrash = null;
+    }
+
     // Emit invocation.completed with exit_reason so phaseRunner can read it
     const completedInput: AppendEventInput<"invocation.completed"> = {
       type: "invocation.completed",
@@ -840,11 +862,8 @@ export async function* invoke(
         turns: 0,
         exit_code: error.exitCode ?? 1,
         exit_reason: exitReason,
-        // Tail hashes are null in the crash path (no blob store available here).
-        // The execaSpawner captures stderrTail for pattern matching only;
-        // full tail persistence requires additional plumbing outside this scope.
-        stdout_tail_hash: null,
-        stderr_tail_hash: null,
+        stdout_tail_hash: stdoutTailHashCrash,
+        stderr_tail_hash: stderrTailHashCrash,
         permission_blocked_on: permissionBlockedOn,
       },
     };

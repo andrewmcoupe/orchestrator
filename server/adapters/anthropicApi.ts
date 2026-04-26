@@ -242,6 +242,10 @@ export function translateSseEvent(
           cost_usd,
           duration_ms: 0, // SSE stream doesn't report duration; caller may override
           turns: 1,
+          exit_reason: "normal",
+          stdout_tail_hash: null,
+          stderr_tail_hash: null,
+          permission_blocked_on: null,
         },
       };
       events.push(completed);
