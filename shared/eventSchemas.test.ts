@@ -200,3 +200,85 @@ describe("task.worktree_created schema", () => {
     expect(schema.safeParse(rest).success).toBe(false);
   });
 });
+
+describe("invocation.completed schema — exit_reason fields", () => {
+  const schema = eventPayloadSchemas["invocation.completed"];
+
+  const base = {
+    invocation_id: "inv-001",
+    outcome: "success",
+    tokens_in: 100,
+    tokens_out: 50,
+    cost_usd: 0.001,
+    duration_ms: 1000,
+    turns: 3,
+  };
+
+  it("accepts minimal payload without optional exit_reason fields", () => {
+    expect(schema.safeParse(base).success).toBe(true);
+  });
+
+  it("accepts exit_reason: 'normal'", () => {
+    expect(schema.safeParse({ ...base, exit_reason: "normal" }).success).toBe(true);
+  });
+
+  it("accepts all valid ExitReason values", () => {
+    const reasons = ["normal", "timeout", "budget_exceeded", "turn_limit", "permission_blocked", "killed", "schema_invalid", "network_error", "crashed", "unknown"];
+    for (const reason of reasons) {
+      expect(schema.safeParse({ ...base, exit_reason: reason }).success).toBe(true);
+    }
+  });
+
+  it("rejects unknown exit_reason values", () => {
+    expect(schema.safeParse({ ...base, exit_reason: "not_a_valid_reason" }).success).toBe(false);
+  });
+
+  it("accepts stdout_tail_hash as string", () => {
+    expect(schema.safeParse({ ...base, stdout_tail_hash: "abc123" }).success).toBe(true);
+  });
+
+  it("accepts stdout_tail_hash as null", () => {
+    expect(schema.safeParse({ ...base, stdout_tail_hash: null }).success).toBe(true);
+  });
+
+  it("accepts stderr_tail_hash as string or null", () => {
+    expect(schema.safeParse({ ...base, stderr_tail_hash: "def456" }).success).toBe(true);
+    expect(schema.safeParse({ ...base, stderr_tail_hash: null }).success).toBe(true);
+  });
+
+  it("accepts permission_blocked_on as string or null", () => {
+    expect(schema.safeParse({ ...base, permission_blocked_on: "Write" }).success).toBe(true);
+    expect(schema.safeParse({ ...base, permission_blocked_on: null }).success).toBe(true);
+  });
+});
+
+describe("phase.completed schema — exit_reason fields", () => {
+  const schema = eventPayloadSchemas["phase.completed"];
+
+  const base = {
+    attempt_id: "att-001",
+    phase_name: "implementer",
+    outcome: "success",
+    tokens_in: 100,
+    tokens_out: 50,
+    cost_usd: 0.001,
+    duration_ms: 1000,
+  };
+
+  it("accepts minimal payload without optional exit_reason fields", () => {
+    expect(schema.safeParse(base).success).toBe(true);
+  });
+
+  it("accepts exit_reason: 'permission_blocked'", () => {
+    expect(schema.safeParse({ ...base, exit_reason: "permission_blocked" }).success).toBe(true);
+  });
+
+  it("accepts stdout_tail_hash and stderr_tail_hash as string or null", () => {
+    expect(schema.safeParse({ ...base, stdout_tail_hash: "hash1", stderr_tail_hash: null }).success).toBe(true);
+  });
+
+  it("accepts permission_blocked_on as string or null", () => {
+    expect(schema.safeParse({ ...base, permission_blocked_on: "Bash" }).success).toBe(true);
+    expect(schema.safeParse({ ...base, permission_blocked_on: null }).success).toBe(true);
+  });
+});

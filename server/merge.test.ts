@@ -41,6 +41,7 @@ async function makeTempRepo(): Promise<string> {
   await execa("git", ["config", "commit.gpgsign", "false"], { cwd: dir });
 
   fs.writeFileSync(path.join(dir, "README.md"), "# test repo\n");
+  fs.writeFileSync(path.join(dir, ".gitignore"), ".orchestrator-worktrees/\n");
   await execa("git", ["add", "."], { cwd: dir });
   await execa("git", ["commit", "-m", "initial", "--no-gpg-sign"], { cwd: dir });
 

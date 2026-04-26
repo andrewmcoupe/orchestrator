@@ -231,7 +231,7 @@ describe("TaskList projection", () => {
       .get("T-001") as RawTaskListRow;
     expect(raw.current_phase).toBe("implementer");
 
-    // phase.completed — task_list doesn't subscribe, but let's ensure no crash
+    // phase.completed — task_list now tracks completed phases
     appendAndProject(db, {
       type: "phase.completed",
       aggregate_type: "attempt",
@@ -248,6 +248,12 @@ describe("TaskList projection", () => {
         duration_ms: 30000,
       },
     });
+
+    raw = db
+      .prepare("SELECT * FROM proj_task_list WHERE task_id = ?")
+      .get("T-001") as RawTaskListRow;
+    const completedPhases = JSON.parse((raw as unknown as Record<string, string>).completed_phases_json ?? "[]");
+    expect(completedPhases).toContain("implementer");
 
     // attempt.completed
     appendAndProject(db, {

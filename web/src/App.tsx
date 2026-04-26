@@ -140,6 +140,13 @@ export function App() {
       const sse = createSSEClient();
       sseRef.current = sse;
 
+      // Seed SSE with the latest hydrated event ID so it doesn't replay
+      // events we already have from the REST hydration
+      const hydratedEvents = useEventStore.getState().recentEvents;
+      if (hydratedEvents.length > 0) {
+        sse.setLastSeenId(hydratedEvents[0].id);
+      }
+
       sse.subscribe(applyEvent);
       sse.onConnection(setConnected);
       sse.connect();

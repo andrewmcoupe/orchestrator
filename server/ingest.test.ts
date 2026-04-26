@@ -1,9 +1,7 @@
 /**
  * Tests for the PRD ingest pipeline.
  *
- * Uses an injectable Fetcher to avoid real HTTP calls. The fake fetcher
- * returns a pre-built Anthropic SSE stream containing a tool_use response
- * with the extraction JSON.
+ * Uses an injectable Extractor to avoid real CLI calls.
  *
  * Covers:
  *   1. Happy path: prd.ingested + proposition.extracted + task.drafted + pushback.raised
@@ -24,69 +22,24 @@ import { runMigrations } from "./eventStore.js";
 import { initProjections, eventBus } from "./projectionRunner.js";
 import "./projections/register.js";
 import { ingestPrd, seedIngestPromptVersion, INGEST_PROMPT_VERSION_ID } from "./ingest.js";
-import type { Fetcher } from "./adapters/anthropicApi.js";
+import type { Extractor } from "./ingest.js";
 
 // ============================================================================
-// Helpers — fake SSE stream builders
+// Helpers — fake extractors
 // ============================================================================
 
-/** Build an Anthropic SSE stream containing a tool_use response. */
-function makeToolUseStream(jsonOutput: object): string {
-  const text = JSON.stringify(jsonOutput);
-  const lines = [
-    `event: message_start`,
-    `data: ${JSON.stringify({ type: "message_start", message: { id: "msg_001", model: "claude-sonnet-4-6", usage: { input_tokens: 10, output_tokens: 0 } } })}`,
-    ``,
-    `event: content_block_start`,
-    `data: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "toolu_001", name: "structured_output", input: {} } })}`,
-    ``,
-    `event: content_block_delta`,
-    `data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: text } })}`,
-    ``,
-    `event: content_block_stop`,
-    `data: ${JSON.stringify({ type: "content_block_stop", index: 0 })}`,
-    ``,
-    `event: message_delta`,
-    `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 30 } })}`,
-    ``,
-    `event: message_stop`,
-    `data: ${JSON.stringify({ type: "message_stop" })}`,
-    ``,
-  ];
-  return lines.join("\n") + "\n";
+function makeFakeExtractor(response: object): Extractor {
+  return async () => response as Awaited<ReturnType<Extractor>>;
 }
 
-function makeFakeFetcher(response: object): Fetcher {
-  return async (_url, _init) =>
-    new Response(makeToolUseStream(response), {
-      status: 200,
-      headers: { "Content-Type": "text/event-stream" },
-    });
-}
-
-function makeErrorFetcher(): Fetcher {
-  return async (_url, _init) =>
-    new Response(JSON.stringify({ error: { message: "Overloaded" } }), {
-      status: 529,
-      headers: { "Content-Type": "application/json" },
-    });
-}
-
-/** Returns a fetcher that returns invalid JSON the first N times, then a valid response. */
-function makeFlakyFetcher(failCount: number, goodResponse: object): Fetcher {
+function makeFlakyExtractor(failCount: number, goodResponse: object): Extractor {
   let calls = 0;
-  return async (_url, _init) => {
+  return async () => {
     calls++;
     if (calls <= failCount) {
-      return new Response(makeToolUseStream({ not_valid: true }), {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream" },
-      });
+      throw new Error("Validation failed");
     }
-    return new Response(makeToolUseStream(goodResponse), {
-      status: 200,
-      headers: { "Content-Type": "text/event-stream" },
-    });
+    return goodResponse as Awaited<ReturnType<Extractor>>;
   };
 }
 
@@ -166,7 +119,7 @@ describe("ingestPrd", () => {
   });
 
   it("emits prd.ingested event with correct metadata", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
 
     const prdEvent = db
       .prepare("SELECT * FROM events WHERE type = 'prd.ingested' LIMIT 1")
@@ -183,7 +136,7 @@ describe("ingestPrd", () => {
   });
 
   it("emits proposition.extracted events and populates proj_proposition", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
 
     expect(result.propositions).toHaveLength(3);
 
@@ -211,7 +164,7 @@ describe("ingestPrd", () => {
   });
 
   it("emits task.drafted events and creates draft rows in task_list", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
 
     expect(result.draft_tasks).toHaveLength(2);
 
@@ -227,7 +180,7 @@ describe("ingestPrd", () => {
   });
 
   it("emits pushback.raised events and adds pushback_id to proposition", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
 
     expect(result.pushback_count).toBe(1);
 
@@ -253,7 +206,7 @@ describe("ingestPrd", () => {
   });
 
   it("resolves proposition IDs from P-001 style to ULIDs in draft tasks", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
 
     const authTask = result.draft_tasks.find(
       (t) => t.title === "Implement authentication",
@@ -267,32 +220,23 @@ describe("ingestPrd", () => {
     }
   });
 
-  it("retries on validation failure (flaky fetcher succeeds on 3rd call)", async () => {
-    const result = await ingestPrd(
-      db,
-      { path: prdPath },
-      makeFlakyFetcher(2, SAMPLE_EXTRACTION),
-    );
-
-    // Should still succeed
-    expect(result.propositions).toHaveLength(3);
-  });
-
-  it("throws after exhausting retries", async () => {
-    // fail all 3 attempts (attempts 0, 1, 2 = MAX_RETRIES + 1 = 3 total)
+  it("propagates extractor errors", async () => {
+    const failingExtractor: Extractor = async () => {
+      throw new Error("Extraction failed");
+    };
     await expect(
-      ingestPrd(db, { path: prdPath }, makeFlakyFetcher(3, SAMPLE_EXTRACTION)),
-    ).rejects.toThrow(/Ingest extraction failed after/);
+      ingestPrd(db, { path: prdPath }, failingExtractor),
+    ).rejects.toThrow("Extraction failed");
   });
 
   it("throws when the PRD file does not exist", async () => {
     await expect(
-      ingestPrd(db, { path: "/nonexistent/path.md" }, makeFakeFetcher(SAMPLE_EXTRACTION)),
+      ingestPrd(db, { path: "/nonexistent/path.md" }, makeFakeExtractor(SAMPLE_EXTRACTION)),
     ).rejects.toThrow();
   });
 
   it("remaps DT-* IDs to T-{ULID} task IDs in depends_on", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
 
     // DT-002 depends on DT-001, which should be remapped to the ULID of the auth task
     const apiTask = result.draft_tasks.find(t => t.title === "API error handling");
@@ -303,7 +247,7 @@ describe("ingestPrd", () => {
   });
 
   it("emits task.dependency.set events for tasks with non-empty depends_on", async () => {
-    await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
+    await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
 
     const depEvents = db
       .prepare("SELECT payload_json FROM events WHERE type = 'task.dependency.set'")
@@ -324,7 +268,7 @@ describe("ingestPrd", () => {
         { id: "DT-001", title: "Standalone task", proposition_ids: ["P-001"], depends_on: [] },
       ],
     };
-    await ingestPrd(db, { path: prdPath }, makeFakeFetcher(noDepsExtraction));
+    await ingestPrd(db, { path: prdPath }, makeFakeExtractor(noDepsExtraction));
 
     const depEvents = db
       .prepare("SELECT * FROM events WHERE type = 'task.dependency.set'")
@@ -333,7 +277,7 @@ describe("ingestPrd", () => {
   });
 
   it("all events share the same correlation_id (prd_id)", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeFetcher(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
 
     const events = db
       .prepare(
@@ -375,7 +319,7 @@ describe("ingestPrd — content mode", () => {
     const result = await ingestPrd(
       db,
       { content: PRD_CONTENT },
-      makeFakeFetcher(SAMPLE_EXTRACTION),
+      makeFakeExtractor(SAMPLE_EXTRACTION),
     );
 
     expect(result.propositions).toHaveLength(3);
@@ -386,7 +330,7 @@ describe("ingestPrd — content mode", () => {
     await ingestPrd(
       db,
       { content: PRD_CONTENT },
-      makeFakeFetcher(SAMPLE_EXTRACTION),
+      makeFakeExtractor(SAMPLE_EXTRACTION),
     );
 
     const prdEvent = db
@@ -403,7 +347,7 @@ describe("ingestPrd — content mode", () => {
     await ingestPrd(
       db,
       { content: PRD_CONTENT },
-      makeFakeFetcher(SAMPLE_EXTRACTION),
+      makeFakeExtractor(SAMPLE_EXTRACTION),
     );
 
     const prdEvent = db
@@ -425,7 +369,7 @@ describe("ingestPrd — content mode", () => {
       await ingestPrd(
         db,
         { path: prdPath },
-        makeFakeFetcher(SAMPLE_EXTRACTION),
+        makeFakeExtractor(SAMPLE_EXTRACTION),
       );
 
       const prdEvent = db
@@ -472,7 +416,7 @@ describe("ingestPrd — cycle detection", () => {
       pushbacks: [],
     };
 
-    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeFetcher(cyclicExtraction));
+    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeExtractor(cyclicExtraction));
 
     // At least one task should have had its depends_on stripped
     const taskA = result.draft_tasks.find(t => t.title === "Task A")!;
@@ -495,7 +439,7 @@ describe("ingestPrd — cycle detection", () => {
       pushbacks: [],
     };
 
-    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeFetcher(cyclicExtraction));
+    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeExtractor(cyclicExtraction));
 
     // Should have emitted an advisory pushback for the stripped cycle
     expect(result.pushback_count).toBeGreaterThanOrEqual(1);
@@ -524,7 +468,7 @@ describe("ingestPrd — cycle detection", () => {
       pushbacks: [],
     };
 
-    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeFetcher(validExtraction));
+    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeExtractor(validExtraction));
 
     const taskA = result.draft_tasks.find(t => t.title === "Task A")!;
     const taskB = result.draft_tasks.find(t => t.title === "Task B")!;
@@ -550,7 +494,7 @@ describe("ingestPrd — cycle detection", () => {
       pushbacks: [],
     };
 
-    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeFetcher(cyclicExtraction));
+    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeExtractor(cyclicExtraction));
 
     // All 3 tasks should still exist
     expect(result.draft_tasks).toHaveLength(3);

@@ -271,6 +271,10 @@ function VerdictCard({ audit }: { audit: AuditSummary }) {
         </span>
       </div>
 
+      {audit.summary && (
+        <p className="text-sm text-text-secondary mb-3">{audit.summary}</p>
+      )}
+
       {audit.concerns.length > 0 && (
         <ol className="mt-3 space-y-2">
           {audit.concerns.map((c, i) => (
@@ -491,56 +495,55 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
         });
       }
 
-      // Determine which attempt's diff to show
-      const effectiveId = attempt.effective_diff_attempt_id;
-      const isEmptyAttempt = attempt.empty === true;
+      // Determine which attempt's diff to show.
+      // Prefer the current attempt's diff_hash (which captures the full branch
+      // diff from base_sha) even when the attempt itself is "empty" (no new edits).
+      const phaseEntries = Object.values(attempt.phases) as Array<{ diff_hash?: string }>;
+      const diffHash = phaseEntries.reduce<string | undefined>(
+        (acc, p) => p.diff_hash ?? acc,
+        undefined,
+      );
 
-      if (isEmptyAttempt && !effectiveId) {
-        // No prior non-empty attempt exists
-        if (!cancelled) setEmptyBannerState("none");
-      } else if (isEmptyAttempt && effectiveId && effectiveId !== attemptId) {
-        // Fetch the effective attempt to get its diff
-        if (!cancelled) setDiffLoading(true);
+      if (diffHash && !cancelled) {
+        // Current attempt has a captured diff — use it directly
+        setDiffLoading(true);
         try {
-          const effRes = await fetch(`/api/projections/attempt/${effectiveId}`);
-          if (effRes.ok && !cancelled) {
-            const effAttempt: AttemptRow = await effRes.json();
-            setEmptyBannerState("fallback");
-            setEffectiveAttemptNumber(effAttempt.attempt_number);
-
-            const effPhases = Object.values(effAttempt.phases) as Array<{ diff_hash?: string }>;
-            const effDiffHash = effPhases.reduce<string | undefined>(
-              (acc, p) => p.diff_hash ?? acc,
-              undefined,
-            );
-            if (effDiffHash && !cancelled) {
-              const diffRes = await fetch(`/api/blobs/${effDiffHash}`);
-              if (diffRes.ok) {
-                const raw = await diffRes.text();
-                const perFile = splitDiffByFile(raw);
-                if (!cancelled) setFileDiffs(perFile);
-              }
-            }
+          const diffRes = await fetch(`/api/blobs/${diffHash}`);
+          if (diffRes.ok) {
+            const raw = await diffRes.text();
+            const perFile = splitDiffByFile(raw);
+            if (!cancelled) setFileDiffs(perFile);
           }
         } finally {
           if (!cancelled) setDiffLoading(false);
         }
-      } else {
-        // Non-empty attempt — load diff normally
-        const phaseEntries = Object.values(attempt.phases) as Array<{ diff_hash?: string }>;
-        const diffHash = phaseEntries.reduce<string | undefined>(
-          (acc, p) => p.diff_hash ?? acc,
-          undefined,
-        );
-
-        if (diffHash && !cancelled) {
-          setDiffLoading(true);
+      } else if (attempt.empty === true) {
+        // No diff on this attempt — try falling back to the effective prior attempt
+        const effectiveId = attempt.effective_diff_attempt_id;
+        if (!effectiveId) {
+          if (!cancelled) setEmptyBannerState("none");
+        } else if (effectiveId !== attemptId) {
+          if (!cancelled) setDiffLoading(true);
           try {
-            const diffRes = await fetch(`/api/blobs/${diffHash}`);
-            if (diffRes.ok) {
-              const raw = await diffRes.text();
-              const perFile = splitDiffByFile(raw);
-              if (!cancelled) setFileDiffs(perFile);
+            const effRes = await fetch(`/api/projections/attempt/${effectiveId}`);
+            if (effRes.ok && !cancelled) {
+              const effAttempt: AttemptRow = await effRes.json();
+              setEmptyBannerState("fallback");
+              setEffectiveAttemptNumber(effAttempt.attempt_number);
+
+              const effPhases = Object.values(effAttempt.phases) as Array<{ diff_hash?: string }>;
+              const effDiffHash = effPhases.reduce<string | undefined>(
+                (acc, p) => p.diff_hash ?? acc,
+                undefined,
+              );
+              if (effDiffHash && !cancelled) {
+                const diffRes = await fetch(`/api/blobs/${effDiffHash}`);
+                if (diffRes.ok) {
+                  const raw = await diffRes.text();
+                  const perFile = splitDiffByFile(raw);
+                  if (!cancelled) setFileDiffs(perFile);
+                }
+              }
             }
           } finally {
             if (!cancelled) setDiffLoading(false);
@@ -849,6 +852,7 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
       ) : (
         <AwaitingReviewFooter
           verdict={audit?.verdict}
+          confidence={audit?.confidence}
           verdictConfig={verdictConfig}
           onApprove={handleApprove}
           onReject={handleReject}
@@ -914,12 +918,14 @@ function ReviewHeader({
 
 function AwaitingReviewFooter({
   verdict,
+  confidence,
   verdictConfig,
   onApprove,
   onReject,
   onRetryWithFeedback,
 }: {
   verdict?: AuditSummary["verdict"];
+  confidence?: number;
   verdictConfig: (typeof VERDICT_CONFIG)[keyof typeof VERDICT_CONFIG] | null;
   onApprove: () => void;
   onReject: () => void;
@@ -955,7 +961,7 @@ function AwaitingReviewFooter({
         Reject task
       </button>
 
-{verdict && verdict !== "approve" && (
+{verdict && (verdict !== "approve" || (confidence != null && confidence < 0.95)) && (
         <button
           type="button"
           onClick={onRetryWithFeedback}

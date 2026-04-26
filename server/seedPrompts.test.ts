@@ -183,10 +183,11 @@ describe("seedPrompts", () => {
     expect(countPromptEvents(db)).toBe(2);
   });
 
-  it("skips seeding when prompt events already exist", () => {
+  it("seeds new prompt files while skipping already-seeded ones", () => {
     const blobStore = createBlobStore(blobsDir);
     // Seed once
     seedPrompts(db, promptsDir, blobStore);
+    expect(countPromptEvents(db)).toBe(2);
 
     // Add a new prompt file
     fs.writeFileSync(
@@ -194,10 +195,11 @@ describe("seedPrompts", () => {
       "reviewer template",
     );
 
-    // Seed again — should NOT pick up the new file since events already exist
+    // Seed again — should pick up the new file but not re-create existing ones
     seedPrompts(db, promptsDir, blobStore);
 
-    expect(countPromptEvents(db)).toBe(2);
+    expect(countPromptEvents(db)).toBe(3);
+    expect(getPromptEvent(db, "pv-reviewer-v1")).toBeDefined();
   });
 
   it("populates the prompt library projection", () => {

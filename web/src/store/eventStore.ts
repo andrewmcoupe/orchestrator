@@ -54,13 +54,22 @@ const MAX_RECENT_EVENTS = 200;
 // ============================================================================
 
 /**
+ * Reverse lookup: attempt_id → task_id.
+ * Built from attempt.started events which carry both IDs.
+ */
+const attemptToTask = new Map<string, string>();
+
+/**
  * Extracts the task_id from an event payload. Events may carry it as
- * task_id directly, or indirectly (e.g. attempt events need a lookup).
+ * task_id directly, or indirectly via attempt_id (phase events, etc.).
  * Returns undefined if the event doesn't relate to a task.
  */
 function extractTaskId(event: AnyEvent): string | undefined {
   const p = event.payload as unknown as Record<string, unknown>;
   if ("task_id" in p && typeof p.task_id === "string") return p.task_id;
+  if ("attempt_id" in p && typeof p.attempt_id === "string") {
+    return attemptToTask.get(p.attempt_id);
+  }
   return undefined;
 }
 
@@ -93,6 +102,13 @@ export const useEventStore = create<EventStoreState & EventStoreActions>()(
         ? await recentRes.json()
         : [];
 
+      // Seed the attempt→task lookup from hydrated task list rows
+      for (const row of taskListRows) {
+        if (row.current_attempt_id) {
+          attemptToTask.set(row.current_attempt_id, row.task_id);
+        }
+      }
+
       set({
         taskList: Object.fromEntries(
           taskListRows.map((r) => [r.task_id, r]),
@@ -108,6 +124,27 @@ export const useEventStore = create<EventStoreState & EventStoreActions>()(
     applyEvent(event: AnyEvent) {
       const subscriptions = PROJECTION_SUBSCRIPTIONS[event.type];
       const state = get();
+
+      // Deduplicate — SSE may replay events already present from hydration
+      // or after reconnection
+      if (state.recentEvents.length > 0 && state.recentEvents.some((e) => e.id === event.id)) {
+        return;
+      }
+
+      // Track attempt→task mapping for resolving phase events
+      if (event.type === "attempt.started") {
+        const p = event.payload as unknown as Record<string, unknown>;
+        if (typeof p.attempt_id === "string" && typeof p.task_id === "string") {
+          attemptToTask.set(p.attempt_id, p.task_id);
+        }
+      } else if (event.type === "attempt.retry_requested") {
+        const p = event.payload as unknown as Record<string, unknown>;
+        if (typeof p.attempt_id === "string" && typeof p.new_attempt_id === "string") {
+          const taskId = attemptToTask.get(p.attempt_id);
+          if (taskId) attemptToTask.set(p.new_attempt_id, taskId);
+        }
+      }
+
       const updates: Partial<EventStoreState> = {};
 
       for (const projection of subscriptions) {

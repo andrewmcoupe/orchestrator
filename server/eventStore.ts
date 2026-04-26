@@ -63,6 +63,8 @@ export function runMigrations(db: Database.Database): void {
   for (const sql of [
     "ALTER TABLE proj_task_detail ADD COLUMN merge_commit_sha TEXT",
     "ALTER TABLE proj_task_detail ADD COLUMN merged_into_branch TEXT",
+    "ALTER TABLE proj_attempt ADD COLUMN last_failure_reason TEXT",
+    "ALTER TABLE proj_task_list ADD COLUMN completed_phases_json TEXT NOT NULL DEFAULT '[]'",
   ]) {
     try {
       db.exec(sql);

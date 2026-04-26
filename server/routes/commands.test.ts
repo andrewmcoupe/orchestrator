@@ -9,7 +9,12 @@
  * contract — correct status codes, response shapes, and event emission.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("../ingest.js", () => ({
+  ingestPrd: vi.fn().mockRejectedValue(new Error("mocked: CLI not available in tests")),
+  seedIngestPromptVersion: vi.fn(),
+}));
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
@@ -927,7 +932,7 @@ describe("POST /api/commands/prd/ingest", () => {
     });
     // Validation passes (500 from ingestPrd internals, not 400)
     expect(res.status).not.toBe(400);
-  }, 10000);
+  });
 
   it("rejects payload with both path and content", async () => {
     const { app } = setup();

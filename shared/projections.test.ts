@@ -795,3 +795,89 @@ describe("phase.diff_snapshotted", () => {
     expect(reduceAttempt(null, snapshotted)).toBeNull();
   });
 });
+
+describe("last_failure_reason — reduceAttempt", () => {
+  function makeAttemptStarted(attempt_id = "A-001") {
+    return makeEvent(
+      "attempt.started",
+      {
+        attempt_id,
+        task_id: "T-001",
+        attempt_number: 1,
+        config_snapshot: testConfig,
+        triggered_by: "user_start",
+      },
+      { aggregate_type: "attempt" as never, aggregate_id: attempt_id },
+    );
+  }
+
+  function makePhaseCompleted(
+    phase_name: string,
+    exit_reason?: string,
+    attempt_id = "A-001",
+  ) {
+    return makeEvent(
+      "phase.completed",
+      {
+        attempt_id,
+        phase_name,
+        outcome: exit_reason && exit_reason !== "normal" ? "failed" : "success",
+        tokens_in: 100,
+        tokens_out: 50,
+        cost_usd: 0.001,
+        duration_ms: 1000,
+        ...(exit_reason ? { exit_reason } : {}),
+      } as never,
+    );
+  }
+
+  it("last_failure_reason is null initially after attempt.started", () => {
+    const row = reduceAttempt(null, makeAttemptStarted())!;
+    expect(row.last_failure_reason).toBeNull();
+  });
+
+  it("last_failure_reason is populated from phase.completed with a non-normal exit_reason", () => {
+    let row = reduceAttempt(null, makeAttemptStarted())!;
+    row = reduceAttempt(row, makePhaseCompleted("implementer", "permission_blocked"))!;
+    expect(row.last_failure_reason).toBe("permission_blocked");
+  });
+
+  it("last_failure_reason is not updated when exit_reason is 'normal'", () => {
+    let row = reduceAttempt(null, makeAttemptStarted())!;
+    row = reduceAttempt(row, makePhaseCompleted("implementer", "normal"))!;
+    expect(row.last_failure_reason).toBeNull();
+  });
+
+  it("last_failure_reason is not updated when exit_reason is absent", () => {
+    let row = reduceAttempt(null, makeAttemptStarted())!;
+    row = reduceAttempt(row, makePhaseCompleted("implementer"))!;
+    expect(row.last_failure_reason).toBeNull();
+  });
+
+  it("last_failure_reason updates to the most recent non-normal exit_reason", () => {
+    let row = reduceAttempt(null, makeAttemptStarted())!;
+    row = reduceAttempt(row, makePhaseCompleted("implementer", "budget_exceeded"))!;
+    expect(row.last_failure_reason).toBe("budget_exceeded");
+    row = reduceAttempt(row, makePhaseCompleted("auditor", "timeout"))!;
+    expect(row.last_failure_reason).toBe("timeout");
+  });
+
+  it("last_failure_reason covers all ExitReason values", () => {
+    const reasons = [
+      "timeout",
+      "budget_exceeded",
+      "turn_limit",
+      "permission_blocked",
+      "killed",
+      "schema_invalid",
+      "network_error",
+      "crashed",
+      "unknown",
+    ] as const;
+    for (const reason of reasons) {
+      let row = reduceAttempt(null, makeAttemptStarted())!;
+      row = reduceAttempt(row, makePhaseCompleted("implementer", reason))!;
+      expect(row.last_failure_reason).toBe(reason);
+    }
+  });
+});

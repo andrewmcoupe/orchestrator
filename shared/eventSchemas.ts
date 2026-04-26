@@ -84,7 +84,7 @@ const transportOptionsSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("cli"),
     bare: z.boolean().optional(),
-    max_turns: z.number(),
+    max_turns: z.number().optional(),
     max_budget_usd: z.number(),
     permission_mode: z.enum(["default", "plan", "acceptEdits", "bypassPermissions", "dontAsk", "auto"]),
     allowed_tools: z.array(z.string()).optional(),
@@ -376,6 +376,19 @@ const phaseContextPackedSchema = z.object({
   manifest: contextManifestSchema,
 });
 
+const exitReasonSchema = z.enum([
+  "normal",
+  "timeout",
+  "budget_exceeded",
+  "turn_limit",
+  "permission_blocked",
+  "killed",
+  "schema_invalid",
+  "network_error",
+  "crashed",
+  "unknown",
+]);
+
 const phaseCompletedSchema = z.object({
   attempt_id: z.string(),
   phase_name: z.string(),
@@ -385,6 +398,10 @@ const phaseCompletedSchema = z.object({
   cost_usd: z.number(),
   duration_ms: z.number(),
   diff_hash: z.string().optional(),
+  exit_reason: exitReasonSchema.optional(),
+  stdout_tail_hash: z.string().nullable().optional(),
+  stderr_tail_hash: z.string().nullable().optional(),
+  permission_blocked_on: z.string().nullable().optional(),
 });
 
 const phaseDiffSnapshottedSchema = z.object({
@@ -450,6 +467,10 @@ const invocationCompletedSchema = z.object({
   duration_ms: z.number(),
   turns: z.number(),
   exit_code: z.number().optional(),
+  exit_reason: exitReasonSchema.optional(),
+  stdout_tail_hash: z.string().nullable().optional(),
+  stderr_tail_hash: z.string().nullable().optional(),
+  permission_blocked_on: z.string().nullable().optional(),
 });
 
 const invocationErroredSchema = z.object({

@@ -54,7 +54,6 @@ import { evaluate as evaluateRetryPolicy } from "./retryPolicy.js";
 import { handleAutoMerge } from "./autoMerge.js";
 import { getBlobsDir } from "./paths.js";
 
-const defaultBlobStore = createBlobStore(getBlobsDir());
 import type {
   TaskConfig,
   GateConfig,
@@ -67,9 +66,64 @@ import type {
   ContextManifest,
   AuditConcern,
   AnyEvent,
+  ExitReason,
+  ExitReasonPolicy,
+  RetryPolicy,
 } from "@shared/events.js";
 import type { TaskDetailRow, AttemptRow } from "@shared/projections.js";
 import type { AppendEventInput } from "./eventStore.js";
+
+const defaultBlobStore = createBlobStore(getBlobsDir());
+
+// ============================================================================
+// Default on_exit_reason map — used when config.retry_policy.on_exit_reason
+// doesn't specify a mapping for a given exit reason.
+// ============================================================================
+
+const DEFAULT_EXIT_REASON_POLICY: Partial<Record<ExitReason, ExitReasonPolicy>> = {
+  timeout: "retry_same",
+  network_error: "retry_same",
+  schema_invalid: "retry_same",
+  budget_exceeded: "escalate_to_human",
+  turn_limit: "escalate_to_human",
+  permission_blocked: "escalate_to_human",
+  killed: "escalate_to_human",
+  crashed: "escalate_to_human",
+  unknown: "escalate_to_human",
+};
+
+/** Max retries for schema_invalid before escalating. */
+const SCHEMA_INVALID_MAX_RETRIES = 2;
+
+/**
+ * Evaluates the on_exit_reason policy for a given exit reason.
+ * Returns the policy action, or null if the exit reason is "normal" (no action needed).
+ */
+export function evaluateExitReasonPolicy(
+  exitReason: ExitReason | undefined,
+  policy: RetryPolicy,
+  attemptNumber: number,
+): { action: "retry_same" | "escalate_to_human"; reason: string } | null {
+  if (!exitReason || exitReason === "normal") return null;
+
+  const userMap = policy.on_exit_reason ?? {};
+  const action = userMap[exitReason] ?? DEFAULT_EXIT_REASON_POLICY[exitReason] ?? "escalate_to_human";
+
+  // schema_invalid has a max retry count of 2 — escalate on attempt 3+
+  if (exitReason === "schema_invalid" && action === "retry_same") {
+    if (attemptNumber > SCHEMA_INVALID_MAX_RETRIES) {
+      return {
+        action: "escalate_to_human",
+        reason: `exit_reason '${exitReason}' — max retries (${SCHEMA_INVALID_MAX_RETRIES}) exhausted`,
+      };
+    }
+  }
+
+  return {
+    action,
+    reason: `exit_reason '${exitReason}' → ${action}`,
+  };
+}
 
 // ============================================================================
 // Injectable deps (for testing — swap out adapters without esm mocks)
@@ -308,9 +362,12 @@ export async function runAttempt(
     return stdout;
   });
   const doCommit = deps?.committer ?? (async (wp: string, message: string) => {
-    await execa("git", ["add", "-A", "--", ".", ":!node_modules"], {
+    // Stage all changes except node_modules. Use reject:false because
+    // git add -A can exit non-zero when only ignored files are present.
+    await execa("git", ["add", "-A", "--", ".", ":(exclude)node_modules"], {
       cwd: wp,
       stdio: ["ignore", "pipe", "pipe"],
+      reject: false,
     });
     const { stdout: statusOut } = await execa(
       "git", ["status", "--porcelain"],
@@ -373,6 +430,7 @@ export async function runAttempt(
       gate_runs: [],
       files_changed: [],
       config_snapshot: config,
+      last_failure_reason: null,
       last_event_id: "",
     };
 
@@ -393,22 +451,11 @@ export async function runAttempt(
     // -----------------------------------------------------------------------
     // 2b. Resolve diff base SHA
     // -----------------------------------------------------------------------
-    // Attempt 1: base_sha from task.worktree_created (the commit the worktree branched from)
-    // Attempt 2+: commit_sha from the previous attempt's attempt.committed event
+    // Always use the original base_sha from task.worktree_created so the diff
+    // captures ALL accumulated changes on the branch, not just the delta from
+    // the previous attempt. This ensures the review screen shows the full picture.
     let diffBaseSha = "HEAD"; // fallback
-    if (options?.previous_attempt_id) {
-      // Look up previous attempt's commit SHA from events
-      const prevCommitRow = db
-        .prepare(
-          "SELECT payload_json FROM events WHERE type = 'attempt.committed' AND aggregate_id = ? LIMIT 1",
-        )
-        .get(options.previous_attempt_id) as { payload_json: string } | undefined;
-      if (prevCommitRow) {
-        const prevPayload = JSON.parse(prevCommitRow.payload_json) as { commit_sha: string };
-        diffBaseSha = prevPayload.commit_sha;
-      }
-    } else {
-      // Re-read base_sha from the task detail projection (may have been set by worktree creation above)
+    {
       const freshDetail = getTaskDetailRow(db, task_id);
       if (freshDetail?.base_sha) {
         diffBaseSha = freshDetail.base_sha;
@@ -500,6 +547,10 @@ export async function runAttempt(
       let phaseTokensOut = 0;
       let phaseCostUsd = 0;
       let phaseOutcome: "success" | "failed" | "aborted" = "success";
+      let phaseExitReason: ExitReason = "unknown";
+      let phaseStdoutTailHash: string | null = null;
+      let phaseStderrTailHash: string | null = null;
+      let phasePermissionBlockedOn: string | null = null;
 
       // For the auditor phase, capture the last assistant message text
       // (it will contain the structured-output JSON verdict).
@@ -536,6 +587,25 @@ export async function runAttempt(
               `Transport ${phase.transport} requires cli transport_options`,
             );
           }
+
+          // Deny git-write commands for all phases — the orchestrator manages commits.
+          // Reading git state (status, diff, log) is allowed.
+          const GIT_WRITE_DENY_LIST = [
+            "Bash(git commit:*)",
+            "Bash(git reset:*)",
+            "Bash(git checkout:*)",
+            "Bash(git merge:*)",
+            "Bash(git rebase:*)",
+            "Bash(git push:*)",
+          ];
+          const cliOpts = {
+            ...effectiveTransportOpts,
+            disallowed_tools: [
+              ...(effectiveTransportOpts.disallowed_tools ?? []),
+              ...GIT_WRITE_DENY_LIST,
+            ],
+          };
+
           invoker = doCliInvoke(
             {
               invocation_id,
@@ -549,7 +619,7 @@ export async function runAttempt(
               context_manifest_hash: packResult.manifest_hash,
               systemPromptFile: packResult.system_prompt_file,
               cwd: worktree_path ?? "/tmp/no-worktree",
-              transport_options: effectiveTransportOpts,
+              transport_options: cliOpts,
             } satisfies CliInvokeOptions,
             bs,
           );
@@ -587,16 +657,18 @@ export async function runAttempt(
 
           // Capture the auditor response text — could arrive as a plain
           // assistant_message (API path) or as a StructuredOutput tool_use
-          // (CLI --json-schema path).
+          // (CLI --json-schema path). StructuredOutput takes priority over
+          // assistant_message to avoid the free-text summary overwriting
+          // the structured JSON verdict.
           if (isAuditorPhase) {
-            if (event.type === "invocation.assistant_message") {
-              auditorResponseText = (event.payload as InvocationAssistantMessage).text;
-            } else if (event.type === "invocation.tool_called") {
+            if (event.type === "invocation.tool_called") {
               const p = event.payload as InvocationToolCalled;
               if (p.tool_name === "StructuredOutput") {
                 const blob = bs.getBlob(p.args_hash);
                 if (blob) auditorResponseText = blob.toString("utf8");
               }
+            } else if (event.type === "invocation.assistant_message" && !auditorResponseText) {
+              auditorResponseText = (event.payload as InvocationAssistantMessage).text;
             }
           }
 
@@ -606,6 +678,11 @@ export async function runAttempt(
             phaseTokensOut = p.tokens_out;
             phaseCostUsd = p.cost_usd;
             if (p.outcome !== "success") phaseOutcome = p.outcome;
+            // Mirror exit_reason fields from invocation to phase
+            phaseExitReason = p.exit_reason;
+            phaseStdoutTailHash = p.stdout_tail_hash;
+            phaseStderrTailHash = p.stderr_tail_hash;
+            phasePermissionBlockedOn = p.permission_blocked_on;
           }
           if (event.type === "invocation.errored") {
             const p = event.payload as InvocationErrored;
@@ -615,6 +692,12 @@ export async function runAttempt(
         }
 
         // After a successful auditor invocation, parse the verdict and emit auditor.judged
+        if (isAuditorPhase && phaseOutcome === "success" && !auditorResponseText) {
+          console.error(
+            `[phaseRunner] auditor produced no verdict output for attempt ${attempt_id} — model may have exhausted turns without using StructuredOutput`,
+          );
+          phaseOutcome = "failed";
+        }
         if (isAuditorPhase && phaseOutcome === "success" && auditorResponseText) {
           try {
             const verdict = parseVerdict(auditorResponseText);
@@ -679,7 +762,11 @@ export async function runAttempt(
             }
           } catch (parseErr: unknown) {
             // Verdict JSON was malformed — treat auditor phase as failed
-            void parseErr;
+            const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+            console.error(
+              `[phaseRunner] auditor verdict parse failed for attempt ${attempt_id}: ${msg}`,
+              `\n  response text (first 200 chars): ${auditorResponseText?.slice(0, 200)}`,
+            );
             phaseOutcome = "failed";
           }
         }
@@ -746,12 +833,32 @@ export async function runAttempt(
           cost_usd: phaseCostUsd,
           duration_ms: phaseDuration,
           diff_hash,
+          exit_reason: phaseExitReason,
+          stdout_tail_hash: phaseStdoutTailHash,
+          stderr_tail_hash: phaseStderrTailHash,
+          permission_blocked_on: phasePermissionBlockedOn,
         },
       });
 
       totalTokensIn += phaseTokensIn;
       totalTokensOut += phaseTokensOut;
       totalCostUsd += phaseCostUsd;
+
+      // ----- on_exit_reason evaluation (before verdict-based retry logic) -----
+      if (phaseOutcome === "failed" && phaseExitReason && phaseExitReason !== "normal") {
+        const exitReasonResult = evaluateExitReasonPolicy(
+          phaseExitReason,
+          config.retry_policy,
+          attempt_number,
+        );
+        if (exitReasonResult) {
+          if (exitReasonResult.action === "escalate_to_human") {
+            finalOutcome = "escalated";
+            break phaseLoop;
+          }
+          // retry_same — fall through to let the existing retry counter/limits apply
+        }
+      }
 
       if (phaseOutcome === "failed") {
         // Only fall back to generic "failed" if the auditor didn't

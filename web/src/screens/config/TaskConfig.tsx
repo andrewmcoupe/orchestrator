@@ -207,7 +207,7 @@ function PhaseCard({
     presetPhase ? JSON.stringify(phase[field]) !== JSON.stringify(presetPhase[field]) : false;
 
   return (
-    <div className="border border-border-default bg-bg-secondary p-4">
+    <div className="flex-1 border border-border-default bg-bg-secondary p-4">
       {/* Phase name + enabled toggle */}
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-semibold text-text-primary">{phase.name}</span>
@@ -236,12 +236,20 @@ function PhaseCard({
             <select
               id={`transport-${index}`}
               value={phase.transport}
-              onChange={(e) =>
+              onChange={(e) => {
+                const newTransport = e.target.value as Transport;
+                const isCli = ["claude-code", "codex", "aider", "gemini-cli"].includes(newTransport);
+                const wasCli = phase.transport_options.kind === "cli";
                 update({
-                  transport: e.target.value as Transport,
-                  model: MODELS_BY_TRANSPORT[e.target.value as Transport]?.[0] ?? phase.model,
-                })
-              }
+                  transport: newTransport,
+                  model: MODELS_BY_TRANSPORT[newTransport]?.[0] ?? phase.model,
+                  transport_options: isCli && !wasCli
+                    ? { kind: "cli" as const, max_turns: 10, max_budget_usd: 5, permission_mode: "acceptEdits" as const }
+                    : !isCli && wasCli
+                    ? { kind: "api" as const, max_tokens: 4096 }
+                    : phase.transport_options,
+                });
+              }}
               className="flex-1 border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
             >
               {TRANSPORTS.map((t) => (
@@ -1056,19 +1064,27 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
         {/* ── Scrollable body ─────────────────────────────────────────────── */}
         {editedConfig && (
           <div className="flex-1 overflow-y-auto p-6 space-y-8">
-            {/* PHASES */}
+            {/* PHASE PIPELINE — horizontal cards with arrows */}
             <section>
-              <SectionHeader title="Phases" />
-              <div className="space-y-3">
+              <SectionHeader title="Phase pipeline" />
+              <div className="flex items-stretch gap-0">
                 {editedConfig.phases.map((phase, i) => (
-                  <PhaseCard
-                    key={phase.name}
-                    phase={phase}
-                    index={i}
-                    presetPhase={selectedPreset?.config.phases.find((p) => p.name === phase.name)}
-                    gateNames={editedConfig.gates.map((g) => g.name)}
-                    onChange={updatePhase}
-                  />
+                  <div key={phase.name} className="flex items-stretch flex-1 min-w-0">
+                    <PhaseCard
+                      phase={phase}
+                      index={i}
+                      presetPhase={selectedPreset?.config.phases.find((p) => p.name === phase.name)}
+                      gateNames={editedConfig.gates.map((g) => g.name)}
+                      onChange={updatePhase}
+                    />
+                    {i < editedConfig.phases.length - 1 && (
+                      <div className="flex items-center px-3 text-text-tertiary shrink-0">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M5 12h14M13 6l6 6-6 6" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </section>

@@ -1,0 +1,166 @@
+[
+  {
+    "category": "Backend — Layout Engine",
+    "description": "Install elkjs as a server-side dependency and create a layout computation module that accepts a task dependency graph and returns node positions using ELK's layered algorithm with top-to-bottom direction",
+    "steps_to_verify": [
+      "elkjs is listed in package.json dependencies",
+      "Layout module accepts { nodes: {id, width, height}[], edges: {source, target}[] } and returns { nodes: {id, x, y}[], edges: {source, target, sections}[] }",
+      "Layout uses ELK layered algorithm with direction TOP_DOWN",
+      "Node width is fixed at 200px, height at ~72px"
+    ],
+    "passes": true,
+    "priority": 1
+  },
+  {
+    "category": "Backend — Layout Engine",
+    "description": "Compute the critical path (longest chain from any root to any leaf by task count) and include it in the layout result as an ordered array of task IDs",
+    "steps_to_verify": [
+      "Critical path is computed as the longest path through the DAG (by node count, not duration)",
+      "Result includes meta.critical_path as string[] of ordered task IDs",
+      "Disconnected subgraphs are handled — critical path is the longest across all subgraphs"
+    ],
+    "passes": true,
+    "priority": 2
+  },
+  {
+    "category": "Backend — Layout Storage",
+    "description": "Create a proj_graph_layout table storing a single-row JSON blob with node positions, edge data, and critical path metadata",
+    "steps_to_verify": [
+      "Table proj_graph_layout exists with columns: id (PK, always 'singleton'), layout_json TEXT, updated_at TEXT",
+      "layout_json shape: { nodes: { [task_id]: {x, y, width, height} }, edges: { source, target }[], meta: { critical_path: string[], direction: string } }",
+      "Layout blob is atomically replaced on each recomputation"
+    ],
+    "passes": true,
+    "priority": 3
+  },
+  {
+    "category": "Backend — Layout Reactivity",
+    "description": "Subscribe to graph-affecting events via eventBus 'event.committed' and recompute layout with 200ms debounce",
+    "steps_to_verify": [
+      "Layout recomputes on: task.created, task.dependency.set, task.status_changed, task.archived, task.unblocked",
+      "Rapid-fire events within 200ms are batched into a single recomputation",
+      "Layout computation runs async, outside the event transaction",
+      "Errors in layout computation are logged but do not crash the server"
+    ],
+    "passes": true,
+    "priority": 4
+  },
+  {
+    "category": "Backend — API",
+    "description": "Add GET /api/projections/graph_layout endpoint that serves the layout blob, with optional prd_id filter",
+    "steps_to_verify": [
+      "GET /api/projections/graph_layout returns the full layout JSON blob",
+      "GET /api/projections/graph_layout?prd_id=X returns layout filtered to tasks belonging to that PRD",
+      "Response includes task status and title alongside coordinates so the client doesn't need a separate fetch"
+    ],
+    "passes": true,
+    "priority": 5
+  },
+  {
+    "category": "Frontend — Dependencies",
+    "description": "Install @xyflow/react as a client-side dependency for graph rendering",
+    "steps_to_verify": [
+      "@xyflow/react is listed in package.json dependencies",
+      "React Flow CSS is imported in the graph component"
+    ],
+    "passes": true,
+    "priority": 6
+  },
+  {
+    "category": "Frontend — Graph View",
+    "description": "Create a DependencyGraph component that renders the server-computed layout using React Flow with custom task nodes",
+    "steps_to_verify": [
+      "Component fetches layout from /api/projections/graph_layout",
+      "Nodes are positioned using server-provided x,y coordinates (no client-side layout computation)",
+      "Graph supports zoom and pan via React Flow built-in controls",
+      "Graph fits to view on initial render"
+    ],
+    "passes": true,
+    "priority": 7
+  },
+  {
+    "category": "Frontend — Task Node",
+    "description": "Create a custom React Flow node component: fixed-width (~200px), truncated title (2 lines max), status colour as left border, attempt counter badge",
+    "steps_to_verify": [
+      "Node shows truncated task title (max 2 lines with ellipsis)",
+      "Left border colour reflects actionable-centric status: green=ready (draft/queued unblocked), yellow=in-flight (running/revising/paused), red=failed (rejected), blue=done (merged/approved/awaiting_review/awaiting_merge), grey=blocked/archived",
+      "Attempt counter shows as 'N/M' badge (current/max)",
+      "Done tasks (merged/archived) render at 30% opacity"
+    ],
+    "passes": true,
+    "priority": 8
+  },
+  {
+    "category": "Frontend — Edge Styling",
+    "description": "Render dependency edges with done-task dimming: edges to done tasks are faint dashed lines, active edges are solid",
+    "steps_to_verify": [
+      "Edges to tasks with status merged/approved/awaiting_merge/archived render as faint dashed lines (~30% opacity)",
+      "Edges between active tasks render as solid lines at full opacity",
+      "Critical path edges are visually distinct (thicker or highlighted colour) when critical path is shown"
+    ],
+    "passes": true,
+    "priority": 9
+  },
+  {
+    "category": "Frontend — Critical Path",
+    "description": "Highlight the critical path: nodes and edges on the critical path get a distinct visual treatment",
+    "steps_to_verify": [
+      "Critical path nodes and edges are highlighted with a distinct colour or glow",
+      "Critical path data comes from meta.critical_path in the layout blob (no client computation)",
+      "Non-critical-path elements remain visible but are visually secondary when critical path is highlighted"
+    ],
+    "passes": true,
+    "priority": 10
+  },
+  {
+    "category": "Frontend — Node Selection",
+    "description": "Clicking a node opens a condensed floating detail card showing title, status, attempt count, action buttons, and a 'View details' link",
+    "steps_to_verify": [
+      "Clicking a node shows a floating card positioned near the node",
+      "Card shows: full title, status pill, attempt count (N/M), and relevant action buttons (Start/Retry/Kill based on status)",
+      "'View details' link switches to list mode with that task selected",
+      "Clicking outside the card or pressing Escape dismisses it",
+      "Only one card visible at a time"
+    ],
+    "passes": true,
+    "priority": 11
+  },
+  {
+    "category": "Frontend — View Toggle",
+    "description": "Add a list/graph toggle in the tasks screen. Graph mode renders as a full-width overlay with a minimal status bar",
+    "steps_to_verify": [
+      "Toggle button is visible in both list and graph modes",
+      "List mode renders the existing TaskListSidebar + TaskDetailPane layout",
+      "Graph mode renders as full-width overlay replacing the sidebar+detail layout",
+      "Status bar shows: toggle button, PRD filter dropdown, compact status counts (N ready, N running, N done, N blocked)",
+      "Toggle state persists across re-renders (useState, not URL-based)"
+    ],
+    "passes": true,
+    "priority": 12
+  },
+  {
+    "category": "Frontend — PRD Filter",
+    "description": "PRD filter dropdown in graph status bar filters the graph to show only tasks from the selected PRD",
+    "steps_to_verify": [
+      "Dropdown defaults to 'All' showing all tasks",
+      "Selecting a PRD filters to only that PRD's tasks and their dependency edges",
+      "Standalone tasks (no prd_id) appear under 'Standalone' option",
+      "Filter triggers a re-fetch of the layout endpoint with prd_id parameter"
+    ],
+    "passes": true,
+    "priority": 13
+  },
+  {
+    "category": "Manual Verification",
+    "description": "Visual QA: verify the graph renders correctly with real task data from the orchestrator database",
+    "steps_to_verify": [
+      "Create 5+ tasks with a diamond dependency pattern (A->B, A->C, B->D, C->D) and verify layout has no overlapping nodes",
+      "Verify done tasks and their edges are visually dimmed",
+      "Verify critical path highlighting visually traces the longest chain",
+      "Verify the condensed detail card appears on node click and action buttons work",
+      "Verify toggling between list and graph mode preserves selected task context"
+    ],
+    "passes": false,
+    "priority": 14
+  }
+]
