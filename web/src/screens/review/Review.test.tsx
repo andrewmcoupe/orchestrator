@@ -82,6 +82,7 @@ const BASE_ATTEMPT: AttemptRow = {
       on_spec_pushback: "pause_and_notify" as const,
     },
   },
+  last_failure_reason: null,
   last_event_id: "ev-999",
 };
 

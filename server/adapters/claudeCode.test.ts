@@ -805,10 +805,10 @@ describe("exit reason classification", () => {
       const p = completed!.payload as InvocationCompleted;
       expect(p.exit_reason).toBe("unknown");
       expect(p.outcome).toBe("failed");
-      // Tail hashes are null in the crash path (tails are not blob-stored in this path).
-      // Their presence (as null) means the event schema is complete even for crashes.
-      expect(p.stdout_tail_hash).toBeNull();
-      expect(p.stderr_tail_hash).toBeNull();
+      // Tail hashes are now stored in the crash path (best-effort blob store).
+      // stdout had the init line, stderr has the error message — both get hashes.
+      expect(p.stdout_tail_hash).not.toBeNull();
+      expect(p.stderr_tail_hash).not.toBeNull();
     });
   });
 

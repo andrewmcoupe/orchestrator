@@ -430,6 +430,7 @@ export async function runAttempt(
       gate_runs: [],
       files_changed: [],
       config_snapshot: config,
+      last_failure_reason: null,
       last_event_id: "",
     };
 

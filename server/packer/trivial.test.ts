@@ -71,6 +71,7 @@ function makeAttempt(overrides: Partial<AttemptRow> = {}): AttemptRow {
     gate_runs: [],
     files_changed: [],
     config_snapshot: minimalConfig,
+    last_failure_reason: null,
     last_event_id: "ev-000",
     ...overrides,
   };

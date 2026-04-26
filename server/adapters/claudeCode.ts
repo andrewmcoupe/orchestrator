@@ -172,17 +172,30 @@ async function* execaSpawner(
     throw err;
   }
 
-  // Monitor stderr for permission prompts and kill after timeout
+  // Monitor stderr for permission prompts and kill after an idleness timeout.
+  // AC2: kill only if "Waiting for permission" was seen AND no stream-json
+  // events have arrived on stdout for PERMISSION_HANG_TIMEOUT_MS (10s).
+  // The timer is (re)started each time the pattern is detected and reset
+  // whenever a stdout line is yielded, so active output keeps the process alive.
   let permissionHangTimer: ReturnType<typeof setTimeout> | undefined;
+  let permissionDetected = false;
   let stderrTail = "";
   const stderr = proc.stderr;
+
+  /** Start or restart the permission-hang kill timer. */
+  const armPermissionTimer = () => {
+    if (permissionHangTimer) clearTimeout(permissionHangTimer);
+    permissionHangTimer = setTimeout(() => {
+      proc.kill("SIGKILL");
+    }, PERMISSION_HANG_TIMEOUT_MS);
+  };
+
   if (stderr) {
     stderr.on("data", (chunk: Buffer) => {
       stderrTail = (stderrTail + chunk.toString()).slice(-4096);
-      if (!permissionHangTimer && /Waiting for permission/i.test(stderrTail)) {
-        permissionHangTimer = setTimeout(() => {
-          proc.kill("SIGKILL");
-        }, PERMISSION_HANG_TIMEOUT_MS);
+      if (!permissionDetected && /Waiting for permission/i.test(stderrTail)) {
+        permissionDetected = true;
+        armPermissionTimer();
       }
     });
   }
@@ -190,6 +203,12 @@ async function* execaSpawner(
   try {
     let buffer = "";
     for await (const chunk of stdout) {
+      // A stdout chunk arrived — reset the permission-hang timer since
+      // the process is still producing output (AC2: idleness-anchored).
+      if (permissionDetected && permissionHangTimer) {
+        armPermissionTimer();
+      }
+
       buffer += chunk.toString();
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
@@ -829,23 +848,22 @@ export async function* invoke(
     };
     yield errInput;
 
-    // Store stdout/stderr tails in the blob store (best-effort)
-    let stdoutTailHashCrash: string | null = null;
-    let stderrTailHashCrash: string | null = null;
+    // Store stdout/stderr tails in the blob store (best-effort) so the
+    // crash/kill path preserves diagnostic content — especially important
+    // for permission_blocked where stderr contains the prompt text.
+    let crashStdoutTailHash: string | null = null;
+    let crashStderrTailHash: string | null = null;
     try {
       if (stdoutTailBuf) {
-        stdoutTailHashCrash = blobStore.putBlob(stdoutTailBuf).hash;
+        crashStdoutTailHash = blobStore.putBlob(stdoutTailBuf).hash;
       }
-      const stderrContent = error.stderrTail ?? "";
-      if (stderrContent) {
-        stderrTailHashCrash = blobStore.putBlob(stderrContent).hash;
+      if (stderrForClassify) {
+        crashStderrTailHash = blobStore.putBlob(stderrForClassify).hash;
       }
     } catch {
-      stdoutTailHashCrash = null;
-      stderrTailHashCrash = null;
+      // Best-effort: blob store failure keeps hashes null
     }
 
-    // Emit invocation.completed with exit_reason so phaseRunner can read it
     const completedInput: AppendEventInput<"invocation.completed"> = {
       type: "invocation.completed",
       aggregate_type: "attempt",
@@ -862,8 +880,8 @@ export async function* invoke(
         turns: 0,
         exit_code: error.exitCode ?? 1,
         exit_reason: exitReason,
-        stdout_tail_hash: stdoutTailHashCrash,
-        stderr_tail_hash: stderrTailHashCrash,
+        stdout_tail_hash: crashStdoutTailHash,
+        stderr_tail_hash: crashStderrTailHash,
         permission_blocked_on: permissionBlockedOn,
       },
     };
