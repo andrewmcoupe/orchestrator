@@ -1,114 +1,88 @@
-# Invocation Exit Classification & Subprocess Observability
+# Codex CLI Adapter
 
 ## Overview
 
-When a Claude Code subprocess exits unexpectedly — permission prompt hang, budget exceeded, crash — the orchestrator captures only a bare `outcome: "success" | "failed" | "aborted"` with no detail about why. The user sees `phase.completed implementer` in the timeline and has no idea the process was hung on a permission prompt for 5 minutes before timing out. This PRD adds structured exit classification, raw output capture, permission-hang detection, and exit-reason-aware retry policies.
+The orchestrator currently only supports Claude Code as a CLI transport. This PRD adds a dedicated Codex CLI adapter (`server/adapters/codex.ts`) that spawns `codex exec --json` and translates its NDJSON event stream into the orchestrator's canonical `AppendEventInput` events. This enables phases to be configured with `transport: "codex"` and run against OpenAI models via the Codex CLI.
 
-## Subprocess Output Capture
+## Adapter — `server/adapters/codex.ts`
 
-### CLI adapter — capture stdout/stderr tails
+### New file, separate from Claude Code adapter
 
-- Always capture the last ~4KB of both stdout and stderr from the Claude Code subprocess.
-- Store each tail in the blob store as a separate blob.
-- Reference both by hash on `invocation.completed` as `stdout_tail_hash: string | null` and `stderr_tail_hash: string | null`.
-- Capture is best-effort — if the blob store write fails, the hashes are null and the invocation still completes normally.
+- Create `server/adapters/codex.ts` as a standalone adapter file.
+- Export `invoke()` as an async generator yielding `AppendEventInput` objects.
+- Export `buildArgs()` that constructs the CLI invocation.
+- Export `translateLine()` that handles all Codex NDJSON event types.
+- Use the same `Spawner` type abstraction as `claudeCode.ts` for test injection.
 
-## Exit Reason Classification
+### CLI invocation shape
 
-### CLI adapter — structured `exit_reason` enum
+- Binary: `codex exec --json --ephemeral --cd <cwd> --model <model> <prompt>`
+- `--ephemeral` to prevent Codex from writing its own session files.
+- `--output-schema <path>` when the phase has a `schema` transport option (write JSON schema to a temp file).
 
-- Classify every invocation exit into a structured enum:
-  ```
-  "normal" | "timeout" | "budget_exceeded" | "turn_limit" | "permission_blocked" | "killed" | "schema_invalid" | "network_error" | "crashed" | "unknown"
-  ```
+### Permission mode mapping
 
-### Classification priority order
+Map the existing `permission_mode` transport option to Codex flags:
 
-1. **Structured events** — Claude Code emits explicit events before exit for budget limits and turn limits. If `invocation.budget_exceeded` or `invocation.turn_limit_reached` events were observed during the stream, classify as `budget_exceeded` or `turn_limit`.
-2. **Subprocess exit code** — Map known exit codes: 0 → `normal`, 137/SIGKILL → `killed`, 124/timeout → `timeout`.
-3. **Pattern matching on stderr tail** — Scan the last 4KB of stderr for known phrases:
-   - `"Waiting for permission"` → `permission_blocked`
-   - `"ENOTFOUND"` / `"ECONNREFUSED"` / `"socket hang up"` → `network_error`
-   - `"schema"` + `"invalid"` / `"validation"` → `schema_invalid`
-   - Stack traces / segfaults → `crashed`
-4. **Fallback** — If none match, set to `"unknown"`. The raw tails are still stored so a human can investigate.
+| `permission_mode` | Codex flags |
+|---|---|
+| `acceptEdits` / `auto` | `--full-auto` |
+| `bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` |
+| `plan` / `default` | `--sandbox read-only --ask-for-approval untrusted` |
 
-## Permission-Blocked Detection
+### NDJSON event translation
 
-### CLI adapter — active hang detection
+Codex emits three item types: `agent_message`, `command_execution`, and `file_change`.
 
-- Monitor the stderr stream for the `"Waiting for permission"` pattern.
-- If the pattern appears and no stream-json events have arrived for 10 seconds, the process is hung — not working.
-- Kill the subprocess immediately. Do not wait for budget or turn limits to trip.
-- Classify as `exit_reason: "permission_blocked"`.
-- Record `permission_blocked_on: string` with the tool name that was being requested (parsed from the permission prompt output).
+| Codex event | Canonical event(s) |
+|---|---|
+| `thread.started` | `invocation.started` |
+| `turn.started` | (no event — internal bookkeeping only) |
+| `item.started` (command_execution) | `invocation.tool_called` (command stored in blob store) |
+| `item.completed` (command_execution) | `invocation.tool_returned` + run `git diff` for file edit detection |
+| `item.started` (file_change) | `invocation.tool_called` |
+| `item.completed` (file_change) | `invocation.tool_returned` + `invocation.file_edited` from structured change data (`path`, `kind`) + `git diff` safety net |
+| `item.completed` (agent_message) | `invocation.assistant_message` |
+| `turn.completed` | `invocation.completed` with token counts |
 
-## Event Updates
+### File edit detection — hybrid approach
 
-### `shared/events.ts` — update `InvocationCompleted`
+- `file_change` items: emit `invocation.file_edited` directly from the structured `changes` array (each entry has `path` and `kind`: `add`, `modify`, `delete`).
+- `command_execution` items: run `git diff` via `detectFileEdits` after each completion as a safety net, since shell commands can modify worktree files without going through `apply_patch`.
+- Reuse the existing `seenSnapshot` pattern from `claudeCode.ts`.
 
-- Add fields:
-  - `exit_reason: "normal" | "timeout" | "budget_exceeded" | "turn_limit" | "permission_blocked" | "killed" | "schema_invalid" | "network_error" | "crashed" | "unknown"`
-  - `stdout_tail_hash: string | null`
-  - `stderr_tail_hash: string | null`
-  - `permission_blocked_on: string | null` (only populated when `exit_reason === "permission_blocked"`)
+### Token and cost tracking
 
-### `shared/events.ts` — update `PhaseCompleted`
+- `turn.completed` provides `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`.
+- Pass through token counts on `invocation.completed`.
+- Set `total_cost_usd: 0` — Codex does not report cost. OpenAI model pricing can be added to `modelPricing.ts` as a follow-up.
 
-- Mirror the same fields onto `phase.completed`:
-  - `exit_reason`
-  - `stdout_tail_hash`
-  - `stderr_tail_hash`
-  - `permission_blocked_on`
-- The phase runner reads these from the `invocation.completed` event and copies them into `phase.completed`.
+### Error handling
 
-### `shared/projections.ts` — add `last_failure_reason` to attempt projection
+- Same subprocess exit code classification pattern as `claudeCode.ts` via `classifySubprocessError`.
+- `command_execution` with non-zero `exit_code` → `invocation.tool_returned` (tool-level error, not adapter-level).
+- Missing `turn.completed` (process crash/kill) → classify from exit code, map to `ExitReason`.
+- No permission-hang detection in initial implementation (we always pass `--full-auto` or `--yolo`).
 
-- Add `last_failure_reason: string | null` to the attempt projection row.
-- Populated from the most recent `phase.completed` event where `exit_reason !== "normal"`.
-- The cockpit can surface this at a glance without the user drilling into the timeline.
+## Phase Runner Updates
 
-## Retry Policy — Exit-Reason-Aware
+### Rename `cliInvoker` to `claudeCodeInvoker`
 
-### `shared/events.ts` — extend retry policy config
+- Rename the existing `cliInvoker` field in `PhaseRunnerDeps` to `claudeCodeInvoker`.
+- Update `runAttempt` and all tests that inject `cliInvoker`.
 
-- Add an `on_exit_reason` map to the retry policy configuration:
-  ```typescript
-  on_exit_reason?: Partial<Record<ExitReason, "retry_same" | "retry_different" | "escalate_to_human">>;
-  ```
+### Add `codexInvoker` to `PhaseRunnerDeps`
 
-### Default mappings
-
-| Exit Reason | Default Strategy | Rationale |
-|---|---|---|
-| `permission_blocked` | `escalate_to_human` | Config problem — the user needs to grant permissions |
-| `budget_exceeded` | `escalate_to_human` | Cost problem — the user needs to adjust budget |
-| `timeout` | `retry_same` | Transient — may succeed on retry |
-| `network_error` | `retry_same` | Transient — may succeed on retry |
-| `schema_invalid` | `retry_same` (max 2x) | Model output issue — may self-correct |
-| `turn_limit` | `escalate_to_human` | Task may be too complex for current config |
-| `killed` | `escalate_to_human` | User or system intervention — don't auto-retry |
-| `crashed` | `escalate_to_human` | Unknown failure — needs investigation |
-| `unknown` | `escalate_to_human` | Unknown failure — needs investigation |
-
-### Retry policy evaluation order
-
-- `on_exit_reason` is checked **before** the existing verdict-based retry logic.
-- If the exit reason maps to `escalate_to_human`, the attempt completes immediately without retry regardless of other retry settings.
-- If it maps to `retry_same`, the existing retry counter and limits still apply.
+- Add `codexInvoker?: AdapterInvokeFn` to `PhaseRunnerDeps`.
+- Default to `codex.invoke` from the new adapter.
+- Route by transport name: if `phase.transport === "codex"` → `codexInvoker`, else → `claudeCodeInvoker`.
 
 ## Implementation Touchpoints
 
 | File | Change |
 |---|---|
-| `server/adapters/claudeCode.ts` | Capture stdout/stderr tails, classify exit reason, detect permission hang with 10s timeout |
-| `shared/events.ts` | Update `InvocationCompleted` and `PhaseCompleted` with exit_reason, tail hashes, permission_blocked_on |
-| `server/phaseRunner.ts` | Copy exit_reason fields from invocation.completed to phase.completed |
-| `shared/projections.ts` | Add `last_failure_reason` to attempt projection, populate from phase.completed |
-| `shared/events.ts` | Add `on_exit_reason` map to retry policy config type |
-| `server/phaseRunner.ts` | Evaluate `on_exit_reason` before verdict-based retry logic |
-| `server/adapters/claudeCode.test.ts` | Permission-prompt-hang fixture: adapter detects and kills within 10s |
-| `server/adapters/claudeCode.test.ts` | Budget-exceeded fixture: classifies correctly from structured event |
-| `server/adapters/claudeCode.test.ts` | Unknown-crash fixture: falls through to "unknown" with tails preserved |
-| `server/phaseRunner.test.ts` | Test exit_reason fields are mirrored onto phase.completed |
-| `server/phaseRunner.test.ts` | Test on_exit_reason retry policy evaluation |
+| `server/adapters/codex.ts` | New file — Codex CLI adapter with invoke, buildArgs, translateLine |
+| `server/phaseRunner.ts` | Rename `cliInvoker` → `claudeCodeInvoker`, add `codexInvoker`, route by transport name |
+| `shared/events.ts` | No changes needed — `"codex"` already in `Transport` union and `CLI_TRANSPORTS` |
+| `server/adapters/codex.test.ts` | New file — tests using injected Spawner (no real subprocess) |
+| `server/phaseRunner.test.ts` | Update tests for renamed dep, add test for codex transport routing |
