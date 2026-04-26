@@ -172,10 +172,7 @@ describe("graphLayoutReactor", () => {
     appendAndProject(db, taskDependencySet("T-002", ["T-001"]));
     appendAndProject(db, taskDependencySet("T-003", ["T-002"]));
 
-    // Immediately after, no layout yet (debounce hasn't fired)
-    const immediate = readGraphLayout(db);
-    expect(immediate).toBeNull();
-
+    // Wait for the boot recompute + debounced event recompute to settle
     await waitForLayout();
 
     // Now the layout should reflect all 3 tasks
@@ -249,14 +246,19 @@ describe("graphLayoutReactor", () => {
   });
 
   it("dispose removes listener and clears pending timer", async () => {
-    appendAndProject(db, taskCreated("T-001"));
-    // Don't wait — dispose immediately
+    // Wait for the boot-time recompute to finish first
+    await waitForLayout();
+
+    // Now dispose, then emit an event
     dispose();
+    appendAndProject(db, taskCreated("T-NEW"));
 
     // Wait for what would have been the debounce period
     await waitForLayout();
 
-    // No layout should have been written since we disposed before the debounce fired
-    expect(readGraphLayout(db)).toBeNull();
+    // The new task should NOT appear in the layout since we disposed before the event
+    const layout = readGraphLayout(db);
+    expect(layout).not.toBeNull();
+    expect(layout!.nodes["T-NEW"]).toBeUndefined();
   });
 });
