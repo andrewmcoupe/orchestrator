@@ -25,6 +25,8 @@ import { createRepoRoutes } from "./routes/repo.js";
 import { createWorktreeRoutes } from "./routes/worktrees.js";
 import { addStaticMiddleware } from "./staticFiles.js";
 import { recoverWorktrees } from "./crashRecovery.js";
+import { createGraphLayoutTable } from "./graphLayoutStore.js";
+import { registerGraphLayoutReactor } from "./graphLayoutReactor.js";
 
 const app = new Hono();
 
@@ -35,6 +37,8 @@ app.get("/healthz", (c) => c.json({ status: "ok" }));
 const db = getDb();
 runMigrations(db);
 initProjections(db);
+createGraphLayoutTable(db);
+registerGraphLayoutReactor(db);
 
 // Discard uncommitted worktree changes left by interrupted attempts
 await recoverWorktrees(db);

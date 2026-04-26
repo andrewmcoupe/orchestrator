@@ -1,17 +1,23 @@
-import { useCallback, useState, useMemo } from "react";
-import { SlidersHorizontal, ClipboardList, Plus, X } from "lucide-react";
+import { Fragment, useCallback, useState, useMemo, useEffect } from "react";
+import { SlidersHorizontal, ClipboardList, Plus, X, Info, ChevronRight } from "lucide-react";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
   TaskStatus,
   PhaseConfig,
   GateConfig,
   AnyEvent,
+  GateFailed,
 } from "@shared/events.js";
 import { canAddDependency } from "@shared/dependency.js";
 import { topoSort } from "@shared/dependency.js";
 import { useTaskTimelineQuery } from "../../hooks/useQueries.js";
 import { MergeDialog } from "../review/MergeDialog.js";
 import { Button } from "@web/src/components/ui/button";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@web/src/components/ui/popover";
 
 type TaskDetailPaneProps = {
   detail: TaskDetailRow;
@@ -54,18 +60,28 @@ function derivePhaseStatus(
   enabledPhases: PhaseConfig[],
   currentPhase?: string,
   taskStatus?: TaskStatus,
+  completedPhases?: string[],
 ): PhaseStatus {
   if (!taskStatus || taskStatus === "draft" || taskStatus === "queued")
     return "pending";
+  // Terminal states — all phases are done
   if (
     taskStatus === "merged" ||
     taskStatus === "awaiting_review" ||
-    taskStatus === "rejected"
+    taskStatus === "approved" ||
+    taskStatus === "rejected" ||
+    taskStatus === "awaiting_merge" ||
+    taskStatus === "archived"
   )
     return "done";
+  // Explicitly completed phases are always done
+  if (completedPhases?.includes(phase.name)) return "done";
   if (currentPhase === phase.name) return "running";
-  // If the task is running, phases before the current one are done
-  if (taskStatus === "running" && currentPhase) {
+  // If the task is active, phases before the current one are done
+  if (
+    (taskStatus === "running" || taskStatus === "revising" || taskStatus === "paused" || taskStatus === "blocked") &&
+    currentPhase
+  ) {
     const currentIdx = enabledPhases.findIndex((p) => p.name === currentPhase);
     const thisIdx = enabledPhases.findIndex((p) => p.name === phase.name);
     if (currentIdx >= 0 && thisIdx >= 0 && thisIdx < currentIdx) return "done";
@@ -90,23 +106,26 @@ function PhaseBox({
   enabledPhases,
   currentPhase,
   taskStatus,
+  completedPhases,
 }: {
   phase: PhaseConfig;
   enabledPhases: PhaseConfig[];
   currentPhase?: string;
   taskStatus?: TaskStatus;
+  completedPhases?: string[];
 }) {
   const status = derivePhaseStatus(
     phase,
     enabledPhases,
     currentPhase,
     taskStatus,
+    completedPhases,
   );
   const model = phase.model.split("/").pop() ?? phase.model;
 
   return (
     <div
-      className={`flex-1 border px-4 py-3 min-w-[140px] ${PHASE_STATUS_STYLES[status]}`}
+      className={`border px-4 py-3 min-w-[140px] ${PHASE_STATUS_STYLES[status]}`}
     >
       <div className="flex items-center gap-1.5 mb-1">
         {status === "running" ? (
@@ -123,6 +142,9 @@ function PhaseBox({
       <div className="text-xs text-text-secondary font-mono">
         {model} &middot; {phase.prompt_version_id || "v?"}
       </div>
+      {status === "done" && (
+        <span className="text-xs text-text-tertiary mt-1">Finished</span>
+      )}
     </div>
   );
 }
@@ -436,6 +458,159 @@ function DependencySection({
 // Main component
 // ============================================================================
 
+// ============================================================================
+// Task preview popover — shows what the task will have before implementation
+// ============================================================================
+
+function PromptPreview({ promptVersionId }: { promptVersionId: string }) {
+  const [template, setTemplate] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/projections/prompt_template/${encodeURIComponent(promptVersionId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { template: string } | null) => {
+        setTemplate(data?.template ?? null);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [promptVersionId]);
+
+  if (loading) {
+    return <span className="text-[10px] text-text-tertiary">loading…</span>;
+  }
+  if (!template) {
+    return <span className="text-[10px] text-text-tertiary">template not found</span>;
+  }
+
+  const preview = template.slice(0, 200);
+  const truncated = template.length > 200;
+
+  return (
+    <div className="mt-1.5">
+      <pre className="text-[10px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words bg-bg-primary border border-border-muted p-2 max-h-48 overflow-y-auto">
+        {expanded ? template : preview}
+        {truncated && !expanded && "…"}
+      </pre>
+      {truncated && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-[10px] text-text-tertiary hover:text-text-secondary mt-1 cursor-pointer"
+        >
+          {expanded ? "show less" : `show all (${template.length.toLocaleString()} chars)`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
+  const enabledPhases = detail.config.phases.filter((p) => p.enabled);
+
+  return (
+    <div className="space-y-4">
+      {/* Phases overview */}
+      <div>
+        <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+          Phases
+        </h4>
+        <div className="space-y-3">
+          {enabledPhases.map((phase) => (
+            <div
+              key={phase.name}
+              className="border border-border-muted bg-bg-secondary p-2.5"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-medium text-text-primary">
+                  {phase.name}
+                </span>
+                <span className="text-[10px] font-mono text-text-tertiary">
+                  {phase.transport} · {phase.model}
+                </span>
+              </div>
+
+              {/* Prompt template */}
+              {phase.prompt_version_id && (
+                <div>
+                  <span className="text-[10px] text-text-tertiary">
+                    prompt: {phase.prompt_version_id}
+                  </span>
+                  <PromptPreview promptVersionId={phase.prompt_version_id} />
+                </div>
+              )}
+
+              {/* Context policy */}
+              <div className="mt-1.5 pt-1.5 border-t border-border-muted text-[11px] text-text-tertiary">
+                <span className="text-text-secondary">context:</span>{" "}
+                depth {phase.context_policy.symbol_graph_depth},{" "}
+                {phase.context_policy.token_budget.toLocaleString()} tokens
+                {phase.context_policy.include_tests && ", +tests"}
+                {phase.context_policy.include_similar_patterns && ", +patterns"}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Gates */}
+      {detail.config.gates.length > 0 && (
+        <div>
+          <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+            Gates
+          </h4>
+          <div className="space-y-1">
+            {detail.config.gates.map((gate) => (
+              <div
+                key={gate.name}
+                className="flex items-center justify-between text-[11px] px-2 py-1 bg-bg-secondary border border-border-muted"
+              >
+                <span className="font-mono text-text-primary">{gate.name}</span>
+                <span className="text-text-tertiary">{gate.on_fail}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Propositions */}
+      {detail.proposition_ids.length > 0 && (
+        <div>
+          <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+            Propositions ({detail.proposition_ids.length})
+          </h4>
+          <div className="space-y-1">
+            {detail.proposition_ids.map((id) => (
+              <div
+                key={id}
+                className="text-[11px] font-mono text-text-secondary px-2 py-1 bg-bg-secondary border border-border-muted truncate"
+              >
+                {id}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Retry policy summary */}
+      <div>
+        <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+          Retry policy
+        </h4>
+        <div className="text-[11px] text-text-secondary font-mono bg-bg-secondary border border-border-muted p-2 space-y-0.5">
+          <div>max attempts: {detail.config.retry_policy.max_total_attempts}</div>
+          <div>on audit reject: {detail.config.retry_policy.on_audit_reject}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Main component
+// ============================================================================
+
 export function TaskDetailPane({
   detail,
   listRow,
@@ -476,6 +651,17 @@ export function TaskDetailPane({
                 <ClipboardList className="h-3.5 w-3.5" />
                 Review
               </Button>
+            ) : detail.status === "approved" ? (
+              <Button
+                type="button"
+                onClick={() =>
+                  onReview(detail.task_id, detail.current_attempt_id!)
+                }
+                title="Review changes from last attempt"
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                Review changes
+              </Button>
             ) : detail.status === "merged" || detail.status === "rejected" ? (
               <Button
                 type="button"
@@ -514,9 +700,19 @@ export function TaskDetailPane({
             </span>
           )}
         </div>
-        <h2 className="text-xl font-semibold text-text-primary">
-          {detail.title}
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-semibold text-text-primary">
+            {detail.title}
+          </h2>
+          <Popover>
+            <PopoverTrigger className="p-1 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer">
+              <Info size={16} />
+            </PopoverTrigger>
+            <PopoverContent className="w-96 max-h-[70vh] overflow-y-auto" side="bottom" align="start">
+              <TaskPreviewPanel detail={detail} />
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       {/* Merge confirmation dialog */}
@@ -576,15 +772,27 @@ export function TaskDetailPane({
           <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
             Phases
           </h3>
-          <div className="flex gap-3">
-            {enabledPhases.map((phase) => (
-              <PhaseBox
-                key={phase.name}
-                phase={phase}
-                enabledPhases={enabledPhases}
-                currentPhase={listRow?.current_phase ?? undefined}
-                taskStatus={detail.status}
-              />
+          <div
+            className="grid items-stretch gap-3"
+            style={{
+              gridTemplateColumns: enabledPhases
+                .map((_, i) => (i > 0 ? "auto 1fr" : "1fr"))
+                .join(" "),
+            }}
+          >
+            {enabledPhases.map((phase, i) => (
+              <Fragment key={phase.name}>
+                {i > 0 && (
+                  <ChevronRight size={14} className="text-text-tertiary self-center" />
+                )}
+                <PhaseBox
+                  phase={phase}
+                  enabledPhases={enabledPhases}
+                  currentPhase={listRow?.current_phase ?? undefined}
+                  taskStatus={detail.status}
+                  completedPhases={listRow?.completed_phases}
+                />
+              </Fragment>
             ))}
             {enabledPhases.length === 0 && (
               <p className="text-sm text-text-tertiary">
@@ -714,12 +922,16 @@ function TaskTimeline({
         Timeline
       </h3>
       <div className="relative pl-4 border-l border-border-muted">
-        {events.map((event) => {
+        {[...events].reverse().map((event) => {
           const detail = timelineDetail(event);
+          const gateFailures =
+            event.type === "gate.failed"
+              ? (event.payload as GateFailed).failures
+              : undefined;
           return (
             <div
               key={event.id}
-              className="relative flex items-start gap-3 py-1.5"
+              className="relative py-1.5"
             >
               <div
                 className={`absolute -left-[calc(1rem+3px)] top-2.5 h-1.5 w-1.5 rounded-full ${timelineColor(event)}`}
@@ -737,6 +949,25 @@ function TaskTimeline({
                   </span>
                 )}
               </div>
+              {gateFailures && gateFailures.length > 0 && (
+                <div className="mt-1.5 ml-32 space-y-1">
+                  {gateFailures.map((f, i) => (
+                    <div
+                      key={i}
+                      className="border border-status-danger/20 bg-status-danger/5 px-3 py-1.5 text-xs"
+                    >
+                      {f.location && (
+                        <span className="font-mono text-text-secondary">
+                          {f.location.path}:{f.location.line}
+                          {f.location.col != null ? `:${f.location.col}` : ""}
+                          {" — "}
+                        </span>
+                      )}
+                      <span className="text-text-primary">{f.excerpt}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

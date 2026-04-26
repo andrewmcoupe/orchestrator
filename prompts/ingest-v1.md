@@ -14,6 +14,8 @@ Extract from the PRD:
 
 2. **Draft Tasks** — Logical groupings of related propositions that should be implemented together. Group propositions that share the same component, domain, or implementation context. Each draft task should have a clear, action-oriented title. Assign each draft task a temporary ID using the format "DT-001", "DT-002", etc. in order of appearance. If a task depends on another task being completed first, include a `depends_on` array referencing the DT-* IDs of its dependencies. Use an empty array if the task has no dependencies.
 
+   **Important: Do not create standalone test-only tasks.** If a task's deliverable is writing tests for functionality being added in another task, merge them into a single task. The orchestrator has a separate test-author phase that handles test writing — creating a standalone "write tests for X" task is redundant. Each task should deliver a complete slice of functionality (implementation + its tests together).
+
 3. **Pushbacks** — Flag any propositions that require clarification before implementation:
    - `blocking`: Cannot proceed without resolution (ambiguous, contradictory, or technically infeasible)
    - `advisory`: Can proceed but clarification is recommended

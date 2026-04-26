@@ -27,6 +27,8 @@ export type SSEClient = {
   onConnection: (listener: ConnectionListener) => () => void;
   /** The last-seen event id (for reconnect handover). */
   lastSeenId: () => string | undefined;
+  /** Seed the last-seen ID (e.g. from hydrated events) so SSE starts after it. */
+  setLastSeenId: (id: string) => void;
   /** Open the connection. */
   connect: () => void;
   /** Close the connection permanently. */
@@ -121,6 +123,7 @@ export function createSSEClient(options: SSEClientOptions = {}): SSEClient {
       };
     },
     lastSeenId: () => lastId,
+    setLastSeenId: (id: string) => { lastId = id; },
     connect,
     close,
     connected: () => isConnected,

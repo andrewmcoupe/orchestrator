@@ -165,10 +165,11 @@ export type TransportOptions =
   | {
       kind: "cli";
       bare?: boolean;
-      max_turns: number;
+      max_turns?: number;
       max_budget_usd: number;
       permission_mode: "default" | "plan" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "auto";
       allowed_tools?: string[];
+      disallowed_tools?: string[];
       append_system_prompt_path?: string;
       schema?: object; // JSON Schema for structured output via --json-schema
     }
@@ -200,6 +201,7 @@ export interface RetryPolicy {
   on_audit_reject: RetryStrategy;
   on_spec_pushback: "pause_and_notify" | "auto_defer";
   max_total_attempts: number;
+  on_exit_reason?: Partial<Record<ExitReason, ExitReasonPolicy>>;
 }
 
 export type RetryStrategy =
@@ -208,6 +210,20 @@ export type RetryStrategy =
   | "reroute_to_stronger_model"
   | "decompose_task"
   | "escalate_to_human";
+
+export type ExitReason =
+  | "normal"
+  | "timeout"
+  | "budget_exceeded"
+  | "turn_limit"
+  | "permission_blocked"
+  | "killed"
+  | "schema_invalid"
+  | "network_error"
+  | "crashed"
+  | "unknown";
+
+export type ExitReasonPolicy = "retry_same" | "retry_different" | "escalate_to_human";
 
 export interface AuditConcern {
   category:
@@ -481,6 +497,11 @@ export interface PhaseCompleted {
   duration_ms: number;
   /** SHA-256 hash of the unified diff captured at phase completion, stored in the blob store. */
   diff_hash?: string;
+  /** Structured reason the phase ended. "normal" means clean success. */
+  exit_reason: ExitReason;
+  stdout_tail_hash: string | null;
+  stderr_tail_hash: string | null;
+  permission_blocked_on: string | null;
 }
 
 export interface PhaseFailed {
@@ -552,6 +573,10 @@ export interface InvocationCompleted {
   duration_ms: number;
   turns: number;
   exit_code?: number;
+  exit_reason: ExitReason;
+  stdout_tail_hash: string | null;
+  stderr_tail_hash: string | null;
+  permission_blocked_on: string | null;
 }
 
 export interface InvocationErrored {

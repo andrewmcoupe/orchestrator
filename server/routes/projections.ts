@@ -19,8 +19,11 @@ import type {
   AbExperimentRow,
   CostRollupRow,
   PresetRow,
+  GraphLayoutResponse,
+  GraphLayoutNodeInfo,
 } from "@shared/projections.js";
 import type { TaskConfig, TaskStatus, Transport, PhaseName } from "@shared/events.js";
+import { readGraphLayout } from "../graphLayoutStore.js";
 
 // ============================================================================
 // Helpers
@@ -429,6 +432,23 @@ export function createProjectionRoutes(db: Database.Database): Hono {
     return c.json(rows.map(parsePromptVersionRow));
   });
 
+  // -- prompt_template/:id — fetch the raw template text for a prompt version
+  routes.get("/api/projections/prompt_template/:id", (c) => {
+    const pvId = c.req.param("id");
+    const row = db
+      .prepare(
+        "SELECT payload_json FROM events WHERE type = 'prompt_version.created' AND aggregate_id = ? LIMIT 1",
+      )
+      .get(pvId) as { payload_json: string } | undefined;
+
+    if (!row) {
+      return c.json({ error: "Prompt version not found" }, 404);
+    }
+
+    const payload = JSON.parse(row.payload_json) as { template: string };
+    return c.json({ template: payload.template });
+  });
+
   // -- ab_experiment?phase_class=
   routes.get("/api/projections/ab_experiment", (c) => {
     const phaseClass = c.req.query("phase_class");
@@ -507,6 +527,57 @@ export function createProjectionRoutes(db: Database.Database): Hono {
     );
 
     return c.json(rows.map(parsePresetRow));
+  });
+
+  // -- graph_layout: dependency graph with node positions and task metadata
+  routes.get("/api/projections/graph_layout", (c) => {
+    const layout = readGraphLayout(db);
+    if (!layout) return c.json({ nodes: {}, edges: [], meta: { critical_path: [], direction: "DOWN" } } satisfies GraphLayoutResponse);
+
+    const prdId = c.req.query("prd_id");
+
+    // Fetch task metadata to enrich nodes with title, status, attempt_count, max_total_attempts
+    const taskRows = safeAll<{ task_id: string; title: string; status: string; attempt_count: number; prd_id: string | null; config_json: string | null }>(
+      db,
+      `SELECT tl.task_id, tl.title, tl.status, tl.attempt_count, tl.prd_id, td.config_json
+       FROM proj_task_list tl
+       LEFT JOIN proj_task_detail td ON tl.task_id = td.task_id`,
+    );
+    const taskMap = new Map(taskRows.map((r) => [r.task_id, r]));
+
+    // Build enriched nodes, optionally filtering by prd_id
+    const nodes: Record<string, GraphLayoutNodeInfo> = {};
+    for (const [taskId, pos] of Object.entries(layout.nodes)) {
+      const task = taskMap.get(taskId);
+      if (!task) continue;
+      if (prdId === "standalone" && task.prd_id != null) continue;
+      if (prdId && prdId !== "standalone" && task.prd_id !== prdId) continue;
+      nodes[taskId] = {
+        x: pos.x,
+        y: pos.y,
+        width: pos.width,
+        height: pos.height,
+        title: task.title,
+        status: task.status as TaskStatus,
+        attempt_count: task.attempt_count,
+        max_total_attempts: task.config_json ? (JSON.parse(task.config_json) as TaskConfig).retry_policy.max_total_attempts : 3,
+        prd_id: task.prd_id ?? undefined,
+      };
+    }
+
+    // Filter edges to only include those between included nodes
+    const edges = layout.edges.filter((e) => e.source in nodes && e.target in nodes);
+
+    // Filter critical path to included nodes
+    const critical_path = layout.meta.critical_path.filter((id) => id in nodes);
+
+    const response: GraphLayoutResponse = {
+      nodes,
+      edges,
+      meta: { critical_path, direction: layout.meta.direction },
+    };
+
+    return c.json(response);
   });
 
   return routes;

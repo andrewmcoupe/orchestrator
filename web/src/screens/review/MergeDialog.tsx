@@ -33,6 +33,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@web/src/components/ui/dialog";
+import { Button } from "@web/src/components/ui/button";
 
 // ============================================================================
 // Types
@@ -56,6 +57,7 @@ type DialogPhase =
   | { name: "drifted"; commits_ahead: number }
   | { name: "gate_failed"; failures: GateFailureItem[] }
   | { name: "conflicted"; paths: string[] }
+  | { name: "dirty_worktree"; files: string[] }
   | { name: "error"; message: string };
 
 export type MergeDialogProps = {
@@ -153,6 +155,13 @@ export function MergeDialog({
           });
           return;
         }
+        if (result.outcome === "dirty_worktree") {
+          setPhase({
+            name: "dirty_worktree",
+            files: result.files ?? [],
+          });
+          return;
+        }
         if (result.outcome === "gate_failed") {
           setPhase({ name: "gate_failed", failures: result.failures ?? [] });
           return;
@@ -229,6 +238,10 @@ export function MergeDialog({
             />
           )}
 
+          {phase.name === "dirty_worktree" && (
+            <DirtyWorktreeView files={phase.files} />
+          )}
+
           {phase.name === "error" && <ErrorView message={phase.message} />}
         </div>
 
@@ -301,6 +314,18 @@ export function MergeDialog({
                 Retry merge
               </button>
             </>
+          )}
+
+          {phase.name === "dirty_worktree" && (
+            <Button
+              type="button"
+              data-testid="dirty-worktree-dismiss-btn"
+              onClick={onClose}
+              variant="outline"
+            >
+              <ChevronLeft size={13} />
+              Back
+            </Button>
           )}
 
           {phase.name === "error" && (
@@ -533,6 +558,39 @@ function ConflictedView({
         <FolderOpen size={13} />
         Open worktree in editor
       </button>
+    </div>
+  );
+}
+
+// ============================================================================
+// DirtyWorktreeView
+// ============================================================================
+
+function DirtyWorktreeView({ files }: { files: string[] }) {
+  return (
+    <div data-testid="dirty-worktree-view" className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <AlertTriangle size={14} className="text-status-warning shrink-0" />
+        <span className="text-sm font-medium text-status-warning">
+          Uncommitted changes on base branch
+        </span>
+      </div>
+      <p className="text-xs text-text-secondary">
+        Your base branch has uncommitted changes that would be lost during the
+        merge. Please commit or stash them before merging.
+      </p>
+      {files.length > 0 && (
+        <ul className="flex flex-col gap-1 max-h-32 overflow-y-auto">
+          {files.map((f) => (
+            <li
+              key={f}
+              className="text-xs font-mono text-text-primary px-2.5 py-1 bg-bg-primary border border-border-muted"
+            >
+              {f}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

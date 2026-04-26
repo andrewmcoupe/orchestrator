@@ -14,11 +14,16 @@ import {
   translateLine,
   parseGitNumstat,
   parseGitNameStatus,
+  classifySubprocessError,
+  parsePermissionBlockedOn,
+  PERMISSION_HANG_TIMEOUT_MS,
   type InvokeOptions,
   type ClaudeCodeLine,
+  type SpawnerContext,
 } from "./claudeCode.js";
 import type { BlobStore } from "../blobStore.js";
 import { invoke } from "./claudeCode.js";
+import type { ExitReason, InvocationCompleted } from "@shared/events.js";
 
 // ============================================================================
 // Helpers
@@ -353,7 +358,7 @@ describe("translateLine — result success", () => {
 });
 
 describe("translateLine — result error", () => {
-  it("produces invocation.errored on is_error=true", () => {
+  it("produces invocation.errored and invocation.completed on is_error=true", () => {
     const line: ClaudeCodeLine = {
       type: "result",
       subtype: "error",
@@ -367,9 +372,11 @@ describe("translateLine — result error", () => {
     };
     const blobStore = makeBlobStore();
     const inputs = translateLine(line, baseOpts, blobStore);
-    expect(inputs).toHaveLength(1);
+    expect(inputs).toHaveLength(2);
     expect(inputs[0].type).toBe("invocation.errored");
     expect((inputs[0].payload as { error_category: string }).error_category).toBe("unknown");
+    expect(inputs[1].type).toBe("invocation.completed");
+    expect((inputs[1].payload as { exit_reason: string }).exit_reason).toBe("unknown");
   });
 
   it("maps error_budget_exceeded subtype to budget_exceeded category", () => {
@@ -386,8 +393,9 @@ describe("translateLine — result error", () => {
     };
     const blobStore = makeBlobStore();
     const inputs = translateLine(line, baseOpts, blobStore);
-    expect(inputs[0].type).toBe("invocation.errored");
-    expect((inputs[0].payload as { error_category: string }).error_category).toBe(
+    const errored = inputs.find((i) => i.type === "invocation.errored");
+    expect(errored).toBeDefined();
+    expect((errored!.payload as { error_category: string }).error_category).toBe(
       "budget_exceeded",
     );
   });
@@ -406,7 +414,8 @@ describe("translateLine — result error", () => {
     };
     const blobStore = makeBlobStore();
     const inputs = translateLine(line, baseOpts, blobStore);
-    expect((inputs[0].payload as { error_category: string }).error_category).toBe("turn_limit");
+    const errored = inputs.find((i) => i.type === "invocation.errored");
+    expect((errored!.payload as { error_category: string }).error_category).toBe("turn_limit");
   });
 });
 
@@ -644,5 +653,573 @@ describe("invoke() pipeline", () => {
     // But args can be retrieved from blob store
     const stored = blobStore.getBlob(args_hash);
     expect(JSON.parse(stored!.toString())).toEqual(toolArgs);
+  });
+});
+
+// ============================================================================
+// Exit reason classification
+// ============================================================================
+
+describe("exit reason classification", () => {
+  // --------------------------------------------------------------------------
+  // AC2: permission hang timeout is 10 seconds
+  // --------------------------------------------------------------------------
+
+  describe("PERMISSION_HANG_TIMEOUT_MS — AC2 timeout constant", () => {
+    it("is exactly 10 seconds (10_000 ms)", () => {
+      // AC2: "no stream-json events have arrived for 10 seconds, the subprocess is killed immediately"
+      // The execaSpawner starts a PERMISSION_HANG_TIMEOUT_MS timer the moment it
+      // detects "Waiting for permission" in stderr. This test verifies the constant
+      // is set to the required 10s so the kill fires within the AC2 window.
+      expect(PERMISSION_HANG_TIMEOUT_MS).toBe(10_000);
+    });
+  });
+
+  describe("classifySubprocessError", () => {
+    it("classifies SIGKILL as killed", () => {
+      const err = Object.assign(new Error("killed"), { signal: "SIGKILL", exitCode: 137 });
+      expect(classifySubprocessError(err)).toBe("killed");
+    });
+
+    it("classifies exit code 137 as killed", () => {
+      const err = Object.assign(new Error("killed"), { exitCode: 137 });
+      expect(classifySubprocessError(err)).toBe("killed");
+    });
+
+    it("classifies exit code 124 as timeout", () => {
+      const err = Object.assign(new Error("timeout"), { exitCode: 124 });
+      expect(classifySubprocessError(err)).toBe("timeout");
+    });
+
+    it("classifies permission prompt in stderr as permission_blocked", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "Waiting for permission to use tool")).toBe("permission_blocked");
+    });
+
+    it("classifies ENOTFOUND as network_error", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "Error: ENOTFOUND api.anthropic.com")).toBe("network_error");
+    });
+
+    it("classifies ECONNREFUSED as network_error", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "connect ECONNREFUSED 127.0.0.1:443")).toBe("network_error");
+    });
+
+    it("classifies 'socket hang up' as network_error (AC7)", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "Error: socket hang up")).toBe("network_error");
+    });
+
+    it("classifies schema validation errors as schema_invalid", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "schema validation failed")).toBe("schema_invalid");
+    });
+
+    it("classifies segfault as crashed", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "Segmentation fault (core dumped)\nSIGSEGV")).toBe("crashed");
+    });
+
+    it("classifies stack trace in stderr as crashed (AC9)", () => {
+      const err = Object.assign(new Error("failed"), { exitCode: 1 });
+      expect(classifySubprocessError(err, "at Object.<anonymous> (/app/index.js:10:5)\nstack trace")).toBe("crashed");
+    });
+
+    it("falls through to unknown with no matching pattern", () => {
+      const err = Object.assign(new Error("something went wrong"), { exitCode: 1 });
+      expect(classifySubprocessError(err)).toBe("unknown");
+    });
+  });
+
+  describe("budget-exceeded fixture: classifies correctly from structured event", () => {
+    it("translateLine produces exit_reason budget_exceeded from error_budget_exceeded result (AC1)", () => {
+      const line: ClaudeCodeLine = {
+        type: "result",
+        subtype: "error_budget_exceeded",
+        duration_ms: 500,
+        is_error: true,
+        num_turns: 2,
+        result: "Budget exceeded",
+        session_id: "s1",
+        total_cost_usd: 1.0,
+        usage: { input_tokens: 100, output_tokens: 50 },
+      };
+      const blobStore = makeBlobStore();
+      const inputs = translateLine(line, baseOpts, blobStore, {}, 1000);
+      const completed = inputs.find((i) => i.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      expect((completed!.payload as { exit_reason: string }).exit_reason).toBe("budget_exceeded");
+    });
+  });
+
+  describe("turn-limit fixture: classifies correctly from structured event", () => {
+    it("translateLine produces exit_reason turn_limit from error_max_turns result (AC2)", () => {
+      const line: ClaudeCodeLine = {
+        type: "result",
+        subtype: "error_max_turns",
+        duration_ms: 800,
+        is_error: true,
+        num_turns: 10,
+        result: "Max turns reached",
+        session_id: "s1",
+        total_cost_usd: 0.5,
+        usage: { input_tokens: 200, output_tokens: 80 },
+      };
+      const blobStore = makeBlobStore();
+      const inputs = translateLine(line, baseOpts, blobStore, {}, 1000);
+      const completed = inputs.find((i) => i.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      expect((completed!.payload as { exit_reason: string }).exit_reason).toBe("turn_limit");
+    });
+  });
+
+  describe("unknown-crash fixture: falls through to unknown with tails preserved", () => {
+    it("invoke() yields invocation.completed with exit_reason=unknown and null tail hashes on unexpected crash", async () => {
+      async function* crashingSpawner() {
+        yield JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          permissionMode: "acceptEdits",
+        });
+        const err = new Error("Unexpected crash") as Error & { exitCode?: number };
+        err.exitCode = 1;
+        throw err;
+      }
+
+      const blobStore = makeBlobStore();
+      const results: Array<{ type: string; payload: unknown }> = [];
+
+      for await (const input of invoke(baseOpts, blobStore, crashingSpawner)) {
+        results.push({ type: input.type, payload: input.payload });
+      }
+
+      // Should have both errored and completed events
+      const errored = results.find((r) => r.type === "invocation.errored");
+      expect(errored).toBeDefined();
+
+      const completed = results.find((r) => r.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      const p = completed!.payload as InvocationCompleted;
+      expect(p.exit_reason).toBe("unknown");
+      expect(p.outcome).toBe("failed");
+      // Tail hashes are now stored in the crash path (best-effort blob store).
+      // stdout had the init line, stderr has the error message — both get hashes.
+      expect(p.stdout_tail_hash).not.toBeNull();
+      expect(p.stderr_tail_hash).not.toBeNull();
+    });
+  });
+
+  describe("permission-prompt-hang fixture: adapter detects and kills within 10s", () => {
+    it("invoke() classifies permission_blocked when process is killed after permission prompt appears in stderr", async () => {
+      // AC1/AC2: The real execaSpawner monitors stderr for "Waiting for permission" and
+      // kills the process after PERMISSION_HANG_TIMEOUT_MS (10s, verified above).
+      // Here we simulate the outcome of that kill: a spawner that throws with
+      // SIGKILL + the permission prompt in stderr (exactly what execaSpawner produces).
+      async function* permissionHangSpawner() {
+        yield JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          permissionMode: "acceptEdits",
+        });
+        // Simulates execaSpawner killing after PERMISSION_HANG_TIMEOUT_MS:
+        // result.stderr contains "Waiting for permission", exitCode=137, signal=SIGKILL
+        const err = Object.assign(
+          new Error("Waiting for permission to use tool Write"),
+          { signal: "SIGKILL", exitCode: 137 },
+        );
+        throw err;
+      }
+
+      const blobStore = makeBlobStore();
+      const results: Array<{ type: string; payload: unknown }> = [];
+
+      for await (const input of invoke(baseOpts, blobStore, permissionHangSpawner)) {
+        results.push({ type: input.type, payload: input.payload });
+      }
+
+      const completed = results.find((r) => r.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      const p = completed!.payload as InvocationCompleted;
+      // AC3: permission hang → permission_blocked (not "killed" even though SIGKILL)
+      expect(p.exit_reason).toBe("permission_blocked");
+      // AC4: tool name extracted from the permission prompt
+      expect(p.permission_blocked_on).toBe("Write");
+    });
+  });
+
+  describe("translateLine includes exit_reason on success result", () => {
+    it("sets exit_reason to normal on success", () => {
+      const line: ClaudeCodeLine = {
+        type: "result",
+        subtype: "success",
+        duration_ms: 1000,
+        is_error: false,
+        num_turns: 1,
+        result: "Done",
+        session_id: "s1",
+        total_cost_usd: 0.001,
+        usage: { input_tokens: 50, output_tokens: 5 },
+      };
+      const blobStore = makeBlobStore();
+      const inputs = translateLine(line, baseOpts, blobStore, {}, 1000);
+      expect(inputs).toHaveLength(1);
+      expect((inputs[0].payload as { exit_reason: string }).exit_reason).toBe("normal");
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // AC3/AC4: permission hang + SIGKILL classification and tool name extraction
+  // --------------------------------------------------------------------------
+
+  describe("classifySubprocessError — permission pattern takes priority over SIGKILL", () => {
+    it("returns permission_blocked (not killed) when SIGKILL + permission prompt in stderr", () => {
+      // Real scenario: execaSpawner kills with SIGKILL after detecting permission prompt.
+      // The exit code is 137 and signal is SIGKILL, but stderr contains the permission prompt.
+      // The permission pattern must win so the caller can record the correct exit reason.
+      const err = Object.assign(
+        new Error("Waiting for permission to use tool Write"),
+        { signal: "SIGKILL", exitCode: 137 },
+      );
+      expect(classifySubprocessError(err, err.message)).toBe("permission_blocked");
+    });
+
+    it("still returns killed when SIGKILL without permission prompt in stderr", () => {
+      const err = Object.assign(new Error("Process was killed"), { signal: "SIGKILL", exitCode: 137 });
+      expect(classifySubprocessError(err, err.message)).toBe("killed");
+    });
+  });
+
+  describe("parsePermissionBlockedOn — tool name extraction", () => {
+    it("extracts tool name from 'Waiting for permission to use tool ToolName'", () => {
+      expect(parsePermissionBlockedOn("Waiting for permission to use tool Write")).toBe("Write");
+    });
+
+    it("extracts tool name from 'Waiting for permission to use ToolName' (no 'tool' keyword)", () => {
+      expect(parsePermissionBlockedOn("Waiting for permission to use Bash")).toBe("Bash");
+    });
+
+    it("extracts tool name from quoted tool name", () => {
+      expect(parsePermissionBlockedOn('Waiting for permission to use tool "Edit"')).toBe("Edit");
+    });
+
+    it("returns null when permission pattern is absent", () => {
+      expect(parsePermissionBlockedOn("Something unrelated")).toBeNull();
+    });
+
+    it("returns null when 'Waiting for permission' appears without a tool name", () => {
+      expect(parsePermissionBlockedOn("Waiting for permission")).toBeNull();
+    });
+  });
+
+  describe("AC3/AC4: invoke() with permission-hang kill — classifies and records tool name", () => {
+    it("classifies exit_reason as permission_blocked when killed after permission prompt", async () => {
+      // Simulate the real scenario: subprocess dies with SIGKILL (exitCode 137)
+      // and the error message contains the stderr permission prompt.
+      async function* permissionKillSpawner() {
+        yield JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          permissionMode: "acceptEdits",
+        });
+        // The error simulates what execaSpawner throws when SIGKILL terminates the process
+        // after a permission hang: message = result.stderr, signal = SIGKILL, exitCode = 137
+        const err = Object.assign(
+          new Error("Waiting for permission to use tool Write\nClaude is requesting permission to write to a file."),
+          { signal: "SIGKILL", exitCode: 137 },
+        );
+        throw err;
+      }
+
+      const blobStore = makeBlobStore();
+      const results: Array<{ type: string; payload: unknown }> = [];
+
+      for await (const input of invoke(baseOpts, blobStore, permissionKillSpawner)) {
+        results.push({ type: input.type, payload: input.payload });
+      }
+
+      const completed = results.find((r) => r.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      const p = completed!.payload as InvocationCompleted;
+      expect(p.exit_reason).toBe("permission_blocked");
+    });
+
+    it("records permission_blocked_on with the tool name parsed from the permission prompt", async () => {
+      async function* permissionKillSpawner() {
+        yield JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          permissionMode: "acceptEdits",
+        });
+        const err = Object.assign(
+          new Error("Waiting for permission to use tool Bash"),
+          { signal: "SIGKILL", exitCode: 137 },
+        );
+        throw err;
+      }
+
+      const blobStore = makeBlobStore();
+      const results: Array<{ type: string; payload: unknown }> = [];
+
+      for await (const input of invoke(baseOpts, blobStore, permissionKillSpawner)) {
+        results.push({ type: input.type, payload: input.payload });
+      }
+
+      const completed = results.find((r) => r.type === "invocation.completed");
+      expect(completed).toBeDefined();
+      const p = completed!.payload as InvocationCompleted;
+      expect(p.exit_reason).toBe("permission_blocked");
+      expect(p.permission_blocked_on).toBe("Bash");
+    });
+
+    it("sets permission_blocked_on to null when tool name cannot be parsed", async () => {
+      async function* permissionKillSpawner() {
+        yield JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "s1",
+          model: "claude-sonnet-4-6",
+          permissionMode: "acceptEdits",
+        });
+        // Permission prompt without a parseable tool name
+        const err = Object.assign(
+          new Error("Waiting for permission"),
+          { signal: "SIGKILL", exitCode: 137 },
+        );
+        throw err;
+      }
+
+      const blobStore = makeBlobStore();
+      const results: Array<{ type: string; payload: unknown }> = [];
+
+      for await (const input of invoke(baseOpts, blobStore, permissionKillSpawner)) {
+        results.push({ type: input.type, payload: input.payload });
+      }
+
+      const completed = results.find((r) => r.type === "invocation.completed");
+      const p = completed!.payload as InvocationCompleted;
+      expect(p.exit_reason).toBe("permission_blocked");
+      expect(p.permission_blocked_on).toBeNull();
+    });
+  });
+});
+
+// ============================================================================
+// Stdout/stderr tail capture
+// ============================================================================
+
+describe("stdout/stderr tail capture", () => {
+  it("AC1/AC3/AC5: stores stdout tail in blob store and attaches non-null hash to invocation.completed", async () => {
+    async function* fakeSpawner() {
+      yield JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "s1",
+        model: "claude-sonnet-4-6",
+        permissionMode: "acceptEdits",
+      });
+      yield JSON.stringify({
+        type: "result",
+        subtype: "success",
+        duration_ms: 500,
+        is_error: false,
+        num_turns: 1,
+        result: "Done",
+        session_id: "s1",
+        total_cost_usd: 0.0001,
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+    }
+
+    const blobStore = makeBlobStore();
+    const results: Array<{ type: string; payload: unknown }> = [];
+
+    for await (const input of invoke(baseOpts, blobStore, fakeSpawner)) {
+      results.push({ type: input.type, payload: input.payload });
+    }
+
+    const completed = results.find((r) => r.type === "invocation.completed");
+    expect(completed).toBeDefined();
+    const p = completed!.payload as InvocationCompleted;
+    // stdout was produced (the NDJSON lines), so hash must be a non-null string
+    expect(typeof p.stdout_tail_hash).toBe("string");
+    expect(p.stdout_tail_hash).not.toBeNull();
+    // The blob must be retrievable from the store
+    const stored = blobStore.getBlob(p.stdout_tail_hash!);
+    expect(stored).not.toBeNull();
+  });
+
+  it("AC2/AC4/AC6: stores stderr tail in blob store when spawner sets stderrTail on context", async () => {
+    const stderrContent = "Some stderr output from claude subprocess";
+
+    async function* spawnerWithStderr(
+      _cmd: string,
+      _args: string[],
+      _opts: { cwd: string },
+      context?: SpawnerContext,
+    ) {
+      yield JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "s1",
+        model: "claude-sonnet-4-6",
+        permissionMode: "acceptEdits",
+      });
+      yield JSON.stringify({
+        type: "result",
+        subtype: "success",
+        duration_ms: 500,
+        is_error: false,
+        num_turns: 1,
+        result: "Done",
+        session_id: "s1",
+        total_cost_usd: 0.0001,
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+      // Simulates execaSpawner setting stderrTail after subprocess exits
+      if (context) context.stderrTail = stderrContent;
+    }
+
+    const blobStore = makeBlobStore();
+    const results: Array<{ type: string; payload: unknown }> = [];
+
+    for await (const input of invoke(baseOpts, blobStore, spawnerWithStderr)) {
+      results.push({ type: input.type, payload: input.payload });
+    }
+
+    const completed = results.find((r) => r.type === "invocation.completed");
+    expect(completed).toBeDefined();
+    const p = completed!.payload as InvocationCompleted;
+    expect(typeof p.stderr_tail_hash).toBe("string");
+    expect(p.stderr_tail_hash).not.toBeNull();
+    const stored = blobStore.getBlob(p.stderr_tail_hash!);
+    expect(stored!.toString()).toBe(stderrContent);
+  });
+
+  it("stderr_tail_hash is null when no stderr was produced", async () => {
+    async function* fakeSpawner() {
+      yield JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "s1",
+        model: "claude-sonnet-4-6",
+        permissionMode: "acceptEdits",
+      });
+      yield JSON.stringify({
+        type: "result",
+        subtype: "success",
+        duration_ms: 500,
+        is_error: false,
+        num_turns: 1,
+        result: "Done",
+        session_id: "s1",
+        total_cost_usd: 0.0001,
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+      // context.stderrTail left unset — simulates a subprocess with no stderr
+    }
+
+    const blobStore = makeBlobStore();
+    const results: Array<{ type: string; payload: unknown }> = [];
+
+    for await (const input of invoke(baseOpts, blobStore, fakeSpawner)) {
+      results.push({ type: input.type, payload: input.payload });
+    }
+
+    const completed = results.find((r) => r.type === "invocation.completed");
+    const p = completed!.payload as InvocationCompleted;
+    expect(p.stderr_tail_hash).toBeNull();
+  });
+
+  it("AC7: invocation completes normally with null hashes when blob store throws", async () => {
+    async function* fakeSpawner() {
+      yield JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "s1",
+        model: "claude-sonnet-4-6",
+        permissionMode: "acceptEdits",
+      });
+      yield JSON.stringify({
+        type: "result",
+        subtype: "success",
+        duration_ms: 500,
+        is_error: false,
+        num_turns: 1,
+        result: "Done",
+        session_id: "s1",
+        total_cost_usd: 0.0001,
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+    }
+
+    const throwingBlobStore: BlobStore & { stored: Map<string, string> } = {
+      stored: new Map(),
+      putBlob(_content) {
+        throw new Error("blob store unavailable");
+      },
+      getBlob(_hash) { return null; },
+      hasBlob(_hash) { return false; },
+    };
+
+    const results: Array<{ type: string; payload: unknown }> = [];
+
+    // Must not throw even though blob store throws on putBlob
+    for await (const input of invoke(baseOpts, throwingBlobStore, fakeSpawner)) {
+      results.push({ type: input.type, payload: input.payload });
+    }
+
+    const completed = results.find((r) => r.type === "invocation.completed");
+    expect(completed).toBeDefined();
+    const p = completed!.payload as InvocationCompleted;
+    // Best-effort: hashes are null when blob store throws
+    expect(p.stdout_tail_hash).toBeNull();
+    expect(p.stderr_tail_hash).toBeNull();
+  });
+
+  it("stdout tail is capped at ~4KB (last 4096 bytes)", async () => {
+    // Generate more than 4KB of stdout content
+    const largeLine = "x".repeat(1000);
+    const resultLine = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      duration_ms: 500,
+      is_error: false,
+      num_turns: 1,
+      result: "Done",
+      session_id: "s1",
+      total_cost_usd: 0.0001,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+
+    async function* fakeSpawner() {
+      // Yield 6 large lines = 6000+ bytes of stdout (> 4KB)
+      for (let i = 0; i < 6; i++) {
+        yield largeLine;
+      }
+      yield resultLine;
+    }
+
+    const blobStore = makeBlobStore();
+    const results: Array<{ type: string; payload: unknown }> = [];
+
+    for await (const input of invoke(baseOpts, blobStore, fakeSpawner)) {
+      results.push({ type: input.type, payload: input.payload });
+    }
+
+    const completed = results.find((r) => r.type === "invocation.completed");
+    const p = completed!.payload as InvocationCompleted;
+    expect(p.stdout_tail_hash).not.toBeNull();
+    // The stored blob must be at most 4096 bytes
+    const stored = blobStore.getBlob(p.stdout_tail_hash!);
+    expect(stored!.length).toBeLessThanOrEqual(4096);
   });
 });

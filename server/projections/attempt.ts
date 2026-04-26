@@ -15,7 +15,7 @@
  */
 
 import type Database from "better-sqlite3";
-import type { AnyEvent } from "@shared/events.js";
+import type { AnyEvent, ExitReason } from "@shared/events.js";
 import { reduceAttempt, type AttemptRow } from "@shared/projections.js";
 import { registerProjection, type Projection } from "../projectionRunner.js";
 
@@ -44,6 +44,7 @@ type RawAttemptRow = {
   commit_sha: string | null;
   empty: number | null;
   effective_diff_attempt_id: string | null;
+  last_failure_reason: string | null;
   last_event_id: string;
 };
 
@@ -69,6 +70,7 @@ function rowFromRaw(raw: RawAttemptRow): AttemptRow {
     commit_sha: raw.commit_sha ?? undefined,
     empty: raw.empty === 1 ? true : raw.empty === 0 ? false : undefined,
     effective_diff_attempt_id: raw.effective_diff_attempt_id ?? undefined,
+    last_failure_reason: raw.last_failure_reason as ExitReason | null,
     last_event_id: raw.last_event_id,
   };
 }
@@ -116,6 +118,7 @@ export const attemptProjection: Projection<AttemptRow> = {
       commit_sha           TEXT,
       empty                INTEGER,
       effective_diff_attempt_id TEXT,
+      last_failure_reason  TEXT,
       last_event_id        TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_attempt_task
@@ -173,8 +176,8 @@ export const attemptProjection: Projection<AttemptRow> = {
         phases_json, gate_runs_json, audit_json,
         files_changed_json, config_snapshot_json,
         previous_attempt_id, commit_sha, empty,
-        effective_diff_attempt_id, last_event_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        effective_diff_attempt_id, last_failure_reason, last_event_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(attempt_id) DO UPDATE SET
         status               = excluded.status,
         outcome              = excluded.outcome,
@@ -190,6 +193,7 @@ export const attemptProjection: Projection<AttemptRow> = {
         commit_sha           = excluded.commit_sha,
         empty                = excluded.empty,
         effective_diff_attempt_id = excluded.effective_diff_attempt_id,
+        last_failure_reason  = excluded.last_failure_reason,
         last_event_id        = excluded.last_event_id`,
     ).run(
       next.attempt_id,
@@ -212,6 +216,7 @@ export const attemptProjection: Projection<AttemptRow> = {
       next.commit_sha ?? null,
       next.empty === true ? 1 : next.empty === false ? 0 : null,
       effectiveDiffAttemptId,
+      next.last_failure_reason,
       next.last_event_id,
     );
   },

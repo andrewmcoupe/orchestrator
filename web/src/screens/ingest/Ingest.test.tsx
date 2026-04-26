@@ -4,7 +4,17 @@ import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/re
 import { Ingest } from "./Ingest.js";
 import type { PropositionRow } from "@shared/projections.js";
 
-afterEach(cleanup);
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockRejectedValue(new Error("unmocked fetch")),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  cleanup();
+});
 
 // ============================================================================
 // Fixtures

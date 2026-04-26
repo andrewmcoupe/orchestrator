@@ -18,7 +18,7 @@
 import { execa } from "execa";
 import type { BlobStore } from "../blobStore.js";
 import type { AppendEventInput } from "../eventStore.js";
-import type { EventType, PhaseName, TransportOptions } from "@shared/events.js";
+import type { EventType, ExitReason, PhaseName, TransportOptions } from "@shared/events.js";
 
 // ============================================================================
 // Public types
@@ -113,6 +113,14 @@ export type ClaudeCodeLine =
 // ============================================================================
 
 /**
+ * Context object populated by the spawner after the subprocess exits.
+ * Allows the spawner to expose captured tails to the caller (invoke).
+ */
+export type SpawnerContext = {
+  stderrTail?: string;
+};
+
+/**
  * Async generator yielding raw NDJSON lines from the claude subprocess.
  * Default implementation uses execa; inject a fake in tests.
  */
@@ -120,17 +128,32 @@ export type Spawner = (
   cmd: string,
   args: string[],
   opts: { cwd: string },
+  context?: SpawnerContext,
 ) => AsyncIterable<string>;
+
+/**
+ * How long to wait after detecting a permission prompt before killing.
+ * Exported for test verification (AC2: kills within 10 seconds).
+ */
+export const PERMISSION_HANG_TIMEOUT_MS = 10_000;
 
 /**
  * Default spawner: reads stdout line-by-line from the claude subprocess.
  * Throws with exitCode attached on non-zero exit.
+ *
+ * Monitors stderr for permission prompts — if detected the process is killed
+ * after PERMISSION_HANG_TIMEOUT_MS (orchestrator runs in non-interactive mode
+ * so a permission prompt means the process will hang indefinitely).
  */
 async function* execaSpawner(
   cmd: string,
   args: string[],
   opts: { cwd: string },
+  context?: SpawnerContext,
 ): AsyncIterable<string> {
+  const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+  console.log(`[claudeCode] spawning: ANTHROPIC_API_KEY=${hasApiKey ? "set (" + process.env.ANTHROPIC_API_KEY!.slice(0, 8) + "...)" : "not set"}, cwd=${opts.cwd}`);
+
   const proc = execa(cmd, args, {
     cwd: opts.cwd,
     stdin: "ignore",
@@ -149,24 +172,69 @@ async function* execaSpawner(
     throw err;
   }
 
-  let buffer = "";
-  for await (const chunk of stdout) {
-    buffer += chunk.toString();
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (line.trim()) yield line;
-    }
-  }
-  if (buffer.trim()) yield buffer;
+  // Monitor stderr for permission prompts and kill after an idleness timeout.
+  // AC2: kill only if "Waiting for permission" was seen AND no stream-json
+  // events have arrived on stdout for PERMISSION_HANG_TIMEOUT_MS (10s).
+  // The timer is (re)started each time the pattern is detected and reset
+  // whenever a stdout line is yielded, so active output keeps the process alive.
+  let permissionHangTimer: ReturnType<typeof setTimeout> | undefined;
+  let permissionDetected = false;
+  let stderrTail = "";
+  const stderr = proc.stderr;
 
-  const result = await proc;
-  if (result.exitCode !== 0) {
-    const err = new Error(
-      result.stderr ?? `claude exited with code ${result.exitCode}`,
-    ) as Error & { exitCode?: number };
-    err.exitCode = result.exitCode ?? 1;
-    throw err;
+  /** Start or restart the permission-hang kill timer. */
+  const armPermissionTimer = () => {
+    if (permissionHangTimer) clearTimeout(permissionHangTimer);
+    permissionHangTimer = setTimeout(() => {
+      proc.kill("SIGKILL");
+    }, PERMISSION_HANG_TIMEOUT_MS);
+  };
+
+  if (stderr) {
+    stderr.on("data", (chunk: Buffer) => {
+      stderrTail = (stderrTail + chunk.toString()).slice(-4096);
+      if (!permissionDetected && /Waiting for permission/i.test(stderrTail)) {
+        permissionDetected = true;
+        armPermissionTimer();
+      }
+    });
+  }
+
+  try {
+    let buffer = "";
+    for await (const chunk of stdout) {
+      // A stdout chunk arrived — reset the permission-hang timer since
+      // the process is still producing output (AC2: idleness-anchored).
+      if (permissionDetected && permissionHangTimer) {
+        armPermissionTimer();
+      }
+
+      buffer += chunk.toString();
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.trim()) yield line;
+      }
+    }
+    if (buffer.trim()) yield buffer;
+
+    const result = await proc;
+    if (result.exitCode !== 0) {
+      const err = new Error(
+        result.stderr ?? `claude exited with code ${result.exitCode}`,
+      ) as Error & { exitCode?: number; signal?: string; stderrTail?: string };
+      err.exitCode = result.exitCode ?? 1;
+      if (result.signal) err.signal = result.signal;
+      // Attach the locally-captured stderrTail so the invoke catch block can
+      // classify permission_blocked correctly even if OS-level buffering caused
+      // execa not to flush the full stderr into result.stderr before SIGKILL.
+      err.stderrTail = stderrTail || result.stderr || "";
+      throw err;
+    }
+    // Success: expose stderr tail to the caller via context
+    if (context) context.stderrTail = stderrTail;
+  } finally {
+    if (permissionHangTimer) clearTimeout(permissionHangTimer);
   }
 }
 
@@ -193,9 +261,11 @@ export function buildArgs(opts: InvokeOptions): string[] {
     opts.model,
     "--permission-mode",
     to.permission_mode ?? "acceptEdits",
-    "--max-turns",
-    String(to.max_turns ?? 10),
   ];
+
+  if (to.max_turns != null) {
+    args.push("--max-turns", String(to.max_turns));
+  }
 
   if (to.bare) {
     args.push("--bare");
@@ -212,6 +282,12 @@ export function buildArgs(opts: InvokeOptions): string[] {
 
   if (to.allowed_tools && to.allowed_tools.length > 0) {
     args.push("--allowedTools", to.allowed_tools.join(","));
+  }
+
+  if (to.disallowed_tools && to.disallowed_tools.length > 0) {
+    for (const tool of to.disallowed_tools) {
+      args.push("--disallowedTools", tool);
+    }
   }
 
   if (to.schema) {
@@ -336,7 +412,9 @@ export function translateLine(
   if (line.type === "result") {
     if (line.is_error) {
       const errorCategory = mapErrorCategory(line.subtype);
-      const input: AppendEventInput<"invocation.errored"> = {
+      const exitReason = mapExitReason(line.subtype, true);
+      const inputs: AppendEventInput[] = [];
+      inputs.push({
         ...base,
         type: "invocation.errored",
         payload: {
@@ -344,8 +422,28 @@ export function translateLine(
           error: line.result,
           error_category: errorCategory,
         },
-      };
-      return [input];
+      } satisfies AppendEventInput<"invocation.errored">);
+      // Also emit invocation.completed with exit_reason so phaseRunner can read it
+      const duration_ms = startedAt ? Date.now() - startedAt : line.duration_ms;
+      inputs.push({
+        ...base,
+        type: "invocation.completed",
+        payload: {
+          invocation_id: opts.invocation_id,
+          outcome: "failed",
+          tokens_in: line.usage.input_tokens,
+          tokens_out: line.usage.output_tokens,
+          cost_usd: line.total_cost_usd,
+          duration_ms,
+          turns: line.num_turns,
+          exit_code: 1,
+          exit_reason: exitReason,
+          stdout_tail_hash: null,
+          stderr_tail_hash: null,
+          permission_blocked_on: null,
+        },
+      } satisfies AppendEventInput<"invocation.completed">);
+      return inputs;
     }
 
     const duration_ms = startedAt ? Date.now() - startedAt : line.duration_ms;
@@ -361,6 +459,10 @@ export function translateLine(
         duration_ms,
         turns: line.num_turns,
         exit_code: 0,
+        exit_reason: "normal",
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
       },
     };
     return [input];
@@ -531,6 +633,61 @@ function mapErrorCategory(
   }
 }
 
+/** Maps an error subtype from the result line to an ExitReason. */
+function mapExitReason(subtype: string, isError: boolean): ExitReason {
+  if (!isError) return "normal";
+  switch (subtype) {
+    case "error_budget_exceeded":
+      return "budget_exceeded";
+    case "error_max_turns":
+      return "turn_limit";
+    case "error_timeout":
+      return "timeout";
+    default:
+      return "unknown";
+  }
+}
+
+/**
+ * Parses the blocked tool name from a Claude Code permission prompt message.
+ *
+ * Claude Code emits messages like:
+ *   "Waiting for permission to use Bash"
+ *   "Waiting for permission to use tool Write"
+ *   "Waiting for permission to use tool \"Edit\""
+ *
+ * Returns the tool name, or null if the pattern is not recognised.
+ */
+export function parsePermissionBlockedOn(text: string): string | null {
+  // Match: "Waiting for permission to use [tool] ToolName"
+  const match = text.match(
+    /Waiting for permission(?:\s+to\s+use(?:\s+tool)?\s+["']?([\w]+)["']?)?/i,
+  );
+  if (match && match[1]) return match[1];
+  return null;
+}
+
+/** Classifies exit reason from a subprocess error (catch block). */
+export function classifySubprocessError(
+  error: Error & { exitCode?: number; signal?: string },
+  stderrTail?: string,
+): ExitReason {
+  // Check stderr patterns first — permission hang kills arrive as SIGKILL
+  // but should be classified as permission_blocked, not killed.
+  if (stderrTail) {
+    if (/Waiting for permission/i.test(stderrTail)) return "permission_blocked";
+    if (/ENOTFOUND|ECONNREFUSED|socket hang up/i.test(stderrTail)) return "network_error";
+    if (/schema.*(?:invalid|validation)|(?:invalid|validation).*schema/i.test(stderrTail)) return "schema_invalid";
+    if (/segfault|SIGSEGV|stack trace|Traceback/i.test(stderrTail)) return "crashed";
+  }
+
+  // Fall back to signal/exit code
+  if (error.signal === "SIGKILL" || error.exitCode === 137) return "killed";
+  if (error.exitCode === 124) return "timeout";
+
+  return "unknown";
+}
+
 // ============================================================================
 // invoke — the main async generator
 // ============================================================================
@@ -568,8 +725,18 @@ export async function* invoke(
     { lines_added: number; lines_removed: number; operation: string }
   >();
 
+  // Rolling buffer of the last ~4KB of raw stdout lines for the tail blob
+  let stdoutTailBuf = "";
+  // Context for the spawner to expose the captured stderr tail
+  const spawnerCtx: SpawnerContext = {};
+  // Buffer the invocation.completed event so we can add tail hashes after the loop
+  let bufferedCompleted: AppendEventInput<"invocation.completed"> | null = null;
+
   try {
-    for await (const rawLine of spawner("claude", args, { cwd: opts.cwd })) {
+    for await (const rawLine of spawner("claude", args, { cwd: opts.cwd }, spawnerCtx)) {
+      // Accumulate last ~4KB of stdout
+      stdoutTailBuf = (stdoutTailBuf + rawLine + "\n").slice(-4096);
+
       let parsed: ClaudeCodeLine;
       try {
         parsed = JSON.parse(rawLine) as ClaudeCodeLine;
@@ -590,7 +757,12 @@ export async function* invoke(
 
       const inputs = translateLine(parsed, opts, blobStore, toolCallTimes, startedAt);
       for (const input of inputs) {
-        yield input;
+        if (input.type === "invocation.completed") {
+          // Buffer instead of yielding — tail hashes are added after the loop
+          bufferedCompleted = input as AppendEventInput<"invocation.completed">;
+        } else {
+          yield input;
+        }
       }
 
       // After a tool_result for a file-editing tool, detect file changes
@@ -613,10 +785,48 @@ export async function* invoke(
         }
       }
     }
+
+    // Store stdout/stderr tails in the blob store (best-effort)
+    let stdoutTailHash: string | null = null;
+    let stderrTailHash: string | null = null;
+    try {
+      if (stdoutTailBuf) {
+        stdoutTailHash = blobStore.putBlob(stdoutTailBuf).hash;
+      }
+      const stderrContent = spawnerCtx.stderrTail ?? "";
+      if (stderrContent) {
+        stderrTailHash = blobStore.putBlob(stderrContent).hash;
+      }
+    } catch {
+      // Best-effort: blob store failure keeps hashes null
+      stdoutTailHash = null;
+      stderrTailHash = null;
+    }
+
+    // Yield the buffered invocation.completed with tail hashes attached
+    if (bufferedCompleted) {
+      yield {
+        ...bufferedCompleted,
+        payload: {
+          ...bufferedCompleted.payload,
+          stdout_tail_hash: stdoutTailHash,
+          stderr_tail_hash: stderrTailHash,
+        },
+      } as AppendEventInput<"invocation.completed">;
+    }
   } catch (err: unknown) {
     // Subprocess exited without emitting a normal result line — it was
     // killed, crashed, or errored before completion.
-    const error = err as Error & { exitCode?: number; signal?: string };
+    const error = err as Error & { exitCode?: number; signal?: string; stderrTail?: string };
+    // Prefer the locally-captured stderrTail (attached by execaSpawner) over
+    // error.message — it is more reliable when OS buffering prevents execa from
+    // flushing the full stderr into result.stderr before SIGKILL completes.
+    const stderrForClassify = error.stderrTail ?? error.message;
+    const exitReason = classifySubprocessError(error, stderrForClassify);
+    const permissionBlockedOn =
+      exitReason === "permission_blocked"
+        ? parsePermissionBlockedOn(stderrForClassify)
+        : null;
 
     const actor = {
       kind: "cli" as const,
@@ -637,5 +847,44 @@ export async function* invoke(
       },
     };
     yield errInput;
+
+    // Store stdout/stderr tails in the blob store (best-effort) so the
+    // crash/kill path preserves diagnostic content — especially important
+    // for permission_blocked where stderr contains the prompt text.
+    let crashStdoutTailHash: string | null = null;
+    let crashStderrTailHash: string | null = null;
+    try {
+      if (stdoutTailBuf) {
+        crashStdoutTailHash = blobStore.putBlob(stdoutTailBuf).hash;
+      }
+      if (stderrForClassify) {
+        crashStderrTailHash = blobStore.putBlob(stderrForClassify).hash;
+      }
+    } catch {
+      // Best-effort: blob store failure keeps hashes null
+    }
+
+    const completedInput: AppendEventInput<"invocation.completed"> = {
+      type: "invocation.completed",
+      aggregate_type: "attempt",
+      aggregate_id: opts.attempt_id,
+      actor,
+      correlation_id: opts.attempt_id,
+      payload: {
+        invocation_id: opts.invocation_id,
+        outcome: "failed",
+        tokens_in: 0,
+        tokens_out: 0,
+        cost_usd: 0,
+        duration_ms: Date.now() - startedAt,
+        turns: 0,
+        exit_code: error.exitCode ?? 1,
+        exit_reason: exitReason,
+        stdout_tail_hash: crashStdoutTailHash,
+        stderr_tail_hash: crashStderrTailHash,
+        permission_blocked_on: permissionBlockedOn,
+      },
+    };
+    yield completedInput;
   }
 }

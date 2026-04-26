@@ -32,6 +32,7 @@ import type {
   Transport,
   AuditConcern,
   GateConfig,
+  ExitReason,
 } from "./events.js";
 
 // ============================================================================
@@ -48,8 +49,7 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
       prompt_version_id: "default",
       transport_options: {
         kind: "cli",
-        max_turns: 10,
-        max_budget_usd: 1,
+        max_budget_usd: 5,
         permission_mode: "acceptEdits",
       },
       context_policy: {
@@ -67,8 +67,7 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
       prompt_version_id: "default",
       transport_options: {
         kind: "cli",
-        max_turns: 10,
-        max_budget_usd: 1,
+        max_budget_usd: 5,
         permission_mode: "acceptEdits",
       },
       context_policy: {
@@ -103,6 +102,17 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
     on_test_fail: { strategy: "retry_same", max_attempts: 2 },
     on_audit_reject: "escalate_to_human",
     on_spec_pushback: "pause_and_notify",
+    on_exit_reason: {
+      permission_blocked: "escalate_to_human",
+      budget_exceeded: "escalate_to_human",
+      timeout: "retry_same",
+      network_error: "retry_same",
+      schema_invalid: "retry_same",
+      turn_limit: "escalate_to_human",
+      killed: "escalate_to_human",
+      crashed: "escalate_to_human",
+      unknown: "escalate_to_human",
+    },
   },
   auto_merge_policy: "off",
   shadow_mode: false,
@@ -178,6 +188,8 @@ export interface TaskListRow {
   title: string;
   status: TaskStatus;
   current_phase?: PhaseName;
+  /** Phase names that have completed in the current attempt. */
+  completed_phases?: string[];
   current_attempt_id?: string;
   attempt_count: number;
   pushback_count: number;
@@ -308,6 +320,7 @@ export interface PropositionRow {
  *     files_changed_json  TEXT NOT NULL,  -- FileChangeSummary[]
  *     config_snapshot_json TEXT NOT NULL,
  *     previous_attempt_id TEXT,
+ *     last_failure_reason TEXT,
  *     last_event_id       TEXT NOT NULL
  *   );
  *   CREATE INDEX idx_attempt_task     ON proj_attempt(task_id, attempt_number DESC);
@@ -334,6 +347,8 @@ export interface AttemptRow {
   commit_sha?: string;
   empty?: boolean;
   effective_diff_attempt_id?: string;
+  /** Exit reason from the most recent phase.completed where exit_reason !== "normal". Null if no failure. */
+  last_failure_reason: string | null;
   last_event_id: string;
 }
 
@@ -365,6 +380,7 @@ export interface GateRunSummary {
 export interface AuditSummary {
   verdict: "approve" | "revise" | "reject";
   confidence: number;
+  summary: string;
   concern_count: number;
   blocking_count: number;
   concerns: AuditConcern[]; // full concerns for review screen rendering
@@ -620,6 +636,8 @@ export function reduceTaskList(
         current_attempt_id: event.payload.attempt_id,
         attempt_count: current.attempt_count + 1,
         status: "running",
+        current_phase: undefined,
+        completed_phases: [],
         updated_at: event.ts,
       };
 
@@ -628,6 +646,32 @@ export function reduceTaskList(
       return {
         ...current,
         current_phase: event.payload.phase_name,
+        updated_at: event.ts,
+      };
+
+    case "phase.completed":
+      if (!current) return null;
+      return {
+        ...current,
+        completed_phases: [
+          ...(current.completed_phases ?? []).filter(
+            (n) => n !== event.payload.phase_name,
+          ),
+          event.payload.phase_name,
+        ],
+        updated_at: event.ts,
+      };
+
+    case "phase.failed":
+      if (!current) return null;
+      return {
+        ...current,
+        completed_phases: [
+          ...(current.completed_phases ?? []).filter(
+            (n) => n !== event.payload.phase_name,
+          ),
+          event.payload.phase_name,
+        ],
         updated_at: event.ts,
       };
 
@@ -1190,8 +1234,8 @@ export const PROJECTION_SUBSCRIPTIONS: Record<EventType, ProjectionName[]> = {
   // Phase
   "phase.started": ["task_list", "attempt"],
   "phase.context_packed": ["attempt"],
-  "phase.completed": ["attempt"],
-  "phase.failed": ["attempt"],
+  "phase.completed": ["task_list", "attempt"],
+  "phase.failed": ["task_list", "attempt"],
   "phase.diff_snapshotted": ["attempt"],
 
   // Invocation
@@ -1307,6 +1351,7 @@ export function reduceAttempt(
         files_changed: [],
         config_snapshot: p.config_snapshot,
         previous_attempt_id: p.previous_attempt_id,
+        last_failure_reason: null,
         last_event_id: event.id,
       };
     }
@@ -1414,8 +1459,12 @@ export function reduceAttempt(
       if (!current) return null;
       const p = event.payload;
       const existing = current.phases[p.phase_name];
+      const exitReason = p.exit_reason;
+      const lastFailureReason =
+        exitReason && exitReason !== "normal" ? exitReason : current.last_failure_reason;
       return {
         ...current,
+        last_failure_reason: lastFailureReason,
         phases: {
           ...current.phases,
           [p.phase_name]: {
@@ -1580,6 +1629,7 @@ export function reduceAttempt(
         audit: {
           verdict: p.verdict,
           confidence: p.confidence,
+          summary: p.summary,
           concern_count: p.concerns.length,
           blocking_count: p.concerns.filter((c: AuditConcern) => c.severity === "blocking").length,
           concerns: p.concerns,
@@ -1918,4 +1968,26 @@ export function reduceGateLibrary(
     default:
       return current;
   }
+}
+
+// ============================================================================
+// GraphLayoutResponse — dependency graph visualisation
+// ============================================================================
+
+export interface GraphLayoutNodeInfo {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  title: string;
+  status: TaskStatus;
+  attempt_count: number;
+  max_total_attempts: number;
+  prd_id?: string;
+}
+
+export interface GraphLayoutResponse {
+  nodes: Record<string, GraphLayoutNodeInfo>;
+  edges: { source: string; target: string }[];
+  meta: { critical_path: string[]; direction: string };
 }
