@@ -221,6 +221,22 @@ export function createCommandRoutes(db: Database.Database) {
     if (!parsed.success) return badRequest(parsed.error);
 
     const { title, proposition_ids, preset_id } = parsed.data;
+
+    // Reject duplicate titles (case-insensitive)
+    const existing = db
+      .prepare("SELECT task_id FROM proj_task_list WHERE LOWER(title) = LOWER(?)")
+      .get(title) as { task_id: string } | undefined;
+    if (existing) {
+      return Response.json(
+        {
+          type: "conflict",
+          status: 409,
+          detail: `A task with this title already exists: ${existing.task_id}`,
+        },
+        { status: 409 },
+      );
+    }
+
     const task_id = `T-${ulid()}`;
 
     // Use preset config when a preset_id is provided; fall back to DEFAULT_CONFIG

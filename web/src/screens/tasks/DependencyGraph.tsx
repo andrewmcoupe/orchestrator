@@ -6,6 +6,7 @@ import {
   BackgroundVariant,
   useReactFlow,
   ReactFlowProvider,
+  MarkerType,
   type Node,
   type Edge,
   type NodeMouseHandler,
@@ -58,11 +59,18 @@ function toReactFlowElements(layout: GraphLayoutResponse) {
       id: `e-${e.source}-${e.target}-${i}`,
       source: e.source,
       target: e.target,
+      type: "smoothstep",
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 16,
+        height: 16,
+        color: isDone ? "#666" : "#888",
+      },
       style: {
-        opacity: isDone ? 0.3 : 1,
+        opacity: isDone ? 0.2 : 1,
         strokeDasharray: isDone ? "5 3" : undefined,
-        stroke: isCritical ? "#f59e0b" : undefined,
-        strokeWidth: isCritical ? 2.5 : 1,
+        stroke: isDone ? "#666" : "#888",
+        strokeWidth: 1.5,
       },
     };
   });

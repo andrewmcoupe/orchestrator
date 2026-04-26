@@ -156,8 +156,13 @@ export async function computeGraphLayout(
     layoutOptions: {
       "elk.algorithm": "layered",
       "elk.direction": "DOWN",
-      "elk.spacing.nodeNode": "40",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "60",
+      "elk.spacing.nodeNode": "60",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "80",
+      "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+      "elk.alignment": "CENTER",
+      "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+      "elk.layered.spacing.edgeEdgeBetweenLayers": "20",
+      "elk.layered.spacing.edgeNodeBetweenLayers": "30",
     },
     children: input.nodes.map((n) => ({
       id: n.id,

@@ -120,6 +120,9 @@ export function registerGraphLayoutReactor(db: Database.Database): () => void {
 
   eventBus.on("event.committed", listener);
 
+  // Compute initial layout at boot for tasks that already exist
+  void recompute();
+
   return () => {
     eventBus.off("event.committed", listener);
     if (debounceTimer) {

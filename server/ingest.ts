@@ -365,9 +365,19 @@ export async function ingestPrd(
     taskIdMap.set(draft.id, `T-${ulid()}`);
   }
 
-  // Emit task.drafted for each draft task grouping
+  // Emit task.drafted for each draft task grouping (skip duplicates by title)
   const draft_tasks: TaskDraftSummary[] = [];
   for (const draft of extracted.draft_tasks) {
+    // Skip if a task with the same title already exists
+    const existing = db
+      .prepare("SELECT task_id FROM proj_task_list WHERE LOWER(title) = LOWER(?)")
+      .get(draft.title) as { task_id: string } | undefined;
+    if (existing) {
+      // Remap the draft ID to the existing task so dependency resolution still works
+      taskIdMap.set(draft.id, existing.task_id);
+      continue;
+    }
+
     const task_id = taskIdMap.get(draft.id)!;
     // Resolve proposition IDs from the LLM's "P-001" style IDs to ULIDs
     const resolvedIds = draft.proposition_ids
