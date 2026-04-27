@@ -1,6 +1,8 @@
 // @ts-check
 import { useState, useCallback } from "react";
-import { ArrowLeft, RefreshCw, CheckCircle, AlertCircle, HelpCircle, FileText } from "lucide-react";
+import { ArrowLeft, RefreshCw, CheckCircle, AlertCircle, HelpCircle, FileText, Info } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@web/src/components/ui/tooltip";
+import { Button } from "@web/src/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsPanel } from "@web/src/components/ui/tabs.js";
 import type { PropositionRow } from "@shared/projections.js";
 import type { AnyEvent } from "@shared/events.js";
@@ -213,58 +215,49 @@ function PushbackBlock({ pushback, onResolve }: PushbackBlockProps) {
         </div>
       )}
 
-      <div className="flex gap-1.5 flex-wrap">
+      <div className="flex gap-1.5 flex-wrap items-center">
         {resolving === "reply_inline" ? (
-          <button
-            type="button"
-            onClick={() => handleResolve("reply_inline")}
-            disabled={!replyText.trim()}
-            className="px-2.5 py-1 text-[11px] font-medium bg-bg-inverse text-text-inverse hover:opacity-80 transition-opacity disabled:opacity-40 cursor-pointer disabled:cursor-default"
-          >
+          <Button size="xs" onClick={() => handleResolve("reply_inline")} disabled={!replyText.trim()}>
             Submit reply
-          </button>
+          </Button>
         ) : resolving === "amended" ? (
-          <button
-            type="button"
-            onClick={() => handleResolve("amended")}
-            disabled={!amendText.trim()}
-            className="px-2.5 py-1 text-[11px] font-medium bg-bg-inverse text-text-inverse hover:opacity-80 transition-opacity disabled:opacity-40 cursor-pointer disabled:cursor-default"
-          >
+          <Button size="xs" onClick={() => handleResolve("amended")} disabled={!amendText.trim()}>
             Save amendment
-          </button>
+          </Button>
         ) : (
           <>
-            <button
-              type="button"
-              onClick={() => setResolving("reply_inline")}
-              className="px-2.5 py-1 text-[11px] font-medium border border-current hover:bg-white/10 transition-colors cursor-pointer"
-            >
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center cursor-help">
+                    <Info size={12} className="text-text-tertiary" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" align="start" className="max-w-xs">
+                  <p className="font-medium mb-1">Reply inline</p>
+                  <p className="mb-1.5">Dismiss the pushback with a written justification. Your reply is stored in the event log but does not change the proposition.</p>
+                  <p className="font-medium mb-1">Amend</p>
+                  <p className="mb-1.5">Rewrite the proposition text to address the pushback. The updated text replaces the original and will be used as the acceptance criterion.</p>
+                  <p className="font-medium mb-1">Defer</p>
+                  <p>Acknowledge the pushback without resolving it now. The proposition is left unchanged and the pushback is cleared.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Button size="xs" variant="outline" onClick={() => setResolving("reply_inline")}>
               Reply inline
-            </button>
-            <button
-              type="button"
-              onClick={() => setResolving("amended")}
-              className="px-2.5 py-1 text-[11px] font-medium border border-current hover:bg-white/10 transition-colors cursor-pointer"
-            >
+            </Button>
+            <Button size="xs" variant="outline" onClick={() => setResolving("amended")}>
               Amend
-            </button>
-            <button
-              type="button"
-              onClick={() => handleResolve("deferred")}
-              className="px-2.5 py-1 text-[11px] font-medium hover:bg-white/10 transition-colors cursor-pointer opacity-70"
-            >
+            </Button>
+            <Button size="xs" variant="ghost" onClick={() => handleResolve("deferred")}>
               Defer
-            </button>
+            </Button>
           </>
         )}
         {resolving && (
-          <button
-            type="button"
-            onClick={() => setResolving(null)}
-            className="px-2.5 py-1 text-[11px] opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
-          >
+          <Button size="xs" variant="ghost" onClick={() => setResolving(null)}>
             Cancel
-          </button>
+          </Button>
         )}
       </div>
     </div>

@@ -1,88 +1,46 @@
-# Codex CLI Adapter
+# Compute Cost from Token Counts for All Transports
 
 ## Overview
 
-The orchestrator currently only supports Claude Code as a CLI transport. This PRD adds a dedicated Codex CLI adapter (`server/adapters/codex.ts`) that spawns `codex exec --json` and translates its NDJSON event stream into the orchestrator's canonical `AppendEventInput` events. This enables phases to be configured with `transport: "codex"` and run against OpenAI models via the Codex CLI.
+The measurement page has a Cost tab that charts daily spend by provider. Currently, Claude Code reports real `cost_usd` from its subprocess, the Anthropic API adapter computes cost via a pricing table, but the Codex adapter hardcodes `cost_usd: 0` because Codex doesn't report billing cost. Since token counts are already flowing through from all transports, we can compute cost from tokens using a pricing table — making the cost section accurate and useful regardless of which CLI transport is used.
 
-## Adapter — `server/adapters/codex.ts`
+## Extend `modelPricing.ts` with OpenAI model rates
 
-### New file, separate from Claude Code adapter
+### Add OpenAI models to the existing pricing table
 
-- Create `server/adapters/codex.ts` as a standalone adapter file.
-- Export `invoke()` as an async generator yielding `AppendEventInput` objects.
-- Export `buildArgs()` that constructs the CLI invocation.
-- Export `translateLine()` that handles all Codex NDJSON event types.
-- Use the same `Spawner` type abstraction as `claudeCode.ts` for test injection.
+- `server/adapters/modelPricing.ts` already has a `computeCost(model, tokensIn, tokensOut)` function and a lookup table for Anthropic models.
+- Add OpenAI model pricing entries alongside the existing Anthropic ones.
+- Models to include: `o3`, `o4-mini`, `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`, `o3-pro`. Add others as needed.
+- Prices should be in USD per 1M tokens (input/output), matching the existing table format.
+- Unknown models continue to return 0.
 
-### CLI invocation shape
+## Update Codex adapter to compute cost from token counts
 
-- Binary: `codex exec --json --ephemeral --cd <cwd> --model <model> <prompt>`
-- `--ephemeral` to prevent Codex from writing its own session files.
-- `--output-schema <path>` when the phase has a `schema` transport option (write JSON schema to a temp file).
+### Replace hardcoded `cost_usd: 0` in `translateLine`
 
-### Permission mode mapping
+- In `server/adapters/codex.ts`, the `turn.completed` handler currently sets `cost_usd: 0`.
+- Import `computeCost` from `modelPricing.ts`.
+- Call `computeCost(opts.model, tokens_in, tokens_out)` to calculate the cost.
+- Set the result as `cost_usd` on the `invocation.completed` payload.
 
-Map the existing `permission_mode` transport option to Codex flags:
+### Keep Claude Code adapter unchanged
 
-| `permission_mode` | Codex flags |
-|---|---|
-| `acceptEdits` / `auto` | `--full-auto` |
-| `bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` |
-| `plan` / `default` | `--sandbox read-only --ask-for-approval untrusted` |
+- `server/adapters/claudeCode.ts` already uses the self-reported `total_cost_usd` from the Claude Code subprocess.
+- This is the most accurate source (accounts for prompt caching discounts, etc.).
+- Do not change it to use the pricing table.
 
-### NDJSON event translation
+## Update tests
 
-Codex emits three item types: `agent_message`, `command_execution`, and `file_change`.
+### Update Codex adapter tests
 
-| Codex event | Canonical event(s) |
-|---|---|
-| `thread.started` | `invocation.started` |
-| `turn.started` | (no event — internal bookkeeping only) |
-| `item.started` (command_execution) | `invocation.tool_called` (command stored in blob store) |
-| `item.completed` (command_execution) | `invocation.tool_returned` + run `git diff` for file edit detection |
-| `item.started` (file_change) | `invocation.tool_called` |
-| `item.completed` (file_change) | `invocation.tool_returned` + `invocation.file_edited` from structured change data (`path`, `kind`) + `git diff` safety net |
-| `item.completed` (agent_message) | `invocation.assistant_message` |
-| `turn.completed` | `invocation.completed` with token counts |
-
-### File edit detection — hybrid approach
-
-- `file_change` items: emit `invocation.file_edited` directly from the structured `changes` array (each entry has `path` and `kind`: `add`, `modify`, `delete`).
-- `command_execution` items: run `git diff` via `detectFileEdits` after each completion as a safety net, since shell commands can modify worktree files without going through `apply_patch`.
-- Reuse the existing `seenSnapshot` pattern from `claudeCode.ts`.
-
-### Token and cost tracking
-
-- `turn.completed` provides `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`.
-- Pass through token counts on `invocation.completed`.
-- Set `total_cost_usd: 0` — Codex does not report cost. OpenAI model pricing can be added to `modelPricing.ts` as a follow-up.
-
-### Error handling
-
-- Same subprocess exit code classification pattern as `claudeCode.ts` via `classifySubprocessError`.
-- `command_execution` with non-zero `exit_code` → `invocation.tool_returned` (tool-level error, not adapter-level).
-- Missing `turn.completed` (process crash/kill) → classify from exit code, map to `ExitReason`.
-- No permission-hang detection in initial implementation (we always pass `--full-auto` or `--yolo`).
-
-## Phase Runner Updates
-
-### Rename `cliInvoker` to `claudeCodeInvoker`
-
-- Rename the existing `cliInvoker` field in `PhaseRunnerDeps` to `claudeCodeInvoker`.
-- Update `runAttempt` and all tests that inject `cliInvoker`.
-
-### Add `codexInvoker` to `PhaseRunnerDeps`
-
-- Add `codexInvoker?: AdapterInvokeFn` to `PhaseRunnerDeps`.
-- Default to `codex.invoke` from the new adapter.
-- Route by transport name: if `phase.transport === "codex"` → `codexInvoker`, else → `claudeCodeInvoker`.
+- `server/adapters/codex.test.ts` has an explicit test (`AC3`) asserting `cost_usd` is always 0.
+- Update this test to assert the computed cost based on token counts and the pricing table.
+- Add a test that unknown models still produce `cost_usd: 0`.
 
 ## Implementation Touchpoints
 
 | File | Change |
 |---|---|
-| `server/adapters/codex.ts` | New file — Codex CLI adapter with invoke, buildArgs, translateLine |
-| `server/phaseRunner.ts` | Rename `cliInvoker` → `claudeCodeInvoker`, add `codexInvoker`, route by transport name |
-| `shared/events.ts` | No changes needed — `"codex"` already in `Transport` union and `CLI_TRANSPORTS` |
-| `server/adapters/codex.test.ts` | New file — tests using injected Spawner (no real subprocess) |
-| `server/phaseRunner.test.ts` | Update tests for renamed dep, add test for codex transport routing |
+| `server/adapters/modelPricing.ts` | Add OpenAI model pricing entries to the existing lookup table |
+| `server/adapters/codex.ts` | Import `computeCost`, use it in `turn.completed` handler instead of hardcoded 0 |
+| `server/adapters/codex.test.ts` | Update AC3 test to assert computed cost; add unknown-model test |
