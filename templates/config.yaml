@@ -14,6 +14,11 @@ gates: []
 #   - name: lint
 #     command: pnpm lint
 
+# PRD ingest defaults. The endpoint can override these per request.
+ingest:
+  transport: "claude-code" # "claude-code" | "codex"
+  model: "claude-sonnet-4-6"
+
 # Merge workflow configuration.
 # These defaults apply to every task unless overridden per-command.
 on_merge:

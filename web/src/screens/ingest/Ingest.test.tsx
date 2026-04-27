@@ -87,6 +87,12 @@ describe("Ingest — idle state", () => {
     expect(screen.getByRole("button", { name: /ingest/i })).toBeTruthy();
   });
 
+  it("renders transport and model selectors", () => {
+    render(<Ingest onBack={vi.fn()} />);
+    expect(screen.getByLabelText(/transport/i)).toBeTruthy();
+    expect(screen.getByLabelText(/model/i)).toBeTruthy();
+  });
+
   it("back button calls onBack", () => {
     const onBack = vi.fn();
     render(<Ingest onBack={onBack} />);
@@ -468,7 +474,40 @@ describe("Ingest — File Path tab submission", () => {
         "/api/commands/prd/ingest",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ path: "/tmp/prd.md" }),
+          body: JSON.stringify({
+            path: "/tmp/prd.md",
+            transport: "claude-code",
+            model: "claude-sonnet-4-6",
+          }),
+        }),
+      );
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("submits selected transport and model overrides", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Ingest onBack={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/transport/i), { target: { value: "codex" } });
+    fireEvent.change(screen.getByLabelText(/model/i), { target: { value: "gpt-5.4" } });
+    fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
+      target: { value: "/tmp/prd.md" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^ingest$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/commands/prd/ingest",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            path: "/tmp/prd.md",
+            transport: "codex",
+            model: "gpt-5.4",
+          }),
         }),
       );
     });
@@ -504,7 +543,11 @@ describe("Ingest — Paste Content tab submission", () => {
         "/api/commands/prd/ingest",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ content: "# My PRD\n\nThe system shall do things." }),
+          body: JSON.stringify({
+            content: "# My PRD\n\nThe system shall do things.",
+            transport: "claude-code",
+            model: "claude-sonnet-4-6",
+          }),
         }),
       );
     });

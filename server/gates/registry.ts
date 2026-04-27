@@ -6,17 +6,11 @@
  * The registry is populated once at boot; reloading requires a restart.
  */
 
-import { readFileSync } from "node:fs";
-import { parse as parseYaml } from "yaml";
 import type { GateConfig } from "@shared/events.js";
 import { getConfigPath } from "../paths.js";
+import { loadOrchestratorConfig } from "../config.js";
 
 const CONFIG_PATH = getConfigPath();
-
-type OrchestratorConfig = {
-  project_name?: string;
-  gates?: GateConfig[];
-};
 
 // In-memory registry populated at startup
 const _registry = new Map<string, GateConfig>();
@@ -24,15 +18,8 @@ const _registry = new Map<string, GateConfig>();
 /** Load gates from config.yaml into the registry. Idempotent: clears first. */
 export function loadGateRegistry(configPath = CONFIG_PATH): void {
   _registry.clear();
-  let raw: string;
-  try {
-    raw = readFileSync(configPath, "utf-8");
-  } catch {
-    // config.yaml may not exist in test environments — treat as empty
-    return;
-  }
-  const config = parseYaml(raw) as OrchestratorConfig;
-  for (const gate of config.gates ?? []) {
+  const config = loadOrchestratorConfig(configPath);
+  for (const gate of config.gates) {
     if (_registry.has(gate.name)) {
       throw new Error(
         `Duplicate gate name "${gate.name}" in ${configPath}`,

@@ -1,9 +1,9 @@
 /**
- * PRD Ingest — reads a PRD file, calls the Anthropic API to extract
+ * PRD Ingest — reads a PRD file, calls the configured CLI to extract
  * propositions, and emits the canonical events.
  *
  * Depends on:
- *   - anthropicApi adapter for structured-output extraction
+ *   - Claude Code / Codex adapters for structured-output extraction
  *   - appendAndProject for transactional event writes
  *   - proposition projection (registered at import of register.ts)
  *
@@ -20,17 +20,20 @@ import type Database from "better-sqlite3";
 import { appendAndProject } from "./projectionRunner.js";
 import type { Actor } from "@shared/events.js";
 import type { PropositionRow } from "@shared/projections.js";
-import { invoke as cliInvoke } from "./adapters/claudeCode.js";
+import { invoke as claudeCodeInvoke } from "./adapters/claudeCode.js";
+import type { InvokeOptions as ClaudeCodeInvokeOptions } from "./adapters/claudeCode.js";
+import { invoke as codexInvoke } from "./adapters/codex.js";
+import type { InvokeOptions as CodexInvokeOptions } from "./adapters/codex.js";
 import { createBlobStore } from "./blobStore.js";
 import { getDefaultRepoRoot, getBlobsDir } from "./paths.js";
 import { topoSort } from "@shared/dependency.js";
+import { DEFAULT_INGEST_CONFIG, type IngestConfig } from "./config.js";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 export const INGEST_PROMPT_VERSION_ID = "pv-ingest-v1";
-const INGEST_MODEL = "claude-sonnet-4-6";
 const MAX_RETRIES = 2;
 
 const INGEST_ACTOR: Actor = { kind: "system", component: "gate_runner" };
@@ -154,6 +157,7 @@ function loadPromptTemplate(): string {
 async function callExtractionCli(
   prd_id: string,
   content: string,
+  config: IngestConfig = DEFAULT_INGEST_CONFIG,
 ): Promise<ExtractionResult> {
   const systemPrompt = loadPromptTemplate();
   const blobStore = createBlobStore(getBlobsDir());
@@ -164,7 +168,7 @@ async function callExtractionCli(
     let assistantText = "";
     let cliErrored = false;
 
-    console.log(`[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${INGEST_MODEL}, transport: claude-code)`);
+    console.log(`[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${config.model}, transport: ${config.transport})`);
     console.log(`[ingest] content length: ${content.length} chars`);
 
     const prompt = `${systemPrompt}\n\n---\n\n${content}`;
@@ -173,7 +177,7 @@ async function callExtractionCli(
       invocation_id: invocationId,
       attempt_id: prd_id,
       phase_name: "ingest" as const,
-      model: INGEST_MODEL,
+      model: config.model,
       prompt,
       prompt_version_id: INGEST_PROMPT_VERSION_ID,
       context_manifest_hash: "",
@@ -188,10 +192,14 @@ async function callExtractionCli(
       },
     };
 
-    console.log(`[ingest] calling Claude Code CLI...`);
+    console.log(`[ingest] calling ${config.transport} CLI...`);
     const startTime = Date.now();
+    const eventStream =
+      config.transport === "codex"
+        ? codexInvoke(opts as CodexInvokeOptions, blobStore)
+        : claudeCodeInvoke(opts as ClaudeCodeInvokeOptions, blobStore);
 
-    for await (const event of cliInvoke(opts, blobStore)) {
+    for await (const event of eventStream) {
       console.log(`[ingest] received event: ${event.type} (+${Date.now() - startTime}ms)`);
       if (event.type === "invocation.assistant_message") {
         assistantText += (event.payload as { text: string }).text;
@@ -266,7 +274,9 @@ export interface IngestResult {
   pushback_count: number;
 }
 
-export type IngestInput = { path: string } | { content: string };
+export type IngestInput =
+  | { path: string; transport?: IngestConfig["transport"]; model?: string }
+  | { content: string; transport?: IngestConfig["transport"]; model?: string };
 
 /**
  * Ingest a PRD: extract propositions via the LLM and emit canonical events.
@@ -274,13 +284,22 @@ export type IngestInput = { path: string } | { content: string };
  * Accepts either `{ path }` (reads the file) or `{ content }` (uses the
  * string directly, sets path to null in the event payload).
  */
-export type Extractor = (prd_id: string, content: string) => Promise<ExtractionResult>;
+export type Extractor = (
+  prd_id: string,
+  content: string,
+  config: IngestConfig,
+) => Promise<ExtractionResult>;
 
 export async function ingestPrd(
   db: Database.Database,
   input: IngestInput,
   extractor?: Extractor,
 ): Promise<IngestResult> {
+  const ingestConfig: IngestConfig = {
+    transport: input.transport ?? DEFAULT_INGEST_CONFIG.transport,
+    model: input.model ?? DEFAULT_INGEST_CONFIG.model,
+  };
+
   // Resolve content from either input mode
   const resolvedPath: string | null = "path" in input ? input.path : null;
   const content = "content" in input ? input.content : readFileSync(input.path, "utf-8");
@@ -302,7 +321,7 @@ export async function ingestPrd(
       path: resolvedPath,
       size_bytes,
       lines,
-      extractor_model: INGEST_MODEL,
+      extractor_model: ingestConfig.model,
       extractor_prompt_version_id: INGEST_PROMPT_VERSION_ID,
       content_hash,
       content,
@@ -311,7 +330,7 @@ export async function ingestPrd(
 
   // Call extraction (injectable for tests, defaults to real CLI)
   const extract = extractor ?? callExtractionCli;
-  const extracted = await extract(prd_id, content);
+  const extracted = await extract(prd_id, content, ingestConfig);
 
   // Run topological sort to detect and strip cycle-causing edges
   const topoResult = topoSort(
@@ -450,7 +469,7 @@ export async function ingestPrd(
         kind: pushback.kind,
         rationale: pushback.rationale,
         suggested_resolutions: pushback.suggested_resolutions,
-        raised_by: { phase: "ingest" as const, model: INGEST_MODEL },
+        raised_by: { phase: "ingest" as const, model: ingestConfig.model },
       },
     });
     pushback_count++;
@@ -483,7 +502,7 @@ export async function ingestPrd(
           "Review task ordering to eliminate circular dependencies",
           "Split tightly-coupled tasks into smaller units",
         ],
-        raised_by: { phase: "ingest" as const, model: INGEST_MODEL },
+        raised_by: { phase: "ingest" as const, model: ingestConfig.model },
       },
     });
     pushback_count++;
