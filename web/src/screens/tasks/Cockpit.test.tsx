@@ -223,7 +223,7 @@ describe("TaskListSidebar", () => {
     expect(screen.queryByText(/ready to merge/)).toBeNull();
   });
 
-  it("renders status filter select with All, Draft, Active, Approved, Done, Archived options", () => {
+  it("renders status filter select with All, Draft, Active, Approved, Done options", () => {
     withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
     const select = screen.getByRole("combobox", { name: /status filter/i });
     expect(select).toBeDefined();
@@ -232,7 +232,6 @@ describe("TaskListSidebar", () => {
     expect(screen.getByRole("option", { name: "Active" })).toBeDefined();
     expect(screen.getByRole("option", { name: "Approved" })).toBeDefined();
     expect(screen.getByRole("option", { name: "Done" })).toBeDefined();
-    expect(screen.getByRole("option", { name: "Archived" })).toBeDefined();
   });
 
   it("filters to only approved tasks when Approved filter is selected", () => {
