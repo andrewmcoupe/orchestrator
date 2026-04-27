@@ -9,7 +9,7 @@
  */
 
 import { useQuery, useQueries } from "@tanstack/react-query";
-import type { TaskDetailRow, PresetRow } from "@shared/projections.js";
+import type { TaskDetailRow, PresetRow, PropositionRow } from "@shared/projections.js";
 import type { GateConfig, AnyEvent, TaskStatus } from "@shared/events.js";
 
 /** Statuses where new events are expected — timeline should poll. */
@@ -46,6 +46,20 @@ export function usePresetsQuery() {
   return useQuery({
     queryKey: ["presets"],
     queryFn: () => fetchJson<PresetRow[]>("/api/projections/preset"),
+  });
+}
+
+// ============================================================================
+// Propositions by IDs
+// ============================================================================
+
+export function usePropositionsQuery(ids: string[]) {
+  const key = ids.join(",");
+  return useQuery({
+    queryKey: ["propositions", key],
+    queryFn: () => fetchJson<PropositionRow[]>(`/api/projections/proposition?ids=${key}`),
+    enabled: ids.length > 0,
+    staleTime: 60_000,
   });
 }
 

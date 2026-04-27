@@ -1,8 +1,16 @@
 import { Fragment, useCallback, useState, useMemo, useEffect } from "react";
-import { SlidersHorizontal, ClipboardList, Plus, X, Info, ChevronRight } from "lucide-react";
+import {
+  SlidersHorizontal,
+  ClipboardList,
+  Plus,
+  X,
+  Info,
+  ChevronRight,
+} from "lucide-react";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
   TaskStatus,
+  TaskConfig,
   PhaseConfig,
   GateConfig,
   AnyEvent,
@@ -10,7 +18,11 @@ import type {
 } from "@shared/events.js";
 import { canAddDependency } from "@shared/dependency.js";
 import { topoSort } from "@shared/dependency.js";
-import { useTaskTimelineQuery } from "../../hooks/useQueries.js";
+import {
+  useTaskTimelineQuery,
+  usePropositionsQuery,
+} from "../../hooks/useQueries.js";
+import { useLatestAssistantMessage } from "../../store/eventStore.js";
 import { MergeDialog } from "../review/MergeDialog.js";
 import { Button } from "@web/src/components/ui/button";
 import {
@@ -18,6 +30,12 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@web/src/components/ui/popover";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@web/src/components/ui/tooltip";
 
 type TaskDetailPaneProps = {
   detail: TaskDetailRow;
@@ -79,7 +97,10 @@ function derivePhaseStatus(
   if (currentPhase === phase.name) return "running";
   // If the task is active, phases before the current one are done
   if (
-    (taskStatus === "running" || taskStatus === "revising" || taskStatus === "paused" || taskStatus === "blocked") &&
+    (taskStatus === "running" ||
+      taskStatus === "revising" ||
+      taskStatus === "paused" ||
+      taskStatus === "blocked") &&
     currentPhase
   ) {
     const currentIdx = enabledPhases.findIndex((p) => p.name === currentPhase);
@@ -101,18 +122,42 @@ const PHASE_DOT: Record<PhaseStatus, string> = {
   pending: "bg-status-muted",
 };
 
+function AssistantMessagePreview({ text }: { text: string }) {
+  const truncated = text.length > 120 ? `${text.slice(0, 120)}…` : text;
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <p
+            key={text}
+            className="text-xs text-text-secondary mt-1.5 leading-relaxed line-clamp-2 animate-fade-in cursor-default"
+          >
+            {truncated}
+          </p>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="start" className="max-w-sm max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function PhaseBox({
   phase,
   enabledPhases,
   currentPhase,
   taskStatus,
   completedPhases,
+  latestAssistantMessage,
 }: {
   phase: PhaseConfig;
   enabledPhases: PhaseConfig[];
   currentPhase?: string;
   taskStatus?: TaskStatus;
   completedPhases?: string[];
+  latestAssistantMessage?: string;
 }) {
   const status = derivePhaseStatus(
     phase,
@@ -139,9 +184,13 @@ function PhaseBox({
           {phase.name}
         </span>
       </div>
-      <div className="text-xs text-text-secondary font-mono">
-        {model} &middot; {phase.prompt_version_id || "v?"}
+      <div className="text-xs text-text-secondary font-mono space-y-0.5">
+        <div><span className="text-text-tertiary">model:</span> {model}</div>
+        <div><span className="text-text-tertiary">prompt:</span> {phase.prompt_version_id || "v?"}</div>
       </div>
+      {status === "running" && latestAssistantMessage && (
+        <AssistantMessagePreview text={latestAssistantMessage} />
+      )}
       {status === "done" && (
         <span className="text-xs text-text-tertiary mt-1">Finished</span>
       )}
@@ -297,22 +346,6 @@ function ActionButtons({
 }
 
 // ============================================================================
-// Retry policy summary
-// ============================================================================
-
-function retryPolicySummary(detail: TaskDetailRow): string {
-  const p = detail.config.retry_policy;
-  const parts: string[] = [];
-  parts.push(`${p.on_typecheck_fail.max_attempts}\u00d7 on typecheck`);
-  if (p.on_audit_reject === "escalate_to_human") {
-    parts.push("escalate on audit reject");
-  } else {
-    parts.push(`${p.on_audit_reject} on audit reject`);
-  }
-  return parts.join(" \u00b7 ");
-}
-
-// ============================================================================
 // Dependency editing section
 // ============================================================================
 
@@ -455,6 +488,47 @@ function DependencySection({
 }
 
 // ============================================================================
+// Acceptance criteria — fetches proposition texts by ID
+// ============================================================================
+
+function AcceptanceCriteriaSection({
+  propositionIds,
+}: {
+  propositionIds: string[];
+}) {
+  const { data: propositions, isLoading } =
+    usePropositionsQuery(propositionIds);
+
+  return (
+    <section className="mb-6 text-xs">
+      <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+        Acceptance criteria
+      </h3>
+      {isLoading ? (
+        <p className="text-xs text-text-tertiary">Loading…</p>
+      ) : propositions && propositions.length > 0 ? (
+        <ol className="list-decimal list-inside space-y-1.5 border border-border-muted bg-bg-secondary p-4">
+          {propositions.map((p) => (
+            <li
+              key={p.proposition_id}
+              className=" text-text-primary leading-relaxed"
+            >
+              {p.text}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <div className="border border-border-muted bg-bg-secondary p-4">
+          <p className="text-xs text-text-tertiary font-mono">
+            {propositionIds.join(" ")}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================================
 // Main component
 // ============================================================================
 
@@ -468,7 +542,9 @@ function PromptPreview({ promptVersionId }: { promptVersionId: string }) {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/projections/prompt_template/${encodeURIComponent(promptVersionId)}`)
+    fetch(
+      `/api/projections/prompt_template/${encodeURIComponent(promptVersionId)}`,
+    )
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { template: string } | null) => {
         setTemplate(data?.template ?? null);
@@ -481,7 +557,9 @@ function PromptPreview({ promptVersionId }: { promptVersionId: string }) {
     return <span className="text-[10px] text-text-tertiary">loading…</span>;
   }
   if (!template) {
-    return <span className="text-[10px] text-text-tertiary">template not found</span>;
+    return (
+      <span className="text-[10px] text-text-tertiary">template not found</span>
+    );
   }
 
   const preview = template.slice(0, 200);
@@ -499,15 +577,25 @@ function PromptPreview({ promptVersionId }: { promptVersionId: string }) {
           onClick={() => setExpanded((v) => !v)}
           className="text-[10px] text-text-tertiary hover:text-text-secondary mt-1 cursor-pointer"
         >
-          {expanded ? "show less" : `show all (${template.length.toLocaleString()} chars)`}
+          {expanded
+            ? "show less"
+            : `show all (${template.length.toLocaleString()} chars)`}
         </button>
       )}
     </div>
   );
 }
 
-function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
-  const enabledPhases = detail.config.phases.filter((p) => p.enabled);
+type TaskPreviewConfig = Pick<TaskConfig, "phases" | "gates">;
+
+function TaskPreviewPanel({
+  config,
+  propositionIds,
+}: {
+  config: TaskPreviewConfig;
+  propositionIds: string[];
+}) {
+  const enabledPhases = config.phases.filter((p) => p.enabled);
 
   return (
     <div className="space-y-4">
@@ -543,8 +631,8 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
 
               {/* Context policy */}
               <div className="mt-1.5 pt-1.5 border-t border-border-muted text-[11px] text-text-tertiary">
-                <span className="text-text-secondary">context:</span>{" "}
-                depth {phase.context_policy.symbol_graph_depth},{" "}
+                <span className="text-text-secondary">context:</span> depth{" "}
+                {phase.context_policy.symbol_graph_depth},{" "}
                 {phase.context_policy.token_budget.toLocaleString()} tokens
                 {phase.context_policy.include_tests && ", +tests"}
                 {phase.context_policy.include_similar_patterns && ", +patterns"}
@@ -555,19 +643,18 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
       </div>
 
       {/* Gates */}
-      {detail.config.gates.length > 0 && (
+      {config.gates.length > 0 && (
         <div>
           <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
             Gates
           </h4>
           <div className="space-y-1">
-            {detail.config.gates.map((gate) => (
+            {config.gates.map((gate) => (
               <div
                 key={gate.name}
-                className="flex items-center justify-between text-[11px] px-2 py-1 bg-bg-secondary border border-border-muted"
+                className="text-[11px] px-2 py-1 bg-bg-secondary border border-border-muted"
               >
                 <span className="font-mono text-text-primary">{gate.name}</span>
-                <span className="text-text-tertiary">{gate.on_fail}</span>
               </div>
             ))}
           </div>
@@ -575,13 +662,13 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
       )}
 
       {/* Propositions */}
-      {detail.proposition_ids.length > 0 && (
+      {propositionIds.length > 0 && (
         <div>
           <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
-            Propositions ({detail.proposition_ids.length})
+            Propositions ({propositionIds.length})
           </h4>
           <div className="space-y-1">
-            {detail.proposition_ids.map((id) => (
+            {propositionIds.map((id) => (
               <div
                 key={id}
                 className="text-[11px] font-mono text-text-secondary px-2 py-1 bg-bg-secondary border border-border-muted truncate"
@@ -592,17 +679,6 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
           </div>
         </div>
       )}
-
-      {/* Retry policy summary */}
-      <div>
-        <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
-          Retry policy
-        </h4>
-        <div className="text-[11px] text-text-secondary font-mono bg-bg-secondary border border-border-muted p-2 space-y-0.5">
-          <div>max attempts: {detail.config.retry_policy.max_total_attempts}</div>
-          <div>on audit reject: {detail.config.retry_policy.on_audit_reject}</div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -620,6 +696,9 @@ export function TaskDetailPane({
 }: TaskDetailPaneProps) {
   const enabledPhases = detail.config.phases.filter((p) => p.enabled);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
+  const latestAssistantMessage = useLatestAssistantMessage(
+    listRow?.current_attempt_id ?? undefined,
+  );
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -629,11 +708,7 @@ export function TaskDetailPane({
           {onEditConfig &&
             detail.status !== "merged" &&
             detail.status !== "archived" && (
-              <Button
-                type="button"
-                onClick={onEditConfig}
-                variant={"outline"}
-              >
+              <Button type="button" onClick={onEditConfig} variant={"outline"}>
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Config
               </Button>
@@ -642,11 +717,9 @@ export function TaskDetailPane({
             detail.current_attempt_id &&
             (detail.status === "awaiting_review" ? (
               <Button
-
                 onClick={() =>
                   onReview(detail.task_id, detail.current_attempt_id!)
                 }
-
               >
                 <ClipboardList className="h-3.5 w-3.5" />
                 Review
@@ -705,11 +778,24 @@ export function TaskDetailPane({
             {detail.title}
           </h2>
           <Popover>
-            <PopoverTrigger className="p-1 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer">
+            <PopoverTrigger
+              aria-label="Show task configuration preview"
+              className="p-1 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+            >
               <Info size={16} />
             </PopoverTrigger>
-            <PopoverContent className="w-96 max-h-[70vh] overflow-y-auto" side="bottom" align="start">
-              <TaskPreviewPanel detail={detail} />
+            <PopoverContent
+              className="w-96 max-h-[70vh] overflow-y-auto"
+              side="bottom"
+              align="start"
+            >
+              <TaskPreviewPanel
+                config={{
+                  phases: detail.config.phases,
+                  gates: detail.config.gates,
+                }}
+                propositionIds={detail.proposition_ids}
+              />
             </PopoverContent>
           </Popover>
         </div>
@@ -736,27 +822,6 @@ export function TaskDetailPane({
 
       {/* Content sections */}
       <div className="px-6 pb-6">
-        {/* Proposition block */}
-        {detail.proposition_ids.length > 0 && (
-          <section className="mb-6">
-            <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
-              Proposition
-            </h3>
-            <div className="border border-border-muted bg-bg-secondary p-4">
-              <p className="text-sm text-text-primary leading-relaxed">
-                {detail.proposition_ids.map((id) => (
-                  <span
-                    key={id}
-                    className="font-mono text-xs text-text-secondary"
-                  >
-                    {id}{" "}
-                  </span>
-                ))}
-              </p>
-            </div>
-          </section>
-        )}
-
         {/* Dependency editing */}
         {allTasks && (
           <DependencySection
@@ -783,7 +848,10 @@ export function TaskDetailPane({
             {enabledPhases.map((phase, i) => (
               <Fragment key={phase.name}>
                 {i > 0 && (
-                  <ChevronRight size={14} className="text-text-tertiary self-center" />
+                  <ChevronRight
+                    size={14}
+                    className="text-text-tertiary self-center"
+                  />
                 )}
                 <PhaseBox
                   phase={phase}
@@ -791,6 +859,7 @@ export function TaskDetailPane({
                   currentPhase={listRow?.current_phase ?? undefined}
                   taskStatus={detail.status}
                   completedPhases={listRow?.completed_phases}
+                  latestAssistantMessage={latestAssistantMessage}
                 />
               </Fragment>
             ))}
@@ -816,23 +885,10 @@ export function TaskDetailPane({
           </section>
         )}
 
-        {/* Retry policy + attempt counter */}
-        <section>
-          <div className="flex items-center justify-between border border-border-muted bg-bg-secondary px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-text-tertiary">retry:</span>
-              <span className="text-xs text-text-primary font-medium">
-                {retryPolicySummary(detail)}
-              </span>
-            </div>
-            {listRow && (
-              <span className="text-xs text-text-secondary font-mono">
-                attempt {listRow.attempt_count}/
-                {detail.config.retry_policy.max_total_attempts}
-              </span>
-            )}
-          </div>
-        </section>
+        {/* Acceptance criteria */}
+        {detail.proposition_ids.length > 0 && (
+          <AcceptanceCriteriaSection propositionIds={detail.proposition_ids} />
+        )}
 
         {/* Task timeline */}
         <TaskTimeline taskId={detail.task_id} status={detail.status} />
@@ -929,10 +985,7 @@ function TaskTimeline({
               ? (event.payload as GateFailed).failures
               : undefined;
           return (
-            <div
-              key={event.id}
-              className="relative py-1.5"
-            >
+            <div key={event.id} className="relative py-1.5">
               <div
                 className={`absolute -left-[calc(1rem+3px)] top-2.5 h-1.5 w-1.5 rounded-full ${timelineColor(event)}`}
               />

@@ -678,16 +678,17 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
   // Approval timestamp — use task_detail.updated_at when status is approved
   const approvedAt = taskDetail?.updated_at;
 
-  // Build file tabs from the captured diff (primary) or files_changed (fallback)
+  // Build file tabs from the captured diff (primary) or files_changed (fallback).
+  // When a diff blob is available, compute line counts from the parsed diff
+  // since invocation.file_edited events may have 0/0 counts (e.g. Codex
+  // stages changes internally so git diff HEAD returns nothing).
   const diffFiles = Object.keys(fileDiffs);
   const fileTabs = diffFiles.length > 0
     ? diffFiles.map((path) => {
-        const fc = attempt.files_changed.find((f) => f.path === path);
-        return {
-          path,
-          lines_added: fc?.lines_added ?? 0,
-          lines_removed: fc?.lines_removed ?? 0,
-        };
+        const lines = fileDiffs[path];
+        const added = lines.filter((l) => l.kind === "add").length;
+        const removed = lines.filter((l) => l.kind === "remove").length;
+        return { path, lines_added: added, lines_removed: removed };
       })
     : attempt.files_changed;
 

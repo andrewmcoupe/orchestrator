@@ -364,11 +364,24 @@ export function createProjectionRoutes(db: Database.Database): Hono {
     return c.json(parseTaskDetailRow(raw));
   });
 
-  // -- proposition?prd_id=
+  // -- proposition?prd_id= or proposition?ids=PROP-1,PROP-2
   routes.get("/api/projections/proposition", (c) => {
     const prdId = c.req.query("prd_id");
-    const where = prdId ? "WHERE prd_id = ?" : "";
-    const params = prdId ? [prdId] : [];
+    const ids = c.req.query("ids");
+
+    let where = "";
+    let params: string[] = [];
+
+    if (ids) {
+      const idList = ids.split(",").filter(Boolean);
+      if (idList.length > 0) {
+        where = `WHERE proposition_id IN (${idList.map(() => "?").join(",")})`;
+        params = idList;
+      }
+    } else if (prdId) {
+      where = "WHERE prd_id = ?";
+      params = [prdId];
+    }
 
     const rows = safeAll<RawPropositionRow>(
       db,

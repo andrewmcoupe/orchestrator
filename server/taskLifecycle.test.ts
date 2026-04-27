@@ -100,7 +100,7 @@ function makeNoOpDeps(): PhaseRunnerDeps {
       manifest_hash: "aabbcc",
     }),
     // Yield nothing — phaseRunner treats an empty invocation as success
-    cliInvoker: async function* () {},
+    claudeCodeInvoker: async function* () {},
     apiInvoker: async function* () {},
     gateRunner: async () => ({ status: "passed" as const, duration_ms: 1 }),
   };

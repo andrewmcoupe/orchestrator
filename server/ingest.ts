@@ -183,6 +183,7 @@ async function callExtractionCli(
         max_turns: 1,
         max_budget_usd: 2,
         permission_mode: "bypassPermissions" as const,
+        disallowed_tools: ["ToolSearch", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "Agent", "Skill", "NotebookEdit"],
         schema: EXTRACTION_JSON_SCHEMA,
       },
     };
@@ -198,11 +199,18 @@ async function callExtractionCli(
       if (event.type === "invocation.tool_called") {
         // When using --json-schema, Claude Code returns the structured output
         // as a tool call. Retrieve the args from the blob store.
-        const payload = event.payload as { args_hash: string };
-        const blob = blobStore.getBlob(payload.args_hash);
-        if (blob) {
-          assistantText = blob.toString("utf-8");
-          console.log(`[ingest] captured tool call args (${assistantText.length} chars)`);
+        // Filter to only capture the structured output tool — ignore other
+        // tool calls (e.g. ToolSearch) that Claude may invoke.
+        const payload = event.payload as { tool_name: string; args_hash: string };
+        console.log(`[ingest] tool_called: ${payload.tool_name}`);
+        if (payload.tool_name === "StructuredOutput") {
+          const blob = blobStore.getBlob(payload.args_hash);
+          if (blob) {
+            assistantText = blob.toString("utf-8");
+            console.log(`[ingest] captured structured_output args (${assistantText.length} chars)`);
+          }
+        } else {
+          console.log(`[ingest] ignoring tool call: ${payload.tool_name}`);
         }
       }
       if (event.type === "invocation.errored") {
@@ -219,11 +227,13 @@ async function callExtractionCli(
     if (!cliErrored && assistantText) {
       try {
         const parsed: unknown = JSON.parse(assistantText);
+        console.log(`[ingest] raw LLM response:`, JSON.stringify(parsed, null, 2));
         const result = extractionSchema.parse(parsed);
         console.log(`[ingest] extraction succeeded: ${result.propositions.length} propositions, ${result.draft_tasks.length} tasks, ${result.pushbacks.length} pushbacks`);
         return result;
       } catch (err) {
         console.error(`[ingest] parse/validation failed:`, err instanceof Error ? err.message : err);
+        console.error(`[ingest] raw assistantText:`, assistantText.slice(0, 2000));
         lastError =
           err instanceof Error ? err : new Error("Validation failed");
         // continue to next retry

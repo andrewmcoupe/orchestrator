@@ -235,3 +235,19 @@ export function useRecentEvents(options?: { correlationId?: string }): AnyEvent[
 export function useHydrated(): boolean {
   return useEventStore((s) => s.hydrated);
 }
+
+/** Latest assistant message text for a given attempt (by correlation_id) */
+export function useLatestAssistantMessage(attemptId: string | undefined): string | undefined {
+  return useEventStore((s) => {
+    if (!attemptId) return undefined;
+    for (const event of s.recentEvents) {
+      if (
+        event.type === "invocation.assistant_message" &&
+        event.correlation_id === attemptId
+      ) {
+        return (event.payload as { text: string }).text;
+      }
+    }
+    return undefined;
+  });
+}
