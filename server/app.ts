@@ -43,7 +43,7 @@ registerGraphLayoutReactor(db);
 // Discard uncommitted worktree changes left by interrupted attempts
 await recoverWorktrees(db);
 
-// Load gate definitions from config.yaml
+// Load and validate config.yaml, including gate definitions.
 loadGateRegistry();
 
 // Seed provider.configured events for all known providers (idempotent)

@@ -61,6 +61,17 @@ type IngestPhase =
     };
 
 type PushbackResolution = "reply_inline" | "amended" | "deferred";
+type IngestTransport = "claude-code" | "codex";
+
+const DEFAULT_MODELS: Record<IngestTransport, string> = {
+  "claude-code": "claude-sonnet-4-6",
+  codex: "gpt-5.5",
+};
+
+const MODEL_OPTIONS: Record<IngestTransport, string[]> = {
+  "claude-code": ["claude-sonnet-4-6", "claude-opus-4-6"],
+  codex: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+};
 
 // ============================================================================
 // Helpers
@@ -451,6 +462,8 @@ export function Ingest({ onBack }: IngestProps) {
   const [pathInput, setPathInput] = useState("");
   const [prdContent, setPrdContent] = useState("");
   const [activeTab, setActiveTab] = useState<"path" | "content">("path");
+  const [transport, setTransport] = useState<IngestTransport>("claude-code");
+  const [model, setModel] = useState(DEFAULT_MODELS["claude-code"]);
   const [error, setError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
   // Track which pushbacks have been resolved locally (for re-ingest recovery)
@@ -473,8 +486,8 @@ export function Ingest({ onBack }: IngestProps) {
     try {
       // 1. Call ingest command
       const body = isContentMode
-        ? JSON.stringify({ content: value })
-        : JSON.stringify({ path: value });
+        ? JSON.stringify({ content: value, transport, model })
+        : JSON.stringify({ path: value, transport, model });
       const ingestRes = await fetch("/api/commands/prd/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -517,7 +530,7 @@ export function Ingest({ onBack }: IngestProps) {
       setError((err as Error).message);
       setState({ phase: "idle" });
     }
-  }, [activeTab, prdContent, pathInput]);
+  }, [activeTab, prdContent, pathInput, transport, model]);
 
   // --------------------------------------------------------------------------
   // Pushback resolution
@@ -653,16 +666,46 @@ export function Ingest({ onBack }: IngestProps) {
               </TabsPanel>
             </Tabs>
 
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-text-secondary">Transport</span>
+                <select
+                  value={transport}
+                  onChange={(e) => {
+                    const next = e.target.value as IngestTransport;
+                    setTransport(next);
+                    setModel(DEFAULT_MODELS[next]);
+                  }}
+                  disabled={isLoading}
+                  className="border border-border-default bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-text-secondary disabled:opacity-50"
+                >
+                  <option value="claude-code">Claude Code</option>
+                  <option value="codex">Codex</option>
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-text-secondary">Model</span>
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={isLoading}
+                  className="border border-border-default bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-text-secondary disabled:opacity-50"
+                >
+                  {MODEL_OPTIONS[transport].map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
             <div className="mt-4">
               <button
                 type="button"
                 onClick={() => void handleIngest()}
-                disabled={
-                  isLoading ||
-                  (activeTab === "path"
-                    ? !pathInput.trim()
-                    : !prdContent.trim())
-                }
+                disabled={isLoading || (activeTab === "path" ? !pathInput.trim() : !prdContent.trim())}
                 className="w-full border border-transparent bg-bg-inverse px-5 py-2.5 text-sm font-medium text-text-inverse hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer disabled:cursor-default"
               >
                 {isLoading ? (
@@ -678,8 +721,7 @@ export function Ingest({ onBack }: IngestProps) {
 
             {isLoading && (
               <p className="mt-3 text-xs text-text-tertiary text-center">
-                Extracting propositions from {fileName(state.path)} via
-                Anthropic API…
+                Extracting propositions from {fileName(state.path)} via {transport}…
               </p>
             )}
           </div>
