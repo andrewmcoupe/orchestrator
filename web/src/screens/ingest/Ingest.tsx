@@ -1,5 +1,5 @@
 // @ts-check
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   ArrowLeft,
   RefreshCw,
@@ -70,7 +70,7 @@ const DEFAULT_MODELS: Record<IngestTransport, string> = {
 
 const MODEL_OPTIONS: Record<IngestTransport, string[]> = {
   "claude-code": ["claude-sonnet-4-6", "claude-opus-4-6"],
-  codex: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+  codex: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"],
 };
 
 // ============================================================================
@@ -462,14 +462,33 @@ export function Ingest({ onBack }: IngestProps) {
   const [pathInput, setPathInput] = useState("");
   const [prdContent, setPrdContent] = useState("");
   const [activeTab, setActiveTab] = useState<"path" | "content">("path");
-  const [transport, setTransport] = useState<IngestTransport>("claude-code");
-  const [model, setModel] = useState(DEFAULT_MODELS["claude-code"]);
+  const [transport, setTransport] = useState<IngestTransport | null>(null);
+  const [model, setModel] = useState<string | null>(null);
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
   // Track which pushbacks have been resolved locally (for re-ingest recovery)
   const [resolvedPushbacks, setResolvedPushbacks] = useState<Set<string>>(
     new Set(),
   );
+
+  // Fetch ingest config defaults from the server on mount
+  useEffect(() => {
+    fetch("/api/config/ingest")
+      .then((res) => res.json())
+      .then((data: { transport?: IngestTransport; model?: string }) => {
+        const t = data.transport ?? "claude-code";
+        setTransport(t);
+        setModel(data.model ?? DEFAULT_MODELS[t]);
+        setConfigLoaded(true);
+      })
+      .catch(() => {
+        // Fall back to hard-coded defaults if config endpoint is unavailable
+        setTransport("claude-code");
+        setModel(DEFAULT_MODELS["claude-code"]);
+        setConfigLoaded(true);
+      });
+  }, []);
 
   // --------------------------------------------------------------------------
   // Ingest action
@@ -478,7 +497,7 @@ export function Ingest({ onBack }: IngestProps) {
   const handleIngest = useCallback(async () => {
     const isContentMode = activeTab === "content";
     const value = isContentMode ? prdContent.trim() : pathInput.trim();
-    if (!value) return;
+    if (!value || !transport || !model) return;
     setError(null);
     const label = isContentMode ? "pasted content" : pathInput;
     setState({ phase: "loading", path: label });
@@ -670,13 +689,13 @@ export function Ingest({ onBack }: IngestProps) {
               <label className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium text-text-secondary">Transport</span>
                 <select
-                  value={transport}
+                  value={transport ?? ""}
                   onChange={(e) => {
                     const next = e.target.value as IngestTransport;
                     setTransport(next);
                     setModel(DEFAULT_MODELS[next]);
                   }}
-                  disabled={isLoading}
+                  disabled={isLoading || !configLoaded}
                   className="border border-border-default bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-text-secondary disabled:opacity-50"
                 >
                   <option value="claude-code">Claude Code</option>
@@ -687,12 +706,12 @@ export function Ingest({ onBack }: IngestProps) {
               <label className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium text-text-secondary">Model</span>
                 <select
-                  value={model}
+                  value={model ?? ""}
                   onChange={(e) => setModel(e.target.value)}
-                  disabled={isLoading}
+                  disabled={isLoading || !configLoaded}
                   className="border border-border-default bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-text-secondary disabled:opacity-50"
                 >
-                  {MODEL_OPTIONS[transport].map((option) => (
+                  {(transport ? MODEL_OPTIONS[transport] : []).map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>
@@ -705,7 +724,7 @@ export function Ingest({ onBack }: IngestProps) {
               <button
                 type="button"
                 onClick={() => void handleIngest()}
-                disabled={isLoading || (activeTab === "path" ? !pathInput.trim() : !prdContent.trim())}
+                disabled={isLoading || !configLoaded || (activeTab === "path" ? !pathInput.trim() : !prdContent.trim())}
                 className="w-full border border-transparent bg-bg-inverse px-5 py-2.5 text-sm font-medium text-text-inverse hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer disabled:cursor-default"
               >
                 {isLoading ? (
@@ -721,7 +740,7 @@ export function Ingest({ onBack }: IngestProps) {
 
             {isLoading && (
               <p className="mt-3 text-xs text-text-tertiary text-center">
-                Extracting propositions from {fileName(state.path)} via {transport}…
+                Extracting propositions from {fileName(state.path)} via {transport ?? "…"}…
               </p>
             )}
           </div>
@@ -823,7 +842,7 @@ export function Ingest({ onBack }: IngestProps) {
         <span>·</span>
         <span>
           model:{" "}
-          <span className="font-mono text-text-primary">claude-sonnet-4-6</span>
+          <span className="font-mono text-text-primary">{model ?? "unknown"}</span>
         </span>
         <span>·</span>
         <span>

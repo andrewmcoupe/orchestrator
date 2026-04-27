@@ -3,6 +3,7 @@
  *
  * GET /api/repo/current-branch        — current HEAD branch of the main working tree
  * GET /api/config/on_merge            — on_merge config block from config.yaml
+ * GET /api/config/ingest              — ingest config defaults (transport + model)
  * GET /api/worktree/:task_id/open     — open the task worktree in $EDITOR / $VISUAL
  */
 
@@ -12,6 +13,7 @@ import { execa } from "execa";
 import { parse as parseYaml } from "yaml";
 import type Database from "better-sqlite3";
 import { getDefaultRepoRoot, getConfigPath } from "../paths.js";
+import { getIngestConfig } from "../config.js";
 
 const CONFIG_PATH = getConfigPath();
 
@@ -62,6 +64,17 @@ export function createRepoRoutes(db: Database.Database) {
     } catch {
       return c.json({ strategy: "squash", auto_delete_worktree: true, preserve_branch: false });
     }
+  });
+
+  // --------------------------------------------------------------------------
+  // GET /api/config/ingest
+  //
+  // Returns the resolved ingest config (transport + model) so the UI can
+  // default its dropdowns from config.yaml rather than hard-coding values.
+  // --------------------------------------------------------------------------
+  app.get("/api/config/ingest", (c) => {
+    const ingest = getIngestConfig();
+    return c.json({ transport: ingest.transport, model: ingest.model });
   });
 
   // --------------------------------------------------------------------------

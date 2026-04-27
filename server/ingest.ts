@@ -165,7 +165,8 @@ async function callExtractionCli(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const invocationId = `INV-${ulid()}`;
-    let assistantText = "";
+    let structuredOutputText = "";
+    let assistantMessageText = "";
     let cliErrored = false;
 
     console.log(`[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${config.model}, transport: ${config.transport})`);
@@ -173,7 +174,8 @@ async function callExtractionCli(
 
     const prompt = `${systemPrompt}\n\n---\n\n${content}`;
 
-    const opts = {
+    // ---- Transport-specific options ----
+    const baseOpts = {
       invocation_id: invocationId,
       attempt_id: prd_id,
       phase_name: "ingest" as const,
@@ -182,40 +184,61 @@ async function callExtractionCli(
       prompt_version_id: INGEST_PROMPT_VERSION_ID,
       context_manifest_hash: "",
       cwd: getDefaultRepoRoot(),
-      transport_options: {
-        kind: "cli" as const,
-        max_turns: 1,
-        max_budget_usd: 2,
-        permission_mode: "bypassPermissions" as const,
-        disallowed_tools: ["ToolSearch", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "Agent", "Skill", "NotebookEdit"],
-        schema: EXTRACTION_JSON_SCHEMA,
-      },
     };
 
     console.log(`[ingest] calling ${config.transport} CLI...`);
     const startTime = Date.now();
-    const eventStream =
-      config.transport === "codex"
-        ? codexInvoke(opts as CodexInvokeOptions, blobStore)
-        : claudeCodeInvoke(opts as ClaudeCodeInvokeOptions, blobStore);
+
+    let eventStream: AsyncIterable<import("./eventStore.js").AppendEventInput>;
+
+    if (config.transport === "codex") {
+      // Codex: sandbox read-only (permission_mode "plan"), schema for
+      // --output-schema, no disallowed_tools, no reasoning effort.
+      const codexOpts: CodexInvokeOptions = {
+        ...baseOpts,
+        transport_options: {
+          kind: "cli" as const,
+          max_turns: 1,
+          max_budget_usd: 2,
+          permission_mode: "plan" as const,
+          schema: EXTRACTION_JSON_SCHEMA,
+        },
+      };
+      eventStream = codexInvoke(codexOpts, blobStore);
+    } else {
+      // Claude Code: bypass permissions, all tools disabled, schema for
+      // --json-schema structured output.
+      const claudeCodeOpts: ClaudeCodeInvokeOptions = {
+        ...baseOpts,
+        transport_options: {
+          kind: "cli" as const,
+          max_turns: 1,
+          max_budget_usd: 2,
+          permission_mode: "bypassPermissions" as const,
+          disallowed_tools: ["ToolSearch", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "Agent", "Skill", "NotebookEdit"],
+          schema: EXTRACTION_JSON_SCHEMA,
+        },
+      };
+      eventStream = claudeCodeInvoke(claudeCodeOpts, blobStore);
+    }
 
     for await (const event of eventStream) {
       console.log(`[ingest] received event: ${event.type} (+${Date.now() - startTime}ms)`);
+      // Codex path: structured output arrives as the final assistant message.
+      // Retain only the latest message (not concatenated) since the contract
+      // specifies the *final* assistant message carries the structured output.
       if (event.type === "invocation.assistant_message") {
-        assistantText += (event.payload as { text: string }).text;
+        assistantMessageText = (event.payload as { text: string }).text;
       }
+      // Claude Code path: structured output arrives as a StructuredOutput tool call.
       if (event.type === "invocation.tool_called") {
-        // When using --json-schema, Claude Code returns the structured output
-        // as a tool call. Retrieve the args from the blob store.
-        // Filter to only capture the structured output tool — ignore other
-        // tool calls (e.g. ToolSearch) that Claude may invoke.
         const payload = event.payload as { tool_name: string; args_hash: string };
         console.log(`[ingest] tool_called: ${payload.tool_name}`);
         if (payload.tool_name === "StructuredOutput") {
           const blob = blobStore.getBlob(payload.args_hash);
           if (blob) {
-            assistantText = blob.toString("utf-8");
-            console.log(`[ingest] captured structured_output args (${assistantText.length} chars)`);
+            structuredOutputText = blob.toString("utf-8");
+            console.log(`[ingest] captured structured_output args (${structuredOutputText.length} chars)`);
           }
         } else {
           console.log(`[ingest] ignoring tool call: ${payload.tool_name}`);
@@ -230,18 +253,20 @@ async function callExtractionCli(
       }
     }
 
-    console.log(`[ingest] CLI call completed in ${Date.now() - startTime}ms (errored: ${cliErrored}, textLen: ${assistantText.length})`);
+    // Prefer StructuredOutput tool call (Claude Code) over assistant_message (Codex).
+    const capturedText = structuredOutputText || assistantMessageText;
+    console.log(`[ingest] CLI call completed in ${Date.now() - startTime}ms (errored: ${cliErrored}, textLen: ${capturedText.length})`);
 
-    if (!cliErrored && assistantText) {
+    if (!cliErrored && capturedText) {
       try {
-        const parsed: unknown = JSON.parse(assistantText);
+        const parsed: unknown = JSON.parse(capturedText);
         console.log(`[ingest] raw LLM response:`, JSON.stringify(parsed, null, 2));
         const result = extractionSchema.parse(parsed);
         console.log(`[ingest] extraction succeeded: ${result.propositions.length} propositions, ${result.draft_tasks.length} tasks, ${result.pushbacks.length} pushbacks`);
         return result;
       } catch (err) {
         console.error(`[ingest] parse/validation failed:`, err instanceof Error ? err.message : err);
-        console.error(`[ingest] raw assistantText:`, assistantText.slice(0, 2000));
+        console.error(`[ingest] raw capturedText:`, capturedText.slice(0, 2000));
         lastError =
           err instanceof Error ? err : new Error("Validation failed");
         // continue to next retry
