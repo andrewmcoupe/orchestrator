@@ -69,7 +69,7 @@ export type CodexFileChangeItem = {
 export type CodexAgentMessageItem = {
   type: "agent_message";
   id: string;
-  content: string;
+  text: string;
 };
 
 export type CodexItem = CodexCommandExecutionItem | CodexFileChangeItem | CodexAgentMessageItem;
@@ -103,26 +103,33 @@ export type SpawnerContext = {
 export type Spawner = (
   cmd: string,
   args: string[],
-  opts: { cwd: string },
+  opts: { cwd: string; stdinData?: string },
   context?: SpawnerContext,
 ) => AsyncIterable<string>;
 
 /**
  * Default spawner: reads stdout line-by-line from the codex subprocess.
+ * When opts.stdinData is provided, it is piped to the process stdin.
  */
 async function* execaSpawner(
   cmd: string,
   args: string[],
-  opts: { cwd: string },
+  opts: { cwd: string; stdinData?: string },
   context?: SpawnerContext,
 ): AsyncIterable<string> {
   const proc = execa(cmd, args, {
     cwd: opts.cwd,
-    stdin: "ignore",
+    stdin: opts.stdinData ? "pipe" : "ignore",
     stdout: "pipe",
     stderr: "pipe",
     reject: false,
   });
+
+  // Pipe prompt to stdin if provided
+  if (opts.stdinData && proc.stdin) {
+    proc.stdin.write(opts.stdinData);
+    proc.stdin.end();
+  }
 
   const stdout = proc.stdout;
   if (!stdout) {
@@ -155,9 +162,10 @@ async function* execaSpawner(
     if (buffer.trim()) yield buffer;
 
     const result = await proc;
+    console.log(`[codex] process exited: code=${result.exitCode}, signal=${result.signal ?? "none"}, stderr=${stderrTail.slice(-500)}`);
     if (result.exitCode !== 0) {
       const err = new Error(
-        result.stderr ?? `codex exited with code ${result.exitCode}`,
+        stderrTail || result.stderr || `codex exited with code ${result.exitCode}`,
       ) as Error & { exitCode?: number; signal?: string; stderrTail?: string };
       err.exitCode = result.exitCode ?? 1;
       if (result.signal) err.signal = result.signal;
@@ -223,8 +231,9 @@ export function buildArgs(opts: InvokeOptions): string[] {
     args.push("--output-schema", schemaPath);
   }
 
-  // Prompt is the final positional argument
-  args.push(opts.prompt);
+  // Prompt is piped via stdin using "-" as the positional argument.
+  // Packed context can be very large, exceeding shell argument limits.
+  args.push("-");
 
   return args;
 }
@@ -442,7 +451,7 @@ export function translateLine(
         type: "invocation.assistant_message",
         payload: {
           invocation_id: opts.invocation_id,
-          text: item.content,
+          text: item.text,
         },
       } satisfies AppendEventInput<"invocation.assistant_message">];
     }
@@ -595,6 +604,7 @@ export async function* invoke(
 ): AsyncIterable<AppendEventInput> {
   const startedAt = Date.now();
   const args = buildArgs(opts);
+  console.log(`[codex] spawning: args=${JSON.stringify(args.filter(a => a !== "-"))}, cwd=${opts.cwd}, promptLen=${opts.prompt.length}`);
   const ctx: TranslateContext = { itemStartTimes: {}, startedAt, turnCount: 0, fileChangePathsSeen: new Set() };
   const spawnerCtx: SpawnerContext = {};
 
@@ -605,7 +615,7 @@ export async function* invoke(
   >();
 
   try {
-    for await (const rawLine of spawner("codex", args, { cwd: opts.cwd }, spawnerCtx)) {
+    for await (const rawLine of spawner("codex", args, { cwd: opts.cwd, stdinData: opts.prompt }, spawnerCtx)) {
       let parsed: CodexLine;
       try {
         parsed = JSON.parse(rawLine) as CodexLine;

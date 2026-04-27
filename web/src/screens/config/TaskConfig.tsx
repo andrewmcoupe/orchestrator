@@ -133,7 +133,7 @@ const MODELS_BY_TRANSPORT: Record<Transport, string[]> = {
   "claude-code": ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-6"],
   "anthropic-api": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
   "openai-api": ["gpt-4o", "gpt-4-turbo", "o3"],
-  "codex": ["codex-default"],
+  "codex": ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.5"],
   "aider": ["aider-default"],
   "gemini-cli": ["gemini-2.5-pro", "gemini-2.0-flash"],
 };
