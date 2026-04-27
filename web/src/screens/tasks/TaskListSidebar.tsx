@@ -5,7 +5,7 @@ import type { TaskStatus } from "@shared/events.js";
 import { useCreateTask } from "../../hooks/useTaskMutations.js";
 import { Button } from "@web/src/components/ui/button.js";
 
-type StatusFilter = "all" | "active" | "approved" | "done";
+type StatusFilter = "all" | "draft" | "active" | "approved" | "done";
 
 type TaskListSidebarProps = {
   tasks: TaskListRow[];
@@ -37,19 +37,18 @@ const STATUS_DOT: Record<TaskStatus, string> = {
 
 /** Statuses that count as "active" for the filter */
 const ACTIVE_STATUSES: Set<TaskStatus> = new Set([
+  "queued",
   "running",
   "revising",
   "awaiting_review",
   "paused",
-  "queued",
-  "draft",
+  "blocked",
 ]);
 
 /** Statuses that count as "done" for the filter */
 const DONE_STATUSES: Set<TaskStatus> = new Set([
   "merged",
   "rejected",
-  "archived",
 ]);
 
 /** Statuses that count as "approved" for the filter */
@@ -169,8 +168,12 @@ export function TaskListSidebar({
           t.status.toLowerCase().includes(q),
       );
     }
-    // Status filter
-    if (statusFilter === "active") {
+    // Status filter — "all" excludes drafts by default
+    if (statusFilter === "all") {
+      result = result.filter((t) => t.status !== "draft");
+    } else if (statusFilter === "draft") {
+      result = result.filter((t) => t.status === "draft");
+    } else if (statusFilter === "active") {
       result = result.filter((t) => ACTIVE_STATUSES.has(t.status));
     } else if (statusFilter === "approved") {
       result = result.filter((t) => APPROVED_STATUSES.has(t.status));
@@ -217,6 +220,7 @@ export function TaskListSidebar({
             className="border border-border-default bg-bg-secondary px-1.5 py-1.5 text-xs text-text-secondary outline-none cursor-pointer hover:text-text-primary transition-colors"
           >
             <option value="all">All</option>
+            <option value="draft">Draft</option>
             <option value="active">Active</option>
             <option value="approved">Approved</option>
             <option value="done">Done</option>

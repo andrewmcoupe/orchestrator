@@ -223,11 +223,12 @@ describe("TaskListSidebar", () => {
     expect(screen.queryByText(/ready to merge/)).toBeNull();
   });
 
-  it("renders status filter select with All, Active, Approved, Done options", () => {
+  it("renders status filter select with All, Draft, Active, Approved, Done options", () => {
     withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
     const select = screen.getByRole("combobox", { name: /status filter/i });
     expect(select).toBeDefined();
     expect(screen.getByRole("option", { name: "All" })).toBeDefined();
+    expect(screen.getByRole("option", { name: "Draft" })).toBeDefined();
     expect(screen.getByRole("option", { name: "Active" })).toBeDefined();
     expect(screen.getByRole("option", { name: "Approved" })).toBeDefined();
     expect(screen.getByRole("option", { name: "Done" })).toBeDefined();
@@ -279,7 +280,7 @@ describe("TaskListSidebar", () => {
     const blockedTask = makeListRow({
       task_id: "T-020",
       title: "Blocked feature",
-      status: "draft",
+      status: "queued",
       blocked: true,
       depends_on: ["T-019"],
     });
@@ -295,7 +296,7 @@ describe("TaskListSidebar", () => {
     const blockedTask = makeListRow({
       task_id: "T-020",
       title: "Blocked feature",
-      status: "draft",
+      status: "queued",
       blocked: true,
       depends_on: ["T-019", "T-018"],
     });
@@ -308,7 +309,7 @@ describe("TaskListSidebar", () => {
     const blockedTask = makeListRow({
       task_id: "T-020",
       title: "Blocked feature",
-      status: "draft",
+      status: "queued",
       blocked: true,
       depends_on: ["T-019"],
     });
