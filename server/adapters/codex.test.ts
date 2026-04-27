@@ -163,8 +163,7 @@ describe("buildArgs", () => {
     const args = buildArgs(opts);
     expect(args).toContain("--sandbox");
     expect(args).toContain("read-only");
-    expect(args).toContain("--ask-for-approval");
-    expect(args).toContain("untrusted");
+    expect(args).not.toContain("--ask-for-approval");
     expect(args).not.toContain("--full-auto");
   });
 
@@ -176,8 +175,7 @@ describe("buildArgs", () => {
     const args = buildArgs(opts);
     expect(args).toContain("--sandbox");
     expect(args).toContain("read-only");
-    expect(args).toContain("--ask-for-approval");
-    expect(args).toContain("untrusted");
+    expect(args).not.toContain("--ask-for-approval");
   });
 
   it("appends --output-schema <path> when schema is provided", () => {

@@ -249,7 +249,7 @@ export function buildArgs(opts: InvokeOptions): string[] {
       break;
     case "plan":
     case "default":
-      args.push("--sandbox", "read-only", "--ask-for-approval", "untrusted");
+      args.push("--sandbox", "read-only");
       break;
   }
 

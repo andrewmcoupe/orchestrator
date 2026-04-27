@@ -10,10 +10,12 @@
  * Injectable fetcher enables unit testing without real HTTP calls.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { ulid } from "ulid";
 import { z } from "zod";
 import type Database from "better-sqlite3";
@@ -175,6 +177,15 @@ async function callExtractionCli(
     const prompt = `${systemPrompt}\n\n---\n\n${content}`;
 
     // ---- Transport-specific options ----
+    // Codex ingest runs from an empty temp dir (with git init) to prevent
+    // the model from reading repo files (e.g. PRD.md) instead of focusing
+    // on the PRD content in the prompt.
+    let cwd = getDefaultRepoRoot();
+    if (config.transport === "codex") {
+      cwd = mkdtempSync(join(tmpdir(), "codex-ingest-"));
+      execSync("git init -q", { cwd });
+    }
+
     const baseOpts = {
       invocation_id: invocationId,
       attempt_id: prd_id,
@@ -183,7 +194,7 @@ async function callExtractionCli(
       prompt,
       prompt_version_id: INGEST_PROMPT_VERSION_ID,
       context_manifest_hash: "",
-      cwd: getDefaultRepoRoot(),
+      cwd,
     };
 
     console.log(`[ingest] calling ${config.transport} CLI...`);
