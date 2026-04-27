@@ -11,6 +11,7 @@ import type {
 import { canAddDependency } from "@shared/dependency.js";
 import { topoSort } from "@shared/dependency.js";
 import { useTaskTimelineQuery } from "../../hooks/useQueries.js";
+import { useLatestAssistantMessage } from "../../store/eventStore.js";
 import { MergeDialog } from "../review/MergeDialog.js";
 import { Button } from "@web/src/components/ui/button";
 import {
@@ -101,18 +102,33 @@ const PHASE_DOT: Record<PhaseStatus, string> = {
   pending: "bg-status-muted",
 };
 
+function AssistantMessagePreview({ text }: { text: string }) {
+  const truncated = text.length > 120 ? `${text.slice(0, 120)}…` : text;
+
+  return (
+    <p
+      key={text}
+      className="text-xs text-text-secondary mt-1.5 leading-relaxed line-clamp-2 animate-fade-in"
+    >
+      {truncated}
+    </p>
+  );
+}
+
 function PhaseBox({
   phase,
   enabledPhases,
   currentPhase,
   taskStatus,
   completedPhases,
+  latestAssistantMessage,
 }: {
   phase: PhaseConfig;
   enabledPhases: PhaseConfig[];
   currentPhase?: string;
   taskStatus?: TaskStatus;
   completedPhases?: string[];
+  latestAssistantMessage?: string;
 }) {
   const status = derivePhaseStatus(
     phase,
@@ -142,6 +158,9 @@ function PhaseBox({
       <div className="text-xs text-text-secondary font-mono">
         {model} &middot; {phase.prompt_version_id || "v?"}
       </div>
+      {status === "running" && latestAssistantMessage && (
+        <AssistantMessagePreview text={latestAssistantMessage} />
+      )}
       {status === "done" && (
         <span className="text-xs text-text-tertiary mt-1">Finished</span>
       )}
@@ -620,6 +639,9 @@ export function TaskDetailPane({
 }: TaskDetailPaneProps) {
   const enabledPhases = detail.config.phases.filter((p) => p.enabled);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
+  const latestAssistantMessage = useLatestAssistantMessage(
+    listRow?.current_attempt_id ?? undefined,
+  );
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -791,6 +813,7 @@ export function TaskDetailPane({
                   currentPhase={listRow?.current_phase ?? undefined}
                   taskStatus={detail.status}
                   completedPhases={listRow?.completed_phases}
+                  latestAssistantMessage={latestAssistantMessage}
                 />
               </Fragment>
             ))}

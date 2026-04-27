@@ -424,12 +424,16 @@ const CONSTRAINTS_BLOCK = `\n\n## Constraints
 function formatRetryFeedback(concerns: AuditConcern[]): string {
   if (concerns.length === 0) return "";
   return (
-    "\n\n## Prior Auditor Concerns\n\n" +
+    "\n\n## Prior Auditor Concerns — YOU MUST ADDRESS THESE\n\n" +
+    "The following issues were flagged by the auditor on a previous attempt. " +
+    "Each one MUST be fixed in this attempt.\n\n" +
     concerns
-      .map(
-        (c) =>
-          `- [${c.severity.toUpperCase()}] ${c.category}: ${c.rationale}`,
-      )
+      .map((c) => {
+        const anchor = c.anchor
+          ? ` (${c.anchor.path}:${c.anchor.line})`
+          : "";
+        return `- [${c.severity.toUpperCase()}] ${c.category}${anchor}: ${c.rationale}`;
+      })
       .join("\n")
   );
 }

@@ -190,6 +190,16 @@ body {
   animation: slide-in-right 0.15s ease-out;
 }
 
+/* Fade-in for assistant message preview on phase cards */
+.animate-fade-in {
+  opacity: 1;
+  transition: opacity 500ms ease-in-out;
+
+  @starting-style {
+    opacity: 0;
+  }
+}
+
 @theme inline {
   --font-heading: var(--font-mono);
   --font-mono: 'JetBrains Mono Variable', monospace;
