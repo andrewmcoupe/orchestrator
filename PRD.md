@@ -1,46 +1,89 @@
-# Compute Cost from Token Counts for All Transports
+# Configurable Transport for PRD Ingestion
 
 ## Overview
 
-The measurement page has a Cost tab that charts daily spend by provider. Currently, Claude Code reports real `cost_usd` from its subprocess, the Anthropic API adapter computes cost via a pricing table, but the Codex adapter hardcodes `cost_usd: 0` because Codex doesn't report billing cost. Since token counts are already flowing through from all transports, we can compute cost from tokens using a pricing table — making the cost section accurate and useful regardless of which CLI transport is used.
+The PRD ingestion step currently hardcodes the Claude Code CLI transport to extract propositions, draft tasks, and pushbacks from a PRD file. Many users prefer subscription-based Codex CLI over expensive API calls. This feature makes the transport configurable so users can choose between Claude Code CLI and Codex CLI for the ingestion phase, with project-level defaults and per-call overrides.
 
-## Extend `modelPricing.ts` with OpenAI model rates
+## Add `ingest` block to `config.yaml`
 
-### Add OpenAI models to the existing pricing table
+### New configuration shape
 
-- `server/adapters/modelPricing.ts` already has a `computeCost(model, tokensIn, tokensOut)` function and a lookup table for Anthropic models.
-- Add OpenAI model pricing entries alongside the existing Anthropic ones.
-- Models to include: `o3`, `o4-mini`, `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`, `o3-pro`. Add others as needed.
-- Prices should be in USD per 1M tokens (input/output), matching the existing table format.
-- Unknown models continue to return 0.
+- Add an optional `ingest` section to `config.yaml` with `transport` and `model` fields.
+- Shape:
+  ```yaml
+  ingest:
+    transport: "codex"        # "claude-code" | "codex"
+    model: "gpt-5.5"          # default model for the chosen transport
+  ```
+- If the `ingest` block is missing, fall back to `claude-code` + `claude-sonnet-4-6` (preserving current behavior).
+- Parse and validate the config at startup alongside existing config loading.
 
-## Update Codex adapter to compute cost from token counts
+## Update `POST /api/commands/prd/ingest` endpoint
 
-### Replace hardcoded `cost_usd: 0` in `translateLine`
+### Accept optional `transport` and `model` overrides
 
-- In `server/adapters/codex.ts`, the `turn.completed` handler currently sets `cost_usd: 0`.
-- Import `computeCost` from `modelPricing.ts`.
-- Call `computeCost(opts.model, tokens_in, tokens_out)` to calculate the cost.
-- Set the result as `cost_usd` on the `invocation.completed` payload.
+- `server/routes/commands.ts` currently accepts `{ path: string } | { content: string }`.
+- Extend the request body to accept optional `transport` and `model` fields:
+  ```typescript
+  {
+    path?: string;
+    content?: string;
+    transport?: "claude-code" | "codex";
+    model?: string;
+  }
+  ```
+- If `transport`/`model` are omitted, fall back to `config.yaml` defaults.
+- If `config.yaml` has no `ingest` block, fall back to `claude-code` + `claude-sonnet-4-6`.
+- Pass the resolved transport and model through to the ingest function.
 
-### Keep Claude Code adapter unchanged
+## Refactor `server/ingest.ts` to support multiple transports
 
-- `server/adapters/claudeCode.ts` already uses the self-reported `total_cost_usd` from the Claude Code subprocess.
-- This is the most accurate source (accounts for prompt caching discounts, etc.).
-- Do not change it to use the pricing table.
+### Add transport dispatcher
 
-## Update tests
+- Currently `callExtractionCli` imports `cliInvoke` from `claudeCode.ts` directly and builds CLI-specific options.
+- Import the Codex `invoke` from `codex.ts` alongside the existing Claude Code import.
+- Add a dispatcher that selects the correct adapter and builds transport-specific options, similar to how `phaseRunner.ts` dispatches at lines 590-657.
+- The `ingestPrd` function should accept `transport` and `model` parameters.
 
-### Update Codex adapter tests
+### Build transport-specific options
 
-- `server/adapters/codex.test.ts` has an explicit test (`AC3`) asserting `cost_usd` is always 0.
-- Update this test to assert the computed cost based on token counts and the pricing table.
-- Add a test that unknown models still produce `cost_usd: 0`.
+- **Claude Code:** `kind: "cli"`, `permission_mode: "bypassPermissions"`, `disallowed_tools` list (all tools disabled), `schema: EXTRACTION_JSON_SCHEMA`. Unchanged from current behavior.
+- **Codex:** `kind: "cli"`, `permission_mode: "plan"` (maps to `--sandbox read-only`), `schema: EXTRACTION_JSON_SCHEMA` (adapter writes to temp file and passes `--output-schema <path>`). No reasoning effort parameter.
+
+### Handle different structured output capture
+
+- **Claude Code:** Structured output arrives as a `StructuredOutput` tool call. Capture via `invocation.tool_called` event and retrieve args from blob store. This is the existing behavior.
+- **Codex:** Structured output arrives as the final agent message. Capture via `invocation.assistant_message` event.
+- The response capture logic should handle both patterns: check for `StructuredOutput` tool call first (Claude Code), fall back to `assistant_message` (Codex).
+
+### Shared retry loop and validation
+
+- The retry loop (up to `MAX_RETRIES` attempts) and Zod schema validation remain identical regardless of transport.
+- No changes to `extractionSchema` or `EXTRACTION_JSON_SCHEMA`.
+
+## Update Ingest UI with transport selector
+
+### Add transport and model dropdowns to the Ingest screen
+
+- `web/src/screens/ingest/Ingest.tsx` currently has a file/content input and triggers ingestion.
+- Add a transport dropdown (`Claude Code` / `Codex`) defaulting to the `config.yaml` value.
+- Add a model dropdown that updates its options based on the selected transport:
+  - Claude Code: `claude-sonnet-4-6` and other Anthropic models.
+  - Codex: `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.5`.
+- Default model from config, allow override per call.
+- Send `transport` and `model` fields in the `POST /api/commands/prd/ingest` request.
 
 ## Implementation Touchpoints
 
 | File | Change |
 |---|---|
-| `server/adapters/modelPricing.ts` | Add OpenAI model pricing entries to the existing lookup table |
-| `server/adapters/codex.ts` | Import `computeCost`, use it in `turn.completed` handler instead of hardcoded 0 |
-| `server/adapters/codex.test.ts` | Update AC3 test to assert computed cost; add unknown-model test |
+| `config.yaml` | Add optional `ingest` block with `transport` and `model` fields |
+| `server/routes/commands.ts` | Accept optional `transport` and `model` in ingest request body, resolve defaults from config |
+| `server/ingest.ts` | Add transport dispatcher, import Codex adapter, build transport-specific options, handle both structured output patterns |
+| `web/src/screens/ingest/Ingest.tsx` | Add transport and model dropdowns, send overrides in API call |
+
+## Out of Scope
+
+- `anthropic-api` transport for ingestion.
+- Reasoning effort configuration for Codex.
+- GPT-5.x model pricing in `modelPricing.ts` (follow-up PR).

@@ -197,7 +197,12 @@ function PhaseBox({
           {phase.prompt_version_id || "v?"}
         </div>
       </div>
-      {status === "running" && latestAssistantMessage && (
+      {status === "running" && phase.name === "auditor" && (
+        <p className="text-xs text-text-secondary mt-1.5 leading-relaxed">
+          Auditing the implementers changes against the acceptance criteria...
+        </p>
+      )}
+      {status === "running" && phase.name !== "auditor" && latestAssistantMessage && (
         <AssistantMessagePreview text={latestAssistantMessage} />
       )}
       {status === "done" && (

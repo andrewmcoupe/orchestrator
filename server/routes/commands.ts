@@ -29,6 +29,7 @@ import {
   killAttempt,
 } from "../phaseRunner.js";
 import { ingestPrd } from "../ingest.js";
+import { getIngestConfig, INGEST_TRANSPORTS } from "../config.js";
 import { mergeTask } from "../merge.js";
 import type {
   Actor,
@@ -86,9 +87,22 @@ const rejectBody = z.object({
   rationale: z.string().optional(),
 });
 
+const ingestOverrideFields = {
+  transport: z.enum(INGEST_TRANSPORTS).optional(),
+  model: z.string().min(1).optional(),
+};
+
 const prdIngestBody = z.union([
-  z.object({ path: z.string().min(1), content: z.undefined() }),
-  z.object({ content: z.string().min(1), path: z.undefined() }),
+  z.object({
+    path: z.string().min(1),
+    content: z.undefined(),
+    ...ingestOverrideFields,
+  }),
+  z.object({
+    content: z.string().min(1),
+    path: z.undefined(),
+    ...ingestOverrideFields,
+  }),
 ]);
 
 const setDependenciesBody = z.object({
@@ -974,7 +988,12 @@ export function createCommandRoutes(db: Database.Database) {
     if (!parsed.success) return badRequest(parsed.error);
 
     try {
-      const result = await ingestPrd(db, parsed.data);
+      const defaults = getIngestConfig();
+      const result = await ingestPrd(db, {
+        ...parsed.data,
+        transport: parsed.data.transport ?? defaults.transport,
+        model: parsed.data.model ?? defaults.model,
+      });
       return c.json(result);
     } catch (err) {
       const error = err as Error;

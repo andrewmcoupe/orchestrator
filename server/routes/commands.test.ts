@@ -15,6 +15,7 @@ vi.mock("../ingest.js", () => ({
   ingestPrd: vi.fn().mockRejectedValue(new Error("mocked: CLI not available in tests")),
   seedIngestPromptVersion: vi.fn(),
 }));
+import { ingestPrd } from "../ingest.js";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
@@ -932,6 +933,33 @@ describe("POST /api/commands/prd/ingest", () => {
     });
     // Validation passes (500 from ingestPrd internals, not 400)
     expect(res.status).not.toBe(400);
+  });
+
+  it("passes transport and model overrides to ingestPrd", async () => {
+    const { app } = setup();
+    await post(app, "/api/commands/prd/ingest", {
+      content: "# My PRD",
+      transport: "codex",
+      model: "gpt-5.5",
+    });
+
+    expect(vi.mocked(ingestPrd)).toHaveBeenLastCalledWith(
+      expect.anything(),
+      {
+        content: "# My PRD",
+        transport: "codex",
+        model: "gpt-5.5",
+      },
+    );
+  });
+
+  it("rejects unsupported ingest transport", async () => {
+    const { app } = setup();
+    const res = await post(app, "/api/commands/prd/ingest", {
+      content: "# My PRD",
+      transport: "openai-api",
+    });
+    expect(res.status).toBe(400);
   });
 
   it("rejects payload with both path and content", async () => {

@@ -1105,7 +1105,7 @@ describe("runAttempt", () => {
   // no_changes outcome
   // --------------------------------------------------------------------------
 
-  it("skips auditor and returns no_changes when no phase produces a diff", async () => {
+  it("runs auditor even when no phase produces a diff", async () => {
     const taskId = createTask(db, auditorConfig);
 
     await runAttempt(db, taskId, {
@@ -1115,33 +1115,20 @@ describe("runAttempt", () => {
       },
     });
 
-    // Auditor should not have run
-    const judgedRow = db
-      .prepare("SELECT COUNT(*) as n FROM events WHERE type = 'auditor.judged'")
-      .get() as { n: number };
-    expect(judgedRow.n).toBe(0);
-
-    // Only one phase.started (implementer) — auditor was skipped
+    // Both implementer and auditor should have run
     const phaseStartedRows = db
       .prepare("SELECT payload_json FROM events WHERE type = 'phase.started'")
       .all() as { payload_json: string }[];
     const phaseNames = phaseStartedRows.map(
       (r) => (JSON.parse(r.payload_json) as { phase_name: string }).phase_name,
     );
-    expect(phaseNames).toEqual(["implementer"]);
+    expect(phaseNames).toEqual(["implementer", "auditor"]);
 
-    // attempt.completed with no_changes
-    const completedRow = db
-      .prepare("SELECT payload_json FROM events WHERE type = 'attempt.completed'")
-      .get() as { payload_json: string } | undefined;
-    const payload = JSON.parse(completedRow!.payload_json) as { outcome: string };
-    expect(payload.outcome).toBe("no_changes");
-
-    // Task moves to awaiting_review — user decides what to do
+    // Task moves to rejected (auditor ran but test fake produces no verdict)
     const taskRow = db
       .prepare("SELECT status FROM proj_task_list WHERE task_id = ?")
       .get(taskId) as { status: string } | undefined;
-    expect(taskRow?.status).toBe("awaiting_review");
+    expect(taskRow?.status).toBe("rejected");
   });
 
   // --------------------------------------------------------------------------

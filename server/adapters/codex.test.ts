@@ -163,8 +163,7 @@ describe("buildArgs", () => {
     const args = buildArgs(opts);
     expect(args).toContain("--sandbox");
     expect(args).toContain("read-only");
-    expect(args).toContain("--ask-for-approval");
-    expect(args).toContain("untrusted");
+    expect(args).not.toContain("--ask-for-approval");
     expect(args).not.toContain("--full-auto");
   });
 
@@ -176,8 +175,7 @@ describe("buildArgs", () => {
     const args = buildArgs(opts);
     expect(args).toContain("--sandbox");
     expect(args).toContain("read-only");
-    expect(args).toContain("--ask-for-approval");
-    expect(args).toContain("untrusted");
+    expect(args).not.toContain("--ask-for-approval");
   });
 
   it("appends --output-schema <path> when schema is provided", () => {
@@ -192,9 +190,13 @@ describe("buildArgs", () => {
     const schemaPath = args[schemaIdx + 1];
     expect(schemaPath).toContain("codex-schema-");
 
-    // Verify the temp file was written with the schema JSON
+    // Verify OpenAI schema rules: additionalProperties: false + all keys in required
     const written = fs.readFileSync(schemaPath, "utf-8");
-    expect(JSON.parse(written)).toEqual(schema);
+    expect(JSON.parse(written)).toEqual({
+      ...schema,
+      additionalProperties: false,
+      required: ["result"],
+    });
   });
 
   it("does not include --output-schema when no schema is provided", () => {

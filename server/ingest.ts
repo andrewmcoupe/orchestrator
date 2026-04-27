@@ -1,36 +1,41 @@
 /**
- * PRD Ingest — reads a PRD file, calls the Anthropic API to extract
+ * PRD Ingest — reads a PRD file, calls the configured CLI to extract
  * propositions, and emits the canonical events.
  *
  * Depends on:
- *   - anthropicApi adapter for structured-output extraction
+ *   - Claude Code / Codex adapters for structured-output extraction
  *   - appendAndProject for transactional event writes
  *   - proposition projection (registered at import of register.ts)
  *
  * Injectable fetcher enables unit testing without real HTTP calls.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { ulid } from "ulid";
 import { z } from "zod";
 import type Database from "better-sqlite3";
 import { appendAndProject } from "./projectionRunner.js";
 import type { Actor } from "@shared/events.js";
 import type { PropositionRow } from "@shared/projections.js";
-import { invoke as cliInvoke } from "./adapters/claudeCode.js";
+import { invoke as claudeCodeInvoke } from "./adapters/claudeCode.js";
+import type { InvokeOptions as ClaudeCodeInvokeOptions } from "./adapters/claudeCode.js";
+import { invoke as codexInvoke } from "./adapters/codex.js";
+import type { InvokeOptions as CodexInvokeOptions } from "./adapters/codex.js";
 import { createBlobStore } from "./blobStore.js";
 import { getDefaultRepoRoot, getBlobsDir } from "./paths.js";
 import { topoSort } from "@shared/dependency.js";
+import { DEFAULT_INGEST_CONFIG, type IngestConfig } from "./config.js";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 export const INGEST_PROMPT_VERSION_ID = "pv-ingest-v1";
-const INGEST_MODEL = "claude-sonnet-4-6";
 const MAX_RETRIES = 2;
 
 const INGEST_ACTOR: Actor = { kind: "system", component: "gate_runner" };
@@ -154,6 +159,7 @@ function loadPromptTemplate(): string {
 async function callExtractionCli(
   prd_id: string,
   content: string,
+  config: IngestConfig = DEFAULT_INGEST_CONFIG,
 ): Promise<ExtractionResult> {
   const systemPrompt = loadPromptTemplate();
   const blobStore = createBlobStore(getBlobsDir());
@@ -161,53 +167,89 @@ async function callExtractionCli(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const invocationId = `INV-${ulid()}`;
-    let assistantText = "";
+    let structuredOutputText = "";
+    let assistantMessageText = "";
     let cliErrored = false;
 
-    console.log(`[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${INGEST_MODEL}, transport: claude-code)`);
+    console.log(`[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${config.model}, transport: ${config.transport})`);
     console.log(`[ingest] content length: ${content.length} chars`);
 
     const prompt = `${systemPrompt}\n\n---\n\n${content}`;
 
-    const opts = {
+    // ---- Transport-specific options ----
+    // Codex ingest runs from an empty temp dir (with git init) to prevent
+    // the model from reading repo files (e.g. PRD.md) instead of focusing
+    // on the PRD content in the prompt.
+    let cwd = getDefaultRepoRoot();
+    if (config.transport === "codex") {
+      cwd = mkdtempSync(join(tmpdir(), "codex-ingest-"));
+      execSync("git init -q", { cwd });
+    }
+
+    const baseOpts = {
       invocation_id: invocationId,
       attempt_id: prd_id,
       phase_name: "ingest" as const,
-      model: INGEST_MODEL,
+      model: config.model,
       prompt,
       prompt_version_id: INGEST_PROMPT_VERSION_ID,
       context_manifest_hash: "",
-      cwd: getDefaultRepoRoot(),
-      transport_options: {
-        kind: "cli" as const,
-        max_turns: 1,
-        max_budget_usd: 2,
-        permission_mode: "bypassPermissions" as const,
-        disallowed_tools: ["ToolSearch", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "Agent", "Skill", "NotebookEdit"],
-        schema: EXTRACTION_JSON_SCHEMA,
-      },
+      cwd,
     };
 
-    console.log(`[ingest] calling Claude Code CLI...`);
+    console.log(`[ingest] calling ${config.transport} CLI...`);
     const startTime = Date.now();
 
-    for await (const event of cliInvoke(opts, blobStore)) {
+    let eventStream: AsyncIterable<import("./eventStore.js").AppendEventInput>;
+
+    if (config.transport === "codex") {
+      // Codex: sandbox read-only (permission_mode "plan"), schema for
+      // --output-schema, no disallowed_tools, no reasoning effort.
+      const codexOpts: CodexInvokeOptions = {
+        ...baseOpts,
+        transport_options: {
+          kind: "cli" as const,
+          max_turns: 1,
+          max_budget_usd: 2,
+          permission_mode: "plan" as const,
+          schema: EXTRACTION_JSON_SCHEMA,
+        },
+      };
+      eventStream = codexInvoke(codexOpts, blobStore);
+    } else {
+      // Claude Code: bypass permissions, all tools disabled, schema for
+      // --json-schema structured output.
+      const claudeCodeOpts: ClaudeCodeInvokeOptions = {
+        ...baseOpts,
+        transport_options: {
+          kind: "cli" as const,
+          max_turns: 1,
+          max_budget_usd: 2,
+          permission_mode: "bypassPermissions" as const,
+          disallowed_tools: ["ToolSearch", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "Agent", "Skill", "NotebookEdit"],
+          schema: EXTRACTION_JSON_SCHEMA,
+        },
+      };
+      eventStream = claudeCodeInvoke(claudeCodeOpts, blobStore);
+    }
+
+    for await (const event of eventStream) {
       console.log(`[ingest] received event: ${event.type} (+${Date.now() - startTime}ms)`);
+      // Codex path: structured output arrives as the final assistant message.
+      // Retain only the latest message (not concatenated) since the contract
+      // specifies the *final* assistant message carries the structured output.
       if (event.type === "invocation.assistant_message") {
-        assistantText += (event.payload as { text: string }).text;
+        assistantMessageText = (event.payload as { text: string }).text;
       }
+      // Claude Code path: structured output arrives as a StructuredOutput tool call.
       if (event.type === "invocation.tool_called") {
-        // When using --json-schema, Claude Code returns the structured output
-        // as a tool call. Retrieve the args from the blob store.
-        // Filter to only capture the structured output tool — ignore other
-        // tool calls (e.g. ToolSearch) that Claude may invoke.
         const payload = event.payload as { tool_name: string; args_hash: string };
         console.log(`[ingest] tool_called: ${payload.tool_name}`);
         if (payload.tool_name === "StructuredOutput") {
           const blob = blobStore.getBlob(payload.args_hash);
           if (blob) {
-            assistantText = blob.toString("utf-8");
-            console.log(`[ingest] captured structured_output args (${assistantText.length} chars)`);
+            structuredOutputText = blob.toString("utf-8");
+            console.log(`[ingest] captured structured_output args (${structuredOutputText.length} chars)`);
           }
         } else {
           console.log(`[ingest] ignoring tool call: ${payload.tool_name}`);
@@ -222,18 +264,20 @@ async function callExtractionCli(
       }
     }
 
-    console.log(`[ingest] CLI call completed in ${Date.now() - startTime}ms (errored: ${cliErrored}, textLen: ${assistantText.length})`);
+    // Prefer StructuredOutput tool call (Claude Code) over assistant_message (Codex).
+    const capturedText = structuredOutputText || assistantMessageText;
+    console.log(`[ingest] CLI call completed in ${Date.now() - startTime}ms (errored: ${cliErrored}, textLen: ${capturedText.length})`);
 
-    if (!cliErrored && assistantText) {
+    if (!cliErrored && capturedText) {
       try {
-        const parsed: unknown = JSON.parse(assistantText);
+        const parsed: unknown = JSON.parse(capturedText);
         console.log(`[ingest] raw LLM response:`, JSON.stringify(parsed, null, 2));
         const result = extractionSchema.parse(parsed);
         console.log(`[ingest] extraction succeeded: ${result.propositions.length} propositions, ${result.draft_tasks.length} tasks, ${result.pushbacks.length} pushbacks`);
         return result;
       } catch (err) {
         console.error(`[ingest] parse/validation failed:`, err instanceof Error ? err.message : err);
-        console.error(`[ingest] raw assistantText:`, assistantText.slice(0, 2000));
+        console.error(`[ingest] raw capturedText:`, capturedText.slice(0, 2000));
         lastError =
           err instanceof Error ? err : new Error("Validation failed");
         // continue to next retry
@@ -266,7 +310,9 @@ export interface IngestResult {
   pushback_count: number;
 }
 
-export type IngestInput = { path: string } | { content: string };
+export type IngestInput =
+  | { path: string; transport?: IngestConfig["transport"]; model?: string }
+  | { content: string; transport?: IngestConfig["transport"]; model?: string };
 
 /**
  * Ingest a PRD: extract propositions via the LLM and emit canonical events.
@@ -274,13 +320,22 @@ export type IngestInput = { path: string } | { content: string };
  * Accepts either `{ path }` (reads the file) or `{ content }` (uses the
  * string directly, sets path to null in the event payload).
  */
-export type Extractor = (prd_id: string, content: string) => Promise<ExtractionResult>;
+export type Extractor = (
+  prd_id: string,
+  content: string,
+  config: IngestConfig,
+) => Promise<ExtractionResult>;
 
 export async function ingestPrd(
   db: Database.Database,
   input: IngestInput,
   extractor?: Extractor,
 ): Promise<IngestResult> {
+  const ingestConfig: IngestConfig = {
+    transport: input.transport ?? DEFAULT_INGEST_CONFIG.transport,
+    model: input.model ?? DEFAULT_INGEST_CONFIG.model,
+  };
+
   // Resolve content from either input mode
   const resolvedPath: string | null = "path" in input ? input.path : null;
   const content = "content" in input ? input.content : readFileSync(input.path, "utf-8");
@@ -302,7 +357,7 @@ export async function ingestPrd(
       path: resolvedPath,
       size_bytes,
       lines,
-      extractor_model: INGEST_MODEL,
+      extractor_model: ingestConfig.model,
       extractor_prompt_version_id: INGEST_PROMPT_VERSION_ID,
       content_hash,
       content,
@@ -311,7 +366,7 @@ export async function ingestPrd(
 
   // Call extraction (injectable for tests, defaults to real CLI)
   const extract = extractor ?? callExtractionCli;
-  const extracted = await extract(prd_id, content);
+  const extracted = await extract(prd_id, content, ingestConfig);
 
   // Run topological sort to detect and strip cycle-causing edges
   const topoResult = topoSort(
@@ -450,7 +505,7 @@ export async function ingestPrd(
         kind: pushback.kind,
         rationale: pushback.rationale,
         suggested_resolutions: pushback.suggested_resolutions,
-        raised_by: { phase: "ingest" as const, model: INGEST_MODEL },
+        raised_by: { phase: "ingest" as const, model: ingestConfig.model },
       },
     });
     pushback_count++;
@@ -483,7 +538,7 @@ export async function ingestPrd(
           "Review task ordering to eliminate circular dependencies",
           "Split tightly-coupled tasks into smaller units",
         ],
-        raised_by: { phase: "ingest" as const, model: INGEST_MODEL },
+        raised_by: { phase: "ingest" as const, model: ingestConfig.model },
       },
     });
     pushback_count++;

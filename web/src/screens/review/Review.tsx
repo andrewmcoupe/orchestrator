@@ -771,12 +771,6 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
               <p className="text-text-secondary leading-relaxed">
                 The implementer completed without producing file changes. The auditor was skipped because there was nothing to review.
               </p>
-              {lastAssistantMessage && (
-                <div className="mt-2 border-l-2 border-border-muted pl-3 py-1">
-                  <p className="text-[11px] uppercase tracking-wider text-text-tertiary mb-1">Implementer's last message</p>
-                  <p className="text-text-secondary text-xs leading-relaxed whitespace-pre-wrap">{lastAssistantMessage}</p>
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -808,6 +802,14 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
             className="border border-border-muted bg-bg-secondary px-4 py-2.5 text-sm text-text-secondary"
           >
             No attempts have produced changes yet.
+          </div>
+        )}
+
+        {/* ── Implementer's last message ──────────────────────────────────── */}
+        {lastAssistantMessage && (
+          <div className="border border-border-muted bg-bg-secondary px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wider text-text-tertiary mb-1.5">Implementer</p>
+            <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">{lastAssistantMessage}</p>
           </div>
         )}
 
