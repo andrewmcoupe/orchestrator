@@ -19,6 +19,7 @@ import {
   type CodexLine,
   type Spawner,
   type SpawnerContext,
+  type TranslateContext,
 } from "./codex.js";
 import type { BlobStore } from "../blobStore.js";
 import type { InvocationCompleted } from "@shared/events.js";
@@ -65,6 +66,16 @@ const baseOpts: InvokeOptions = {
     permission_mode: "acceptEdits",
   },
 };
+
+function makeCtx(overrides?: Partial<TranslateContext>): TranslateContext {
+  return {
+    itemStartTimes: {},
+    startedAt: Date.now(),
+    turnCount: 0,
+    fileChangePathsSeen: new Set(),
+    ...overrides,
+  };
+}
 
 // ============================================================================
 // buildArgs
@@ -186,8 +197,9 @@ describe("translateLine", () => {
     bs = makeBlobStore();
   });
 
-  it("translates a start line into invocation.started", () => {
-    const line: CodexLine = { type: "start", model: "o3" };
+  // AC1: thread.started → invocation.started
+  it("AC1: translates thread.started into invocation.started", () => {
+    const line: CodexLine = { type: "thread.started", thread_id: "t-1", model: "o3" };
     const inputs = translateLine(line, baseOpts, bs);
     expect(inputs).toHaveLength(1);
     expect(inputs[0].type).toBe("invocation.started");
@@ -195,115 +207,266 @@ describe("translateLine", () => {
       invocation_id: "inv-001",
       transport: "codex",
       model: "o3",
+      phase_name: "implementer",
+      prompt_version_id: "pv-001",
+      context_manifest_hash: "abc123",
     });
   });
 
-  it("translates an assistant message", () => {
-    const line: CodexLine = {
-      type: "message",
-      role: "assistant",
-      content: "Hello!",
-      usage: { input_tokens: 10, output_tokens: 5 },
-    };
+  // AC2: turn.started → no event
+  it("AC2: emits no canonical event for turn.started", () => {
+    const line: CodexLine = { type: "turn.started", turn_id: "turn-1" };
     const inputs = translateLine(line, baseOpts, bs);
+    expect(inputs).toHaveLength(0);
+  });
+
+  // AC3: item.started for command_execution → invocation.tool_called with command in blob
+  it("AC3: translates item.started (command_execution) to invocation.tool_called with command in blob store", () => {
+    const line: CodexLine = {
+      type: "item.started",
+      item: { type: "command_execution", id: "cmd-1", command: "npm test" },
+    };
+    const ctx = makeCtx();
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].type).toBe("invocation.tool_called");
+    expect(inputs[0].payload).toMatchObject({
+      invocation_id: "inv-001",
+      tool_call_id: "cmd-1",
+      tool_name: "command_execution",
+    });
+    // Command should be stored in the blob store
+    expect(bs.stored.size).toBe(1);
+    const storedValue = [...bs.stored.values()][0];
+    expect(JSON.parse(storedValue)).toMatchObject({ command: "npm test" });
+    // Item start time should be recorded
+    expect(ctx.itemStartTimes["cmd-1"]).toBeDefined();
+  });
+
+  // AC4: item.completed for command_execution → invocation.tool_returned
+  it("AC4: translates item.completed (command_execution) to invocation.tool_returned", () => {
+    const ctx = makeCtx({ itemStartTimes: { "cmd-1": Date.now() - 500 } });
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "command_execution", id: "cmd-1", command: "npm test", output: "ok", exit_code: 0 },
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].type).toBe("invocation.tool_returned");
+    expect(inputs[0].payload).toMatchObject({
+      tool_call_id: "cmd-1",
+      success: true,
+    });
+    // duration_ms should be > 0
+    expect((inputs[0].payload as any).duration_ms).toBeGreaterThan(0);
+  });
+
+  it("AC4: command_execution with non-zero exit_code reports failure", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "command_execution", id: "cmd-2", command: "false", output: "error msg", exit_code: 1 },
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].payload).toMatchObject({
+      success: false,
+      error: "error msg",
+    });
+  });
+
+  it("AC4: command_execution with undefined exit_code defaults to success", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "command_execution", id: "cmd-3", command: "echo hi" },
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].payload).toMatchObject({
+      success: true,
+    });
+  });
+
+  // AC5: item.started for file_change → invocation.tool_called
+  it("AC5: translates item.started (file_change) to invocation.tool_called", () => {
+    const line: CodexLine = {
+      type: "item.started",
+      item: { type: "file_change", id: "fc-1", path: "src/index.ts", kind: "update" },
+    };
+    const ctx = makeCtx();
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].type).toBe("invocation.tool_called");
+    expect(inputs[0].payload).toMatchObject({
+      invocation_id: "inv-001",
+      tool_call_id: "fc-1",
+      tool_name: "file_change",
+    });
+    // Args should be stored in blob store
+    expect(bs.stored.size).toBe(1);
+    const storedValue = [...bs.stored.values()][0];
+    expect(JSON.parse(storedValue)).toMatchObject({ path: "src/index.ts", kind: "update" });
+  });
+
+  // AC6: item.completed for file_change → invocation.tool_returned + invocation.file_edited
+  it("AC6: translates item.completed (file_change) to tool_returned + file_edited", () => {
+    const ctx = makeCtx({ itemStartTimes: { "fc-1": Date.now() - 200 } });
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "file_change", id: "fc-1", path: "src/index.ts", kind: "update" },
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect(inputs).toHaveLength(2);
+
+    // First: tool_returned
+    expect(inputs[0].type).toBe("invocation.tool_returned");
+    expect(inputs[0].payload).toMatchObject({
+      tool_call_id: "fc-1",
+      success: true,
+    });
+
+    // Second: file_edited with structured data from path + kind
+    expect(inputs[1].type).toBe("invocation.file_edited");
+    expect(inputs[1].payload).toMatchObject({
+      invocation_id: "inv-001",
+      path: "src/index.ts",
+      operation: "update",
+    });
+  });
+
+  it("AC6: file_change with kind=create maps to operation=create", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "file_change", id: "fc-2", path: "new-file.ts", kind: "create" },
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect(inputs[1].payload).toMatchObject({ path: "new-file.ts", operation: "create" });
+  });
+
+  it("AC6: file_change with kind=create and content computes lines_added from content", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "file_change", id: "fc-content", path: "new-file.ts", kind: "create", content: "line1\nline2\nline3" },
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect(inputs[1].payload).toMatchObject({
+      path: "new-file.ts",
+      operation: "create",
+      lines_added: 3,
+      lines_removed: 0,
+    });
+    // Path should be in fileChangePathsSeen since content was provided
+    expect(ctx.fileChangePathsSeen.has("new-file.ts")).toBe(true);
+  });
+
+  it("AC6: file_change with kind=create without content leaves lines_added=0 and does NOT suppress git diff safety net", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "file_change", id: "fc-nocontent", path: "new-file.ts", kind: "create" },
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect(inputs[1].payload).toMatchObject({
+      lines_added: 0,
+      lines_removed: 0,
+    });
+    // Path should NOT be in fileChangePathsSeen so git diff safety net can correct
+    expect(ctx.fileChangePathsSeen.has("new-file.ts")).toBe(false);
+  });
+
+  it("AC6: file_change completed tracks path in fileChangePathsSeen for create with content (suppresses git diff)", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "file_change", id: "fc-dedup", path: "src/foo.ts", kind: "create", content: "new content" },
+    };
+    translateLine(line, baseOpts, bs, ctx);
+    expect(ctx.fileChangePathsSeen.has("src/foo.ts")).toBe(true);
+  });
+
+  it("AC6: file_change completed does NOT track path in fileChangePathsSeen for update with content (git diff corrects)", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "file_change", id: "fc-update", path: "src/bar.ts", kind: "update", content: "updated content" },
+    };
+    translateLine(line, baseOpts, bs, ctx);
+    expect(ctx.fileChangePathsSeen.has("src/bar.ts")).toBe(false);
+  });
+
+  it("AC6: file_change with kind=delete maps to operation=delete", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "file_change", id: "fc-3", path: "old-file.ts", kind: "delete" },
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect(inputs[1].payload).toMatchObject({ path: "old-file.ts", operation: "delete" });
+  });
+
+  // AC7: item.completed for agent_message → invocation.assistant_message
+  it("AC7: translates item.completed (agent_message) to invocation.assistant_message", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "item.completed",
+      item: { type: "agent_message", id: "msg-1", content: "I've made the changes." },
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs).toHaveLength(1);
     expect(inputs[0].type).toBe("invocation.assistant_message");
     expect(inputs[0].payload).toMatchObject({
       invocation_id: "inv-001",
-      text: "Hello!",
-      tokens: 5,
+      text: "I've made the changes.",
     });
   });
 
-  it("translates a tool_call line and stores args in blob store", () => {
+  // AC8: turn.completed → invocation.completed with token counts
+  it("AC8: translates turn.completed to invocation.completed with token counts", () => {
+    const ctx = makeCtx({ startedAt: Date.now() - 3000 });
     const line: CodexLine = {
-      type: "tool_call",
-      id: "tc-001",
-      name: "write_file",
-      args: { path: "/tmp/test.txt", content: "hi" },
-    };
-    const inputs = translateLine(line, baseOpts, bs);
-    expect(inputs).toHaveLength(1);
-    expect(inputs[0].type).toBe("invocation.tool_called");
-    expect(inputs[0].payload).toMatchObject({
-      tool_call_id: "tc-001",
-      tool_name: "write_file",
-    });
-    // Args should be stored in the blob store
-    expect(bs.stored.size).toBe(1);
-  });
-
-  it("translates a tool_result line", () => {
-    const line: CodexLine = {
-      type: "tool_result",
-      id: "tc-001",
-      success: true,
-    };
-    const inputs = translateLine(line, baseOpts, bs);
-    expect(inputs).toHaveLength(1);
-    expect(inputs[0].type).toBe("invocation.tool_returned");
-    expect(inputs[0].payload).toMatchObject({
-      tool_call_id: "tc-001",
-      success: true,
-    });
-  });
-
-  it("translates a tool_result with error", () => {
-    const line: CodexLine = {
-      type: "tool_result",
-      id: "tc-002",
-      success: false,
-      output: "file not found",
-    };
-    const inputs = translateLine(line, baseOpts, bs);
-    expect(inputs).toHaveLength(1);
-    expect(inputs[0].payload).toMatchObject({
-      success: false,
-      error: "file not found",
-    });
-  });
-
-  it("translates a successful end line into invocation.completed", () => {
-    const line: CodexLine = {
-      type: "end",
-      reason: "done",
-      is_error: false,
-      duration_ms: 5000,
+      type: "turn.completed",
+      turn_id: "turn-1",
       usage: { input_tokens: 100, output_tokens: 50 },
       cost_usd: 0.01,
-      turns: 3,
     };
-    const inputs = translateLine(line, baseOpts, bs, {}, Date.now() - 5000);
+    const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs).toHaveLength(1);
     expect(inputs[0].type).toBe("invocation.completed");
     expect(inputs[0].payload).toMatchObject({
+      invocation_id: "inv-001",
       outcome: "success",
       tokens_in: 100,
       tokens_out: 50,
       cost_usd: 0.01,
-      turns: 3,
+      turns: 1,
       exit_code: 0,
       exit_reason: "normal",
     });
+    // duration_ms should be reasonable
+    expect((inputs[0].payload as InvocationCompleted).duration_ms).toBeGreaterThan(0);
   });
 
-  it("translates an error end line into errored + completed", () => {
-    const line: CodexLine = {
-      type: "end",
-      reason: "budget exceeded",
-      is_error: true,
-      duration_ms: 10000,
-    };
-    const inputs = translateLine(line, baseOpts, bs);
-    expect(inputs).toHaveLength(2);
-    expect(inputs[0].type).toBe("invocation.errored");
+  it("AC8: turn.completed defaults token counts to 0 when no usage", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = { type: "turn.completed", turn_id: "turn-1" };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs[0].payload).toMatchObject({
-      error: "budget exceeded",
+      tokens_in: 0,
+      tokens_out: 0,
+      cost_usd: 0,
     });
-    expect(inputs[1].type).toBe("invocation.completed");
-    expect(inputs[1].payload).toMatchObject({
-      outcome: "failed",
-    });
+  });
+
+  it("AC8: turn count increments across multiple turn.completed events", () => {
+    const ctx = makeCtx();
+    translateLine({ type: "turn.completed", turn_id: "turn-1" } as CodexLine, baseOpts, bs, ctx);
+    expect(ctx.turnCount).toBe(1);
+    const inputs = translateLine({ type: "turn.completed", turn_id: "turn-2" } as CodexLine, baseOpts, bs, ctx);
+    expect(ctx.turnCount).toBe(2);
+    expect((inputs[0].payload as any).turns).toBe(2);
   });
 
   it("returns empty array for unknown line types", () => {
@@ -313,7 +476,7 @@ describe("translateLine", () => {
   });
 
   it("uses transport codex in actor", () => {
-    const line: CodexLine = { type: "start", model: "o3" };
+    const line: CodexLine = { type: "thread.started", thread_id: "t-1" };
     const inputs = translateLine(line, baseOpts, bs);
     expect(inputs[0].actor).toMatchObject({
       kind: "cli",
@@ -335,9 +498,10 @@ describe("invoke", () => {
 
   it("yields events from a successful run", async () => {
     const lines: string[] = [
-      JSON.stringify({ type: "start", model: "o3" }),
-      JSON.stringify({ type: "message", role: "assistant", content: "Done!", usage: { input_tokens: 10, output_tokens: 5 } }),
-      JSON.stringify({ type: "end", reason: "done", is_error: false, duration_ms: 1000, usage: { input_tokens: 10, output_tokens: 5 }, cost_usd: 0.001, turns: 1 }),
+      JSON.stringify({ type: "thread.started", thread_id: "t-1", model: "o3" }),
+      JSON.stringify({ type: "turn.started", turn_id: "turn-1" }),
+      JSON.stringify({ type: "item.completed", item: { type: "agent_message", id: "msg-1", content: "Done!" } }),
+      JSON.stringify({ type: "turn.completed", turn_id: "turn-1", usage: { input_tokens: 10, output_tokens: 5 }, cost_usd: 0.001 }),
     ];
 
     const fakeSpawner: Spawner = async function* (_cmd, _args, _opts) {
@@ -354,6 +518,8 @@ describe("invoke", () => {
     expect(events[1].type).toBe("invocation.assistant_message");
     expect(events[2].type).toBe("invocation.completed");
     expect((events[2].payload as InvocationCompleted).outcome).toBe("success");
+    expect((events[2].payload as InvocationCompleted).tokens_in).toBe(10);
+    expect((events[2].payload as InvocationCompleted).tokens_out).toBe(5);
   });
 
   it("yields errored + completed when spawner throws", async () => {
@@ -375,8 +541,8 @@ describe("invoke", () => {
   it("skips malformed JSON lines", async () => {
     const lines = [
       "not json",
-      JSON.stringify({ type: "start", model: "o3" }),
-      JSON.stringify({ type: "end", reason: "done", is_error: false, duration_ms: 500, turns: 1 }),
+      JSON.stringify({ type: "thread.started", thread_id: "t-1", model: "o3" }),
+      JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
 
     const fakeSpawner: Spawner = async function* (_cmd, _args, _opts) {
@@ -393,12 +559,12 @@ describe("invoke", () => {
     expect(events[1].type).toBe("invocation.completed");
   });
 
-  it("records tool call times for duration calculation", async () => {
+  it("records item start times for duration calculation", async () => {
     const lines = [
-      JSON.stringify({ type: "start", model: "o3" }),
-      JSON.stringify({ type: "tool_call", id: "tc-1", name: "read_file", args: { path: "/x" } }),
-      JSON.stringify({ type: "tool_result", id: "tc-1", success: true }),
-      JSON.stringify({ type: "end", reason: "done", is_error: false, duration_ms: 1000, turns: 1 }),
+      JSON.stringify({ type: "thread.started", thread_id: "t-1", model: "o3" }),
+      JSON.stringify({ type: "item.started", item: { type: "command_execution", id: "cmd-1", command: "ls" } }),
+      JSON.stringify({ type: "item.completed", item: { type: "command_execution", id: "cmd-1", command: "ls", exit_code: 0 } }),
+      JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
 
     const fakeSpawner: Spawner = async function* (_cmd, _args, _opts) {
@@ -410,10 +576,63 @@ describe("invoke", () => {
       events.push(ev);
     }
 
+    // thread.started → invocation.started
+    // item.started → invocation.tool_called
+    // item.completed → invocation.tool_returned
+    // turn.completed → invocation.completed
     expect(events).toHaveLength(4);
     expect(events[0].type).toBe("invocation.started");
     expect(events[1].type).toBe("invocation.tool_called");
     expect(events[2].type).toBe("invocation.tool_returned");
     expect(events[3].type).toBe("invocation.completed");
+  });
+
+  it("turn.started produces no events in the pipeline", async () => {
+    const lines = [
+      JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
+      JSON.stringify({ type: "turn.started", turn_id: "turn-1" }),
+      JSON.stringify({ type: "turn.started", turn_id: "turn-2" }),
+      JSON.stringify({ type: "turn.completed", turn_id: "turn-2" }),
+    ];
+
+    const fakeSpawner: Spawner = async function* (_cmd, _args, _opts) {
+      for (const line of lines) yield line;
+    };
+
+    const events = [];
+    for await (const ev of invoke(baseOpts, bs, fakeSpawner)) {
+      events.push(ev);
+    }
+
+    // Only thread.started and turn.completed produce events
+    expect(events).toHaveLength(2);
+    expect(events[0].type).toBe("invocation.started");
+    expect(events[1].type).toBe("invocation.completed");
+  });
+
+  it("file_change item.completed emits tool_returned + file_edited in invoke", async () => {
+    const lines = [
+      JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
+      JSON.stringify({ type: "item.started", item: { type: "file_change", id: "fc-1", path: "hello.ts", kind: "create" } }),
+      JSON.stringify({ type: "item.completed", item: { type: "file_change", id: "fc-1", path: "hello.ts", kind: "create" } }),
+      JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
+    ];
+
+    const fakeSpawner: Spawner = async function* (_cmd, _args, _opts) {
+      for (const line of lines) yield line;
+    };
+
+    const events = [];
+    for await (const ev of invoke(baseOpts, bs, fakeSpawner)) {
+      events.push(ev);
+    }
+
+    // invocation.started, tool_called, tool_returned, file_edited, completed
+    // (git diff detectFileEdits will likely return [] since /tmp/worktree doesn't exist)
+    expect(events.length).toBeGreaterThanOrEqual(4);
+    expect(events[0].type).toBe("invocation.started");
+    expect(events[1].type).toBe("invocation.tool_called");
+    expect(events[2].type).toBe("invocation.tool_returned");
+    expect(events[3].type).toBe("invocation.file_edited");
   });
 });

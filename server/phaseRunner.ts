@@ -132,7 +132,7 @@ export function evaluateExitReasonPolicy(
 // ============================================================================
 
 export type AdapterInvokeFn = (
-  opts: CliInvokeOptions | ApiInvokeOptions,
+  opts: ClaudeCodeInvokeOptions | CodexInvokeOptions | ApiInvokeOptions,
   blobStore: BlobStore,
 ) => AsyncIterable<AppendEventInput>;
 

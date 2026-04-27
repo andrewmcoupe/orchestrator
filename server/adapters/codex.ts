@@ -15,6 +15,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { execa } from "execa";
 import type { BlobStore } from "../blobStore.js";
 import type { AppendEventInput } from "../eventStore.js";
@@ -45,35 +46,44 @@ export type InvokeOptions = {
 // Codex NDJSON line types
 // ============================================================================
 
+/** Item types within Codex events. */
+export type CodexItemType = "command_execution" | "file_change" | "agent_message";
+
+export type CodexCommandExecutionItem = {
+  type: "command_execution";
+  id: string;
+  command: string;
+  output?: string;
+  exit_code?: number;
+};
+
+export type CodexFileChangeItem = {
+  type: "file_change";
+  id: string;
+  path: string;
+  kind: "create" | "update" | "delete";
+  content?: string;
+};
+
+export type CodexAgentMessageItem = {
+  type: "agent_message";
+  id: string;
+  content: string;
+};
+
+export type CodexItem = CodexCommandExecutionItem | CodexFileChangeItem | CodexAgentMessageItem;
+
 export type CodexLine =
-  | { type: "start"; model: string; session_id?: string }
+  | { type: "thread.started"; thread_id: string; model?: string }
+  | { type: "turn.started"; turn_id: string }
+  | { type: "item.started"; item: CodexItem }
+  | { type: "item.completed"; item: CodexItem }
   | {
-      type: "message";
-      role: "assistant";
-      content: string;
-      model?: string;
-      usage?: { input_tokens: number; output_tokens: number };
-    }
-  | {
-      type: "tool_call";
-      id: string;
-      name: string;
-      args: unknown;
-    }
-  | {
-      type: "tool_result";
-      id: string;
-      success: boolean;
-      output?: string;
-    }
-  | {
-      type: "end";
-      reason: string;
-      is_error: boolean;
-      duration_ms: number;
+      type: "turn.completed";
+      turn_id: string;
       usage?: { input_tokens: number; output_tokens: number };
       cost_usd?: number;
-      turns?: number;
+      duration_ms?: number;
     };
 
 // ============================================================================
@@ -218,14 +228,41 @@ export function buildArgs(opts: InvokeOptions): string[] {
 // ============================================================================
 
 /**
+ * Context passed into translateLine so it can schedule async side effects
+ * (like git diff) that the caller (invoke) will execute.
+ */
+export type TranslateContext = {
+  /** Map from item id → timestamp when item.started was seen. */
+  itemStartTimes: Record<string, number>;
+  /** Epoch ms when the invocation started (for completed duration). */
+  startedAt?: number;
+  /** Number of turns completed so far (incremented on turn.completed). */
+  turnCount: number;
+  /**
+   * Paths emitted as file_edited by translateLine (from file_change items).
+   * invoke() pre-populates seenFileSnapshot from this set so detectFileEdits
+   * does not emit a duplicate file_edited for the same path.
+   */
+  fileChangePathsSeen: Set<string>;
+};
+
+/**
  * Translates one Codex NDJSON line into zero or more AppendEventInput objects.
+ *
+ * AC1: thread.started → invocation.started
+ * AC2: turn.started → [] (internal bookkeeping)
+ * AC3: item.started (command_execution) → invocation.tool_called (command in blob)
+ * AC4: item.completed (command_execution) → invocation.tool_returned (+ git diff in invoke)
+ * AC5: item.started (file_change) → invocation.tool_called
+ * AC6: item.completed (file_change) → invocation.tool_returned + invocation.file_edited (+ git diff in invoke)
+ * AC7: item.completed (agent_message) → invocation.assistant_message
+ * AC8: turn.completed → invocation.completed with token counts
  */
 export function translateLine(
   line: CodexLine,
   opts: InvokeOptions,
   blobStore: BlobStore,
-  toolCallTimes: Record<string, number> = {},
-  startedAt?: number,
+  ctx: TranslateContext = { itemStartTimes: {}, turnCount: 0, fileChangePathsSeen: new Set() },
 ): AppendEventInput[] {
   const actor = {
     kind: "cli" as const,
@@ -239,8 +276,9 @@ export function translateLine(
     correlation_id: opts.attempt_id,
   };
 
-  if (line.type === "start") {
-    const input: AppendEventInput<"invocation.started"> = {
+  // AC1: thread.started → invocation.started
+  if (line.type === "thread.started") {
+    return [{
       ...base,
       type: "invocation.started",
       payload: {
@@ -252,95 +290,165 @@ export function translateLine(
         prompt_version_id: opts.prompt_version_id,
         context_manifest_hash: opts.context_manifest_hash,
       },
-    };
-    return [input];
+    } satisfies AppendEventInput<"invocation.started">];
   }
 
-  if (line.type === "message" && line.role === "assistant") {
-    const input: AppendEventInput<"invocation.assistant_message"> = {
-      ...base,
-      type: "invocation.assistant_message",
-      payload: {
-        invocation_id: opts.invocation_id,
-        text: line.content,
-        tokens: line.usage?.output_tokens,
-      },
-    };
-    return [input];
+  // AC2: turn.started → no event (internal bookkeeping)
+  if (line.type === "turn.started") {
+    return [];
   }
 
-  if (line.type === "tool_call") {
-    const argsJson = JSON.stringify(line.args);
-    const { hash: args_hash } = blobStore.putBlob(argsJson);
+  // AC3 + AC5: item.started → invocation.tool_called
+  if (line.type === "item.started") {
+    const item = line.item;
+    ctx.itemStartTimes[item.id] = Date.now();
 
-    const input: AppendEventInput<"invocation.tool_called"> = {
-      ...base,
-      type: "invocation.tool_called",
-      payload: {
-        invocation_id: opts.invocation_id,
-        tool_call_id: line.id,
-        tool_name: line.name,
-        args_hash,
-      },
-    };
-    return [input];
+    if (item.type === "command_execution") {
+      // AC3: store command in blob store
+      const { hash: args_hash } = blobStore.putBlob(
+        JSON.stringify({ command: item.command }),
+      );
+      return [{
+        ...base,
+        type: "invocation.tool_called",
+        payload: {
+          invocation_id: opts.invocation_id,
+          tool_call_id: item.id,
+          tool_name: "command_execution",
+          args_hash,
+        },
+      } satisfies AppendEventInput<"invocation.tool_called">];
+    }
+
+    if (item.type === "file_change") {
+      // AC5: item.started for file_change → invocation.tool_called
+      const { hash: args_hash } = blobStore.putBlob(
+        JSON.stringify({ path: item.path, kind: item.kind }),
+      );
+      return [{
+        ...base,
+        type: "invocation.tool_called",
+        payload: {
+          invocation_id: opts.invocation_id,
+          tool_call_id: item.id,
+          tool_name: "file_change",
+          args_hash,
+        },
+      } satisfies AppendEventInput<"invocation.tool_called">];
+    }
+
+    return [];
   }
 
-  if (line.type === "tool_result") {
-    const calledAt = toolCallTimes[line.id];
+  // AC4, AC6, AC7: item.completed
+  if (line.type === "item.completed") {
+    const item = line.item;
+    const calledAt = ctx.itemStartTimes[item.id];
     const duration_ms = calledAt ? Date.now() - calledAt : 0;
 
-    const input: AppendEventInput<"invocation.tool_returned"> = {
-      ...base,
-      type: "invocation.tool_returned",
-      payload: {
-        invocation_id: opts.invocation_id,
-        tool_call_id: line.id,
-        success: line.success,
-        duration_ms,
-        error: !line.success ? line.output : undefined,
-      },
-    };
-    return [input];
-  }
-
-  if (line.type === "end") {
-    if (line.is_error) {
-      const inputs: AppendEventInput[] = [];
-      inputs.push({
+    // AC4: command_execution completed → invocation.tool_returned
+    if (item.type === "command_execution") {
+      const success = item.exit_code == null || item.exit_code === 0;
+      return [{
         ...base,
-        type: "invocation.errored",
+        type: "invocation.tool_returned",
         payload: {
           invocation_id: opts.invocation_id,
-          error: line.reason,
-          error_category: "unknown",
-        },
-      } satisfies AppendEventInput<"invocation.errored">);
-
-      const duration_ms = startedAt ? Date.now() - startedAt : line.duration_ms;
-      inputs.push({
-        ...base,
-        type: "invocation.completed",
-        payload: {
-          invocation_id: opts.invocation_id,
-          outcome: "failed",
-          tokens_in: line.usage?.input_tokens ?? 0,
-          tokens_out: line.usage?.output_tokens ?? 0,
-          cost_usd: line.cost_usd ?? 0,
+          tool_call_id: item.id,
+          success,
           duration_ms,
-          turns: line.turns ?? 0,
-          exit_code: 1,
-          exit_reason: "unknown",
-          stdout_tail_hash: null,
-          stderr_tail_hash: null,
-          permission_blocked_on: null,
+          error: !success ? (item.output ?? `exit code ${item.exit_code}`) : undefined,
         },
-      } satisfies AppendEventInput<"invocation.completed">);
+      } satisfies AppendEventInput<"invocation.tool_returned">];
+    }
+
+    // AC6: file_change completed → invocation.tool_returned + invocation.file_edited
+    if (item.type === "file_change") {
+      const inputs: AppendEventInput[] = [];
+
+      inputs.push({
+        ...base,
+        type: "invocation.tool_returned",
+        payload: {
+          invocation_id: opts.invocation_id,
+          tool_call_id: item.id,
+          success: true,
+          duration_ms,
+        },
+      } satisfies AppendEventInput<"invocation.tool_returned">);
+
+      // Derive file_edited from structured change data
+      const operation = item.kind === "create" ? "create" as const
+        : item.kind === "delete" ? "delete" as const
+        : "update" as const;
+
+      // Compute line counts from item.content when available (especially
+      // important for kind=create where git diff safety net would be
+      // suppressed if we add the path to fileChangePathsSeen).
+      let lines_added = 0;
+      let lines_removed = 0;
+      if (item.content != null) {
+        // Count non-empty lines for created/updated content
+        const lineCount = item.content.split("\n").length;
+        if (operation === "create") {
+          lines_added = lineCount;
+        } else if (operation === "delete") {
+          lines_removed = lineCount;
+        } else {
+          // For updates, content represents the new state — we can only
+          // approximate lines_added; the git diff safety net will correct.
+          lines_added = lineCount;
+        }
+      }
+
+      const patchContent = `file_change: ${operation} ${item.path}`;
+      const patch_hash = createHash("sha256").update(patchContent).digest("hex");
+
+      // Only suppress the git diff safety net when content-based line
+      // counts are accurate (create/delete). For updates, the content
+      // represents the new state so lines_added is the total line count
+      // (not the delta). Leave updates out of fileChangePathsSeen so
+      // invoke()'s detectFileEdits pass can provide precise counts.
+      if (item.content != null && operation !== "update") {
+        ctx.fileChangePathsSeen.add(item.path);
+      }
+
+      inputs.push({
+        ...base,
+        type: "invocation.file_edited",
+        payload: {
+          invocation_id: opts.invocation_id,
+          path: item.path,
+          operation,
+          patch_hash,
+          lines_added,
+          lines_removed,
+        },
+      } satisfies AppendEventInput<"invocation.file_edited">);
+
       return inputs;
     }
 
-    const duration_ms = startedAt ? Date.now() - startedAt : line.duration_ms;
-    const input: AppendEventInput<"invocation.completed"> = {
+    // AC7: agent_message completed → invocation.assistant_message
+    if (item.type === "agent_message") {
+      return [{
+        ...base,
+        type: "invocation.assistant_message",
+        payload: {
+          invocation_id: opts.invocation_id,
+          text: item.content,
+        },
+      } satisfies AppendEventInput<"invocation.assistant_message">];
+    }
+
+    return [];
+  }
+
+  // AC8: turn.completed → invocation.completed with token counts
+  if (line.type === "turn.completed") {
+    ctx.turnCount += 1;
+    const duration_ms = ctx.startedAt ? Date.now() - ctx.startedAt : (line.duration_ms ?? 0);
+    return [{
       ...base,
       type: "invocation.completed",
       payload: {
@@ -350,15 +458,14 @@ export function translateLine(
         tokens_out: line.usage?.output_tokens ?? 0,
         cost_usd: line.cost_usd ?? 0,
         duration_ms,
-        turns: line.turns ?? 0,
+        turns: ctx.turnCount,
         exit_code: 0,
         exit_reason: "normal",
         stdout_tail_hash: null,
         stderr_tail_hash: null,
         permission_blocked_on: null,
       },
-    };
-    return [input];
+    } satisfies AppendEventInput<"invocation.completed">];
   }
 
   return [];
@@ -367,6 +474,106 @@ export function translateLine(
 // ============================================================================
 // invoke — the main async generator
 // ============================================================================
+
+// ============================================================================
+// Git diff helper for file edit detection (AC4, AC6 safety net)
+// ============================================================================
+
+/**
+ * Runs `git diff HEAD --numstat --name-status` in the cwd and returns
+ * invocation.file_edited events for files that changed since the last snapshot.
+ */
+export async function detectFileEdits(
+  cwd: string,
+  invocation_id: string,
+  attempt_id: string,
+  seenSnapshot: Map<string, { lines_added: number; lines_removed: number; operation: string }>,
+): Promise<AppendEventInput<"invocation.file_edited">[]> {
+  let numstatOut = "";
+  let nameStatusOut = "";
+  try {
+    const [ns, nm] = await Promise.all([
+      execa("git", ["diff", "HEAD", "--numstat"], { cwd }),
+      execa("git", ["diff", "HEAD", "--name-status"], { cwd }),
+    ]);
+    numstatOut = ns.stdout;
+    nameStatusOut = nm.stdout;
+  } catch {
+    return [];
+  }
+
+  const actor = {
+    kind: "cli" as const,
+    transport: "codex" as const,
+    invocation_id,
+  };
+
+  const inputs: AppendEventInput<"invocation.file_edited">[] = [];
+
+  // Parse numstat
+  const numstat: Record<string, { lines_added: number; lines_removed: number }> = {};
+  for (const line of numstatOut.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split("\t");
+    if (parts.length < 3) continue;
+    const [added, removed, filePath] = parts;
+    numstat[filePath] = {
+      lines_added: added === "-" ? 0 : parseInt(added, 10) || 0,
+      lines_removed: removed === "-" ? 0 : parseInt(removed, 10) || 0,
+    };
+  }
+
+  // Parse name-status
+  const nameStatus: Record<string, "A" | "M" | "D"> = {};
+  for (const line of nameStatusOut.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split("\t");
+    if (parts.length < 2) continue;
+    const [status, ...paths] = parts;
+    if (status.startsWith("R")) {
+      if (paths[0]) nameStatus[paths[0]] = "D";
+      if (paths[1]) nameStatus[paths[1]] = "A";
+    } else if (status === "M" || status === "A" || status === "D") {
+      nameStatus[paths[0]] = status;
+    }
+  }
+
+  for (const [filePath, op] of Object.entries(nameStatus)) {
+    const counts = numstat[filePath] ?? { lines_added: 0, lines_removed: 0 };
+    const prev = seenSnapshot.get(filePath);
+    const hasChanged = !prev ||
+      prev.lines_added !== counts.lines_added ||
+      prev.lines_removed !== counts.lines_removed ||
+      prev.operation !== op;
+
+    if (hasChanged) {
+      const patchContent = `diff --git a/${filePath} b/${filePath}\n@ ${op} +${counts.lines_added} -${counts.lines_removed}`;
+      const patch_hash = createHash("sha256").update(patchContent).digest("hex");
+
+      inputs.push({
+        type: "invocation.file_edited",
+        aggregate_type: "attempt",
+        aggregate_id: attempt_id,
+        actor,
+        correlation_id: attempt_id,
+        payload: {
+          invocation_id,
+          path: filePath,
+          operation: op === "A" ? "create" : op === "D" ? "delete" : "update",
+          patch_hash,
+          lines_added: counts.lines_added,
+          lines_removed: counts.lines_removed,
+        },
+      });
+
+      seenSnapshot.set(filePath, { ...counts, operation: op });
+    }
+  }
+
+  return inputs;
+}
 
 /**
  * Spawns the Codex CLI and translates its NDJSON output into a stream
@@ -379,8 +586,14 @@ export async function* invoke(
 ): AsyncIterable<AppendEventInput> {
   const startedAt = Date.now();
   const args = buildArgs(opts);
-  const toolCallTimes: Record<string, number> = {};
+  const ctx: TranslateContext = { itemStartTimes: {}, startedAt, turnCount: 0, fileChangePathsSeen: new Set() };
   const spawnerCtx: SpawnerContext = {};
+
+  // Snapshot of previously detected file changes for git diff deduplication
+  const seenFileSnapshot = new Map<
+    string,
+    { lines_added: number; lines_removed: number; operation: string }
+  >();
 
   try {
     for await (const rawLine of spawner("codex", args, { cwd: opts.cwd }, spawnerCtx)) {
@@ -391,14 +604,27 @@ export async function* invoke(
         continue;
       }
 
-      // Record when each tool is called for duration_ms
-      if (parsed.type === "tool_call") {
-        toolCallTimes[parsed.id] = Date.now();
-      }
-
-      const inputs = translateLine(parsed, opts, blobStore, toolCallTimes, startedAt);
+      const inputs = translateLine(parsed, opts, blobStore, ctx);
       for (const input of inputs) {
         yield input;
+      }
+
+      // AC4 + AC6: run git diff after item.completed for command_execution or file_change
+      if (parsed.type === "item.completed" &&
+          (parsed.item.type === "command_execution" || parsed.item.type === "file_change")) {
+        const fileEdits = await detectFileEdits(
+          opts.cwd,
+          opts.invocation_id,
+          opts.attempt_id,
+          seenFileSnapshot,
+        );
+        for (const edit of fileEdits) {
+          // Skip paths already emitted as file_edited by translateLine
+          // (from file_change items) to avoid duplicate events.
+          const editPayload = edit.payload as { path: string };
+          if (ctx.fileChangePathsSeen.has(editPayload.path)) continue;
+          yield edit;
+        }
       }
     }
   } catch (err: unknown) {
