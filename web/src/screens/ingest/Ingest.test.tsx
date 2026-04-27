@@ -4,11 +4,34 @@ import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/re
 import { Ingest } from "./Ingest.js";
 import type { PropositionRow } from "@shared/projections.js";
 
+const CONFIG_INGEST_RESPONSE = { transport: "claude-code", model: "claude-sonnet-4-6" };
+
+/** Creates a fetch mock that always handles /api/config/ingest and delegates to `handler` for other URLs. */
+function mockFetchWith(handler?: (url: string, opts?: RequestInit) => Promise<unknown>) {
+  return vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+    if (url === "/api/config/ingest") {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(CONFIG_INGEST_RESPONSE) });
+    }
+    if (handler) return handler(url, opts);
+    return Promise.reject(new Error(`unmocked fetch: ${url}`));
+  });
+}
+
+/** Render Ingest and wait for the config to load so the button is enabled. */
+async function renderAndWaitForConfig(props: { onBack: () => void }) {
+  render(<Ingest onBack={props.onBack} />);
+  await waitFor(() => {
+    expect((screen.getByRole("button", { name: /^ingest$/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+  // Config loads async — wait until transport selector is no longer disabled
+  await waitFor(() => {
+    const sel = screen.queryByLabelText(/transport/i) as HTMLSelectElement | null;
+    if (sel) expect(sel.disabled).toBe(false);
+  });
+}
+
 beforeEach(() => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockRejectedValue(new Error("unmocked fetch")),
-  );
+  vi.stubGlobal("fetch", mockFetchWith());
 });
 
 afterEach(() => {
@@ -111,7 +134,7 @@ describe("Ingest — loading state", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation(() => new Promise(() => {/* never resolves */})),
+      mockFetchWith(() => new Promise(() => {/* never resolves */})),
     );
   });
 
@@ -121,6 +144,10 @@ describe("Ingest — loading state", () => {
 
   it("shows loading spinner after clicking Ingest", async () => {
     render(<Ingest onBack={vi.fn()} />);
+    // Wait for config to load before interacting
+    await waitFor(() => {
+      expect((screen.getByRole("button", { name: /^ingest$/i }) as HTMLButtonElement).disabled).toBe(true);
+    });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -135,7 +162,7 @@ describe("Ingest — review state (no pushbacks)", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation((url: string) => {
+      mockFetchWith((url: string) => {
         if (url === "/api/commands/prd/ingest") {
           return Promise.resolve({
             ok: true,
@@ -158,7 +185,7 @@ describe("Ingest — review state (no pushbacks)", () => {
   });
 
   it("renders draft task card with title after ingest", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    await renderAndWaitForConfig({ onBack: vi.fn() });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -170,7 +197,7 @@ describe("Ingest — review state (no pushbacks)", () => {
   });
 
   it("renders proposition text from results", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    await renderAndWaitForConfig({ onBack: vi.fn() });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -182,7 +209,7 @@ describe("Ingest — review state (no pushbacks)", () => {
   });
 
   it("renders meta strip with proposition count", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    await renderAndWaitForConfig({ onBack: vi.fn() });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -194,7 +221,7 @@ describe("Ingest — review state (no pushbacks)", () => {
   });
 
   it("shows 'Accept & create 1 task' button", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    await renderAndWaitForConfig({ onBack: vi.fn() });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -219,7 +246,7 @@ describe("Ingest — review state with pushbacks", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation((url: string) => {
+      mockFetchWith((url: string) => {
         if (url === "/api/commands/prd/ingest") {
           return Promise.resolve({
             ok: true,
@@ -242,7 +269,7 @@ describe("Ingest — review state with pushbacks", () => {
   });
 
   it("shows pushback rationale", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    await renderAndWaitForConfig({ onBack: vi.fn() });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -254,7 +281,7 @@ describe("Ingest — review state with pushbacks", () => {
   });
 
   it("shows blocking pushback kind pill", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    await renderAndWaitForConfig({ onBack: vi.fn() });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -266,7 +293,7 @@ describe("Ingest — review state with pushbacks", () => {
   });
 
   it("Accept button is disabled while blocking pushback is unresolved", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    await renderAndWaitForConfig({ onBack: vi.fn() });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -279,7 +306,7 @@ describe("Ingest — review state with pushbacks", () => {
   });
 
   it("shows suggested resolutions", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    await renderAndWaitForConfig({ onBack: vi.fn() });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -291,7 +318,7 @@ describe("Ingest — review state with pushbacks", () => {
   });
 
   it("defer button resolves pushback", async () => {
-    const fetchMock = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+    const fetchMock = mockFetchWith((url: string, opts?: RequestInit) => {
       if (url === "/api/commands/prd/ingest") {
         return Promise.resolve({
           ok: true,
@@ -319,7 +346,7 @@ describe("Ingest — review state with pushbacks", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Ingest onBack={vi.fn()} />);
+    await renderAndWaitForConfig({ onBack: vi.fn() });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -341,7 +368,7 @@ describe("Ingest — review state with pushbacks", () => {
 describe("Ingest — accept action", () => {
   it("calls task/create and onBack after accepting", async () => {
     const onBack = vi.fn();
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
+    const fetchMock = mockFetchWith((url: string) => {
       if (url === "/api/commands/prd/ingest") {
         return Promise.resolve({
           ok: true,
@@ -358,7 +385,7 @@ describe("Ingest — accept action", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Ingest onBack={onBack} />);
+    await renderAndWaitForConfig({ onBack });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -440,13 +467,21 @@ describe("Ingest — tabs structure", () => {
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("ingest button is enabled when active tab's field has content", () => {
+  it("ingest button is enabled when active tab's field has content", async () => {
     render(<Ingest onBack={vi.fn()} />);
+
+    // Wait for config to load
+    const btn = screen.getByRole("button", { name: /^ingest$/i });
+    await waitFor(() => {
+      // Button is disabled until config loads + input is empty
+      expect((btn as HTMLButtonElement).disabled).toBe(true);
+    });
 
     // File Path tab: fill path → enabled
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), { target: { value: "/tmp/prd.md" } });
-    const btn = screen.getByRole("button", { name: /^ingest$/i });
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => {
+      expect((btn as HTMLButtonElement).disabled).toBe(false);
+    });
 
     // Switch to Paste Content (empty) → disabled
     fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
@@ -460,10 +495,14 @@ describe("Ingest — tabs structure", () => {
 
 describe("Ingest — File Path tab submission", () => {
   it("File Path tab submits { path: string }", async () => {
-    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
+    const fetchMock = mockFetchWith(() => new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<Ingest onBack={vi.fn()} />);
+    // Wait for config to load so button becomes enabled
+    await waitFor(() => {
+      expect(screen.getByLabelText(/transport/i)).toBeTruthy();
+    });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/prd.md" },
     });
@@ -487,10 +526,14 @@ describe("Ingest — File Path tab submission", () => {
   });
 
   it("submits selected transport and model overrides", async () => {
-    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
+    const fetchMock = mockFetchWith(() => new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<Ingest onBack={vi.fn()} />);
+    // Wait for config to load so selectors are enabled
+    await waitFor(() => {
+      expect((screen.getByLabelText(/transport/i) as HTMLSelectElement).disabled).toBe(false);
+    });
     fireEvent.change(screen.getByLabelText(/transport/i), { target: { value: "codex" } });
     fireEvent.change(screen.getByLabelText(/model/i), { target: { value: "gpt-5.4" } });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
@@ -520,7 +563,7 @@ describe("Ingest — Paste Content tab submission", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation(() => new Promise(() => {/* never resolves */})),
+      mockFetchWith(() => new Promise(() => {/* never resolves */})),
     );
   });
 
@@ -529,10 +572,14 @@ describe("Ingest — Paste Content tab submission", () => {
   });
 
   it("Paste Content tab submits { content: string }", async () => {
-    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
+    const fetchMock = mockFetchWith(() => new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<Ingest onBack={vi.fn()} />);
+    // Wait for config to load
+    await waitFor(() => {
+      expect((screen.getByLabelText(/transport/i) as HTMLSelectElement).disabled).toBe(false);
+    });
     fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
     const textarea = screen.getByPlaceholderText(/paste your prd/i);
     fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
@@ -555,6 +602,10 @@ describe("Ingest — Paste Content tab submission", () => {
 
   it("shows loading spinner after clicking Ingest with pasted content", async () => {
     render(<Ingest onBack={vi.fn()} />);
+    // Wait for config to load
+    await waitFor(() => {
+      expect((screen.getByLabelText(/transport/i) as HTMLSelectElement).disabled).toBe(false);
+    });
     fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
     const textarea = screen.getByPlaceholderText(/paste your prd/i);
     fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
@@ -569,7 +620,7 @@ describe("Ingest — review state reached via pasted content", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation((url: string) => {
+      mockFetchWith((url: string) => {
         if (url === "/api/commands/prd/ingest") {
           return Promise.resolve({
             ok: true,
@@ -592,7 +643,7 @@ describe("Ingest — review state reached via pasted content", () => {
   });
 
   it("shows draft task card after ingesting pasted content", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    await renderAndWaitForConfig({ onBack: vi.fn() });
     fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
     const textarea = screen.getByPlaceholderText(/paste your prd/i);
     fireEvent.change(textarea, { target: { value: "# My PRD\n\nThe system shall do things." } });
@@ -608,13 +659,19 @@ describe("Ingest — error handling", () => {
   it("shows error message when ingest fails", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        json: () => Promise.resolve({ error: "File not found" }),
+      mockFetchWith(() => {
+        return Promise.resolve({
+          ok: false,
+          json: () => Promise.resolve({ error: "File not found" }),
+        });
       }),
     );
 
     render(<Ingest onBack={vi.fn()} />);
+    // Wait for config to load
+    await waitFor(() => {
+      expect((screen.getByLabelText(/transport/i) as HTMLSelectElement).disabled).toBe(false);
+    });
     fireEvent.change(screen.getByPlaceholderText(/absolute\/path/i), {
       target: { value: "/tmp/nonexistent.md" },
     });

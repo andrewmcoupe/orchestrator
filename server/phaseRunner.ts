@@ -495,12 +495,6 @@ export async function runAttempt(
       }
       if (state.aborted) break phaseLoop;
 
-      // Skip auditor when no prior phase produced a diff — nothing to audit
-      if (phase.name === "auditor" && !anyPhaseProducedDiff) {
-        finalOutcome = "no_changes";
-        break phaseLoop;
-      }
-
       const phaseStartedAt = Date.now();
 
       // ----- phase.started -----
