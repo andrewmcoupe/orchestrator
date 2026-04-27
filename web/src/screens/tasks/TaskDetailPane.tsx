@@ -1,5 +1,12 @@
 import { Fragment, useCallback, useState, useMemo, useEffect } from "react";
-import { SlidersHorizontal, ClipboardList, Plus, X, Info, ChevronRight } from "lucide-react";
+import {
+  SlidersHorizontal,
+  ClipboardList,
+  Plus,
+  X,
+  Info,
+  ChevronRight,
+} from "lucide-react";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
   TaskStatus,
@@ -10,7 +17,10 @@ import type {
 } from "@shared/events.js";
 import { canAddDependency } from "@shared/dependency.js";
 import { topoSort } from "@shared/dependency.js";
-import { useTaskTimelineQuery } from "../../hooks/useQueries.js";
+import {
+  useTaskTimelineQuery,
+  usePropositionsQuery,
+} from "../../hooks/useQueries.js";
 import { useLatestAssistantMessage } from "../../store/eventStore.js";
 import { MergeDialog } from "../review/MergeDialog.js";
 import { Button } from "@web/src/components/ui/button";
@@ -80,7 +90,10 @@ function derivePhaseStatus(
   if (currentPhase === phase.name) return "running";
   // If the task is active, phases before the current one are done
   if (
-    (taskStatus === "running" || taskStatus === "revising" || taskStatus === "paused" || taskStatus === "blocked") &&
+    (taskStatus === "running" ||
+      taskStatus === "revising" ||
+      taskStatus === "paused" ||
+      taskStatus === "blocked") &&
     currentPhase
   ) {
     const currentIdx = enabledPhases.findIndex((p) => p.name === currentPhase);
@@ -474,6 +487,47 @@ function DependencySection({
 }
 
 // ============================================================================
+// Acceptance criteria — fetches proposition texts by ID
+// ============================================================================
+
+function AcceptanceCriteriaSection({
+  propositionIds,
+}: {
+  propositionIds: string[];
+}) {
+  const { data: propositions, isLoading } =
+    usePropositionsQuery(propositionIds);
+
+  return (
+    <section className="mb-6 text-xs">
+      <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+        Acceptance criteria
+      </h3>
+      {isLoading ? (
+        <p className="text-xs text-text-tertiary">Loading…</p>
+      ) : propositions && propositions.length > 0 ? (
+        <ol className="list-decimal list-inside space-y-1.5 border border-border-muted bg-bg-secondary p-4">
+          {propositions.map((p) => (
+            <li
+              key={p.proposition_id}
+              className=" text-text-primary leading-relaxed"
+            >
+              {p.text}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <div className="border border-border-muted bg-bg-secondary p-4">
+          <p className="text-xs text-text-tertiary font-mono">
+            {propositionIds.join(" ")}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================================
 // Main component
 // ============================================================================
 
@@ -487,7 +541,9 @@ function PromptPreview({ promptVersionId }: { promptVersionId: string }) {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/projections/prompt_template/${encodeURIComponent(promptVersionId)}`)
+    fetch(
+      `/api/projections/prompt_template/${encodeURIComponent(promptVersionId)}`,
+    )
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { template: string } | null) => {
         setTemplate(data?.template ?? null);
@@ -500,7 +556,9 @@ function PromptPreview({ promptVersionId }: { promptVersionId: string }) {
     return <span className="text-[10px] text-text-tertiary">loading…</span>;
   }
   if (!template) {
-    return <span className="text-[10px] text-text-tertiary">template not found</span>;
+    return (
+      <span className="text-[10px] text-text-tertiary">template not found</span>
+    );
   }
 
   const preview = template.slice(0, 200);
@@ -518,7 +576,9 @@ function PromptPreview({ promptVersionId }: { promptVersionId: string }) {
           onClick={() => setExpanded((v) => !v)}
           className="text-[10px] text-text-tertiary hover:text-text-secondary mt-1 cursor-pointer"
         >
-          {expanded ? "show less" : `show all (${template.length.toLocaleString()} chars)`}
+          {expanded
+            ? "show less"
+            : `show all (${template.length.toLocaleString()} chars)`}
         </button>
       )}
     </div>
@@ -562,8 +622,8 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
 
               {/* Context policy */}
               <div className="mt-1.5 pt-1.5 border-t border-border-muted text-[11px] text-text-tertiary">
-                <span className="text-text-secondary">context:</span>{" "}
-                depth {phase.context_policy.symbol_graph_depth},{" "}
+                <span className="text-text-secondary">context:</span> depth{" "}
+                {phase.context_policy.symbol_graph_depth},{" "}
                 {phase.context_policy.token_budget.toLocaleString()} tokens
                 {phase.context_policy.include_tests && ", +tests"}
                 {phase.context_policy.include_similar_patterns && ", +patterns"}
@@ -618,8 +678,12 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
           Retry policy
         </h4>
         <div className="text-[11px] text-text-secondary font-mono bg-bg-secondary border border-border-muted p-2 space-y-0.5">
-          <div>max attempts: {detail.config.retry_policy.max_total_attempts}</div>
-          <div>on audit reject: {detail.config.retry_policy.on_audit_reject}</div>
+          <div>
+            max attempts: {detail.config.retry_policy.max_total_attempts}
+          </div>
+          <div>
+            on audit reject: {detail.config.retry_policy.on_audit_reject}
+          </div>
         </div>
       </div>
     </div>
@@ -651,11 +715,7 @@ export function TaskDetailPane({
           {onEditConfig &&
             detail.status !== "merged" &&
             detail.status !== "archived" && (
-              <Button
-                type="button"
-                onClick={onEditConfig}
-                variant={"outline"}
-              >
+              <Button type="button" onClick={onEditConfig} variant={"outline"}>
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Config
               </Button>
@@ -664,11 +724,9 @@ export function TaskDetailPane({
             detail.current_attempt_id &&
             (detail.status === "awaiting_review" ? (
               <Button
-
                 onClick={() =>
                   onReview(detail.task_id, detail.current_attempt_id!)
                 }
-
               >
                 <ClipboardList className="h-3.5 w-3.5" />
                 Review
@@ -730,7 +788,11 @@ export function TaskDetailPane({
             <PopoverTrigger className="p-1 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer">
               <Info size={16} />
             </PopoverTrigger>
-            <PopoverContent className="w-96 max-h-[70vh] overflow-y-auto" side="bottom" align="start">
+            <PopoverContent
+              className="w-96 max-h-[70vh] overflow-y-auto"
+              side="bottom"
+              align="start"
+            >
               <TaskPreviewPanel detail={detail} />
             </PopoverContent>
           </Popover>
@@ -758,27 +820,6 @@ export function TaskDetailPane({
 
       {/* Content sections */}
       <div className="px-6 pb-6">
-        {/* Proposition block */}
-        {detail.proposition_ids.length > 0 && (
-          <section className="mb-6">
-            <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
-              Proposition
-            </h3>
-            <div className="border border-border-muted bg-bg-secondary p-4">
-              <p className="text-sm text-text-primary leading-relaxed">
-                {detail.proposition_ids.map((id) => (
-                  <span
-                    key={id}
-                    className="font-mono text-xs text-text-secondary"
-                  >
-                    {id}{" "}
-                  </span>
-                ))}
-              </p>
-            </div>
-          </section>
-        )}
-
         {/* Dependency editing */}
         {allTasks && (
           <DependencySection
@@ -805,7 +846,10 @@ export function TaskDetailPane({
             {enabledPhases.map((phase, i) => (
               <Fragment key={phase.name}>
                 {i > 0 && (
-                  <ChevronRight size={14} className="text-text-tertiary self-center" />
+                  <ChevronRight
+                    size={14}
+                    className="text-text-tertiary self-center"
+                  />
                 )}
                 <PhaseBox
                   phase={phase}
@@ -837,6 +881,11 @@ export function TaskDetailPane({
               ))}
             </div>
           </section>
+        )}
+
+        {/* Acceptance criteria */}
+        {detail.proposition_ids.length > 0 && (
+          <AcceptanceCriteriaSection propositionIds={detail.proposition_ids} />
         )}
 
         {/* Retry policy + attempt counter */}
@@ -952,10 +1001,7 @@ function TaskTimeline({
               ? (event.payload as GateFailed).failures
               : undefined;
           return (
-            <div
-              key={event.id}
-              className="relative py-1.5"
-            >
+            <div key={event.id} className="relative py-1.5">
               <div
                 className={`absolute -left-[calc(1rem+3px)] top-2.5 h-1.5 w-1.5 rounded-full ${timelineColor(event)}`}
               />
