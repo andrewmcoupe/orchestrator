@@ -569,6 +569,10 @@ export interface InvocationCompleted {
   outcome: "success" | "failed" | "aborted";
   tokens_in: number;
   tokens_out: number;
+  /** Cached input tokens (Codex pass-through). */
+  cached_tokens_in?: number;
+  /** Reasoning output tokens (Codex pass-through). */
+  reasoning_tokens_out?: number;
   cost_usd: number;
   duration_ms: number;
   turns: number;

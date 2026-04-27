@@ -19,7 +19,8 @@ import { createHash } from "node:crypto";
 import { execa } from "execa";
 import type { BlobStore } from "../blobStore.js";
 import type { AppendEventInput } from "../eventStore.js";
-import type { EventType, PhaseName, TransportOptions } from "@shared/events.js";
+import type { EventType, ExitReason, PhaseName, TransportOptions } from "@shared/events.js";
+import { classifySubprocessError } from "./claudeCode.js";
 
 // ============================================================================
 // Public types
@@ -81,7 +82,12 @@ export type CodexLine =
   | {
       type: "turn.completed";
       turn_id: string;
-      usage?: { input_tokens: number; output_tokens: number };
+      usage?: {
+        input_tokens: number;
+        output_tokens: number;
+        cached_input_tokens?: number;
+        reasoning_output_tokens?: number;
+      };
       cost_usd?: number;
       duration_ms?: number;
     };
@@ -456,7 +462,10 @@ export function translateLine(
         outcome: "success",
         tokens_in: line.usage?.input_tokens ?? 0,
         tokens_out: line.usage?.output_tokens ?? 0,
-        cost_usd: line.cost_usd ?? 0,
+        cached_tokens_in: line.usage?.cached_input_tokens ?? 0,
+        reasoning_tokens_out: line.usage?.reasoning_output_tokens ?? 0,
+        // Codex does not report cost; OpenAI pricing deferred to modelPricing.ts
+        cost_usd: 0,
         duration_ms,
         turns: ctx.turnCount,
         exit_code: 0,
@@ -629,6 +638,8 @@ export async function* invoke(
     }
   } catch (err: unknown) {
     const error = err as Error & { exitCode?: number; signal?: string; stderrTail?: string };
+    const stderrForClassify = error.stderrTail ?? error.message;
+    const exitReason: ExitReason = classifySubprocessError(error, stderrForClassify);
 
     const actor = {
       kind: "cli" as const,
@@ -664,7 +675,7 @@ export async function* invoke(
         duration_ms: Date.now() - startedAt,
         turns: 0,
         exit_code: error.exitCode ?? 1,
-        exit_reason: "unknown",
+        exit_reason: exitReason,
         stdout_tail_hash: null,
         stderr_tail_hash: null,
         permission_blocked_on: null,

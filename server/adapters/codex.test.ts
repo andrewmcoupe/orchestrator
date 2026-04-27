@@ -424,12 +424,17 @@ describe("translateLine", () => {
   });
 
   // AC8: turn.completed → invocation.completed with token counts
-  it("AC8: translates turn.completed to invocation.completed with token counts", () => {
+  it("AC8: translates turn.completed to invocation.completed with all four token counts", () => {
     const ctx = makeCtx({ startedAt: Date.now() - 3000 });
     const line: CodexLine = {
       type: "turn.completed",
       turn_id: "turn-1",
-      usage: { input_tokens: 100, output_tokens: 50 },
+      usage: {
+        input_tokens: 100,
+        output_tokens: 50,
+        cached_input_tokens: 30,
+        reasoning_output_tokens: 20,
+      },
       cost_usd: 0.01,
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
@@ -440,13 +445,28 @@ describe("translateLine", () => {
       outcome: "success",
       tokens_in: 100,
       tokens_out: 50,
-      cost_usd: 0.01,
+      cached_tokens_in: 30,
+      reasoning_tokens_out: 20,
+      // AC3: cost_usd is always 0 — Codex does not report cost
+      cost_usd: 0,
       turns: 1,
       exit_code: 0,
       exit_reason: "normal",
     });
     // duration_ms should be reasonable
     expect((inputs[0].payload as InvocationCompleted).duration_ms).toBeGreaterThan(0);
+  });
+
+  it("AC3: turn.completed always sets cost_usd to 0 regardless of cost_usd in event", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "turn.completed",
+      turn_id: "turn-1",
+      usage: { input_tokens: 10, output_tokens: 5 },
+      cost_usd: 0.99,
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect((inputs[0].payload as InvocationCompleted).cost_usd).toBe(0);
   });
 
   it("AC8: turn.completed defaults token counts to 0 when no usage", () => {
@@ -456,6 +476,8 @@ describe("translateLine", () => {
     expect(inputs[0].payload).toMatchObject({
       tokens_in: 0,
       tokens_out: 0,
+      cached_tokens_in: 0,
+      reasoning_tokens_out: 0,
       cost_usd: 0,
     });
   });
@@ -496,12 +518,17 @@ describe("invoke", () => {
     bs = makeBlobStore();
   });
 
-  it("yields events from a successful run", async () => {
+  it("yields events from a successful run with all four token counts", async () => {
     const lines: string[] = [
       JSON.stringify({ type: "thread.started", thread_id: "t-1", model: "o3" }),
       JSON.stringify({ type: "turn.started", turn_id: "turn-1" }),
       JSON.stringify({ type: "item.completed", item: { type: "agent_message", id: "msg-1", content: "Done!" } }),
-      JSON.stringify({ type: "turn.completed", turn_id: "turn-1", usage: { input_tokens: 10, output_tokens: 5 }, cost_usd: 0.001 }),
+      JSON.stringify({
+        type: "turn.completed",
+        turn_id: "turn-1",
+        usage: { input_tokens: 10, output_tokens: 5, cached_input_tokens: 3, reasoning_output_tokens: 2 },
+        cost_usd: 0.001,
+      }),
     ];
 
     const fakeSpawner: Spawner = async function* (_cmd, _args, _opts) {
@@ -517,14 +544,19 @@ describe("invoke", () => {
     expect(events[0].type).toBe("invocation.started");
     expect(events[1].type).toBe("invocation.assistant_message");
     expect(events[2].type).toBe("invocation.completed");
-    expect((events[2].payload as InvocationCompleted).outcome).toBe("success");
-    expect((events[2].payload as InvocationCompleted).tokens_in).toBe(10);
-    expect((events[2].payload as InvocationCompleted).tokens_out).toBe(5);
+    const completed = events[2].payload as InvocationCompleted;
+    expect(completed.outcome).toBe("success");
+    expect(completed.tokens_in).toBe(10);
+    expect(completed.tokens_out).toBe(5);
+    expect(completed.cached_tokens_in).toBe(3);
+    expect(completed.reasoning_tokens_out).toBe(2);
+    // AC3: cost is always 0
+    expect(completed.cost_usd).toBe(0);
   });
 
-  it("yields errored + completed when spawner throws", async () => {
+  it("yields errored + completed when spawner throws, with classified exit_reason", async () => {
     const fakeSpawner: Spawner = async function* () {
-      throw Object.assign(new Error("codex crashed"), { exitCode: 1 });
+      throw Object.assign(new Error("codex crashed"), { exitCode: 137, signal: "SIGKILL" });
     };
 
     const events = [];
@@ -535,7 +567,77 @@ describe("invoke", () => {
     expect(events).toHaveLength(2);
     expect(events[0].type).toBe("invocation.errored");
     expect(events[1].type).toBe("invocation.completed");
-    expect((events[1].payload as InvocationCompleted).outcome).toBe("failed");
+    const completed = events[1].payload as InvocationCompleted;
+    expect(completed.outcome).toBe("failed");
+    // AC6: classifySubprocessError maps SIGKILL → "killed"
+    expect(completed.exit_reason).toBe("killed");
+    expect(completed.exit_code).toBe(137);
+  });
+
+  it("AC6: classifies timeout from exit code 124", async () => {
+    const fakeSpawner: Spawner = async function* () {
+      throw Object.assign(new Error("timed out"), { exitCode: 124 });
+    };
+
+    const events = [];
+    for await (const ev of invoke(baseOpts, bs, fakeSpawner)) {
+      events.push(ev);
+    }
+
+    const completed = events[1].payload as InvocationCompleted;
+    expect(completed.exit_reason).toBe("timeout");
+  });
+
+  it("AC6: classifies network error from stderr", async () => {
+    const fakeSpawner: Spawner = async function* () {
+      throw Object.assign(new Error("connection failed"), {
+        exitCode: 1,
+        stderrTail: "ECONNREFUSED 127.0.0.1:443",
+      });
+    };
+
+    const events = [];
+    for await (const ev of invoke(baseOpts, bs, fakeSpawner)) {
+      events.push(ev);
+    }
+
+    const completed = events[1].payload as InvocationCompleted;
+    expect(completed.exit_reason).toBe("network_error");
+  });
+
+  it("AC5: non-zero exit_code command_execution produces tool_returned error, not adapter termination", async () => {
+    const lines = [
+      JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
+      JSON.stringify({
+        type: "item.started",
+        item: { type: "command_execution", id: "cmd-fail", command: "false" },
+      }),
+      JSON.stringify({
+        type: "item.completed",
+        item: { type: "command_execution", id: "cmd-fail", command: "false", output: "command failed", exit_code: 1 },
+      }),
+      JSON.stringify({ type: "turn.completed", turn_id: "turn-1", usage: { input_tokens: 5, output_tokens: 3 } }),
+    ];
+
+    const fakeSpawner: Spawner = async function* (_cmd, _args, _opts) {
+      for (const line of lines) yield line;
+    };
+
+    const events = [];
+    for await (const ev of invoke(baseOpts, bs, fakeSpawner)) {
+      events.push(ev);
+    }
+
+    // Should have: started, tool_called, tool_returned (error), completed (success)
+    const toolReturned = events.find(e => e.type === "invocation.tool_returned");
+    expect(toolReturned).toBeDefined();
+    expect((toolReturned!.payload as any).success).toBe(false);
+    expect((toolReturned!.payload as any).error).toBe("command failed");
+
+    // The adapter should still complete successfully (not crash)
+    const completed = events.find(e => e.type === "invocation.completed");
+    expect(completed).toBeDefined();
+    expect((completed!.payload as InvocationCompleted).outcome).toBe("success");
   });
 
   it("skips malformed JSON lines", async () => {
