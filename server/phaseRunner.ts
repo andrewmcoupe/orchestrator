@@ -562,6 +562,7 @@ export async function runAttempt(
       // (it will contain the structured-output JSON verdict).
       const isAuditorPhase = phase.name === "auditor";
       let auditorResponseText: string | null = null;
+      let structuredOutputCaptured = false;
 
       try {
         let invoker: AsyncIterable<AppendEventInput>;
@@ -665,18 +666,24 @@ export async function runAttempt(
           const event = appendAndProject(db, input);
 
           // Capture the auditor response text — could arrive as a plain
-          // assistant_message (API path) or as a StructuredOutput tool_use
-          // (CLI --json-schema path). StructuredOutput takes priority over
-          // assistant_message to avoid the free-text summary overwriting
-          // the structured JSON verdict.
+          // assistant_message (API/Codex path) or as a StructuredOutput tool_use
+          // (Claude Code --json-schema path).
+          //
+          // StructuredOutput is definitive — once captured, assistant_message
+          // updates are ignored. For Codex, the structured JSON arrives as the
+          // *last* agent_message, so we keep overwriting until we find it or
+          // until a StructuredOutput tool_call supersedes.
           if (isAuditorPhase) {
             if (event.type === "invocation.tool_called") {
               const p = event.payload as InvocationToolCalled;
               if (p.tool_name === "StructuredOutput") {
                 const blob = bs.getBlob(p.args_hash);
-                if (blob) auditorResponseText = blob.toString("utf8");
+                if (blob) {
+                  auditorResponseText = blob.toString("utf8");
+                  structuredOutputCaptured = true;
+                }
               }
-            } else if (event.type === "invocation.assistant_message" && !auditorResponseText) {
+            } else if (event.type === "invocation.assistant_message" && !structuredOutputCaptured) {
               auditorResponseText = (event.payload as InvocationAssistantMessage).text;
             }
           }

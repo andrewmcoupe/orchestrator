@@ -182,6 +182,33 @@ async function* execaSpawner(
 }
 
 // ============================================================================
+// enforceNoAdditionalProperties — OpenAI schema compliance
+// ============================================================================
+
+/**
+ * Recursively transforms a JSON Schema to comply with OpenAI's structured
+ * output requirements:
+ *   1. Every object with `properties` gets `additionalProperties: false`.
+ *   2. Every object with `properties` gets `required` set to all property keys
+ *      (OpenAI requires all properties to be listed in required).
+ */
+export function enforceOpenAiSchemaRules(schema: unknown): unknown {
+  if (schema == null || typeof schema !== "object") return schema;
+  if (Array.isArray(schema)) return schema.map(enforceOpenAiSchemaRules);
+
+  const obj = schema as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    out[key] = enforceOpenAiSchemaRules(value);
+  }
+  if (out["type"] === "object" && out["properties"] != null) {
+    out["additionalProperties"] = false;
+    out["required"] = Object.keys(out["properties"] as Record<string, unknown>);
+  }
+  return out;
+}
+
+// ============================================================================
 // buildArgs — pure CLI argument construction
 // ============================================================================
 
@@ -227,10 +254,11 @@ export function buildArgs(opts: InvokeOptions): string[] {
   }
 
   // Output schema — write JSON to temp file
+  // OpenAI requires `additionalProperties: false` on every object node.
   if (to.schema) {
     const tmpDir = os.tmpdir();
     const schemaPath = path.join(tmpDir, `codex-schema-${opts.invocation_id}.json`);
-    fs.writeFileSync(schemaPath, JSON.stringify(to.schema), "utf-8");
+    fs.writeFileSync(schemaPath, JSON.stringify(enforceOpenAiSchemaRules(to.schema)), "utf-8");
     args.push("--output-schema", schemaPath);
   }
 
