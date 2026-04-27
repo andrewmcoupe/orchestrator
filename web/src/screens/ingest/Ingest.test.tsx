@@ -1,8 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Ingest } from "./Ingest.js";
 import type { PropositionRow } from "@shared/projections.js";
+
+/** Wrap component in a fresh QueryClientProvider per test. */
+function renderWithClient(ui: React.ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 const CONFIG_INGEST_RESPONSE = { transport: "claude-code", model: "claude-sonnet-4-6" };
 
@@ -19,10 +26,7 @@ function mockFetchWith(handler?: (url: string, opts?: RequestInit) => Promise<un
 
 /** Render Ingest and wait for the config to load so the button is enabled. */
 async function renderAndWaitForConfig(props: { onBack: () => void }) {
-  render(<Ingest onBack={props.onBack} />);
-  await waitFor(() => {
-    expect((screen.getByRole("button", { name: /^ingest$/i }) as HTMLButtonElement).disabled).toBe(true);
-  });
+  renderWithClient(<Ingest onBack={props.onBack} />);
   // Config loads async — wait until transport selector is no longer disabled
   await waitFor(() => {
     const sel = screen.queryByLabelText(/transport/i) as HTMLSelectElement | null;
@@ -105,26 +109,26 @@ const mockPushbackEvent = {
 
 describe("Ingest — idle state", () => {
   it("renders path input and ingest button", () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     expect(screen.getByPlaceholderText(/absolute\/path/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /ingest/i })).toBeTruthy();
   });
 
   it("renders transport and model selectors", () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     expect(screen.getByLabelText(/transport/i)).toBeTruthy();
     expect(screen.getByLabelText(/model/i)).toBeTruthy();
   });
 
   it("back button calls onBack", () => {
     const onBack = vi.fn();
-    render(<Ingest onBack={onBack} />);
+    renderWithClient(<Ingest onBack={onBack} />);
     fireEvent.click(screen.getByRole("button", { name: /tasks/i }));
     expect(onBack).toHaveBeenCalled();
   });
 
   it("ingest button is disabled with empty input", () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     const btn = screen.getByRole("button", { name: /^ingest$/i });
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
@@ -143,7 +147,7 @@ describe("Ingest — loading state", () => {
   });
 
   it("shows loading spinner after clicking Ingest", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     // Wait for config to load before interacting
     await waitFor(() => {
       expect((screen.getByRole("button", { name: /^ingest$/i }) as HTMLButtonElement).disabled).toBe(true);
@@ -415,7 +419,7 @@ describe("Ingest — accept action", () => {
 
 describe("Ingest — tabs structure", () => {
   it("renders Base UI Tabs with 'File Path' as default active tab", () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     const filePathTab = screen.getByRole("tab", { name: /file path/i });
     const pasteTab = screen.getByRole("tab", { name: /paste content/i });
     expect(filePathTab).toBeTruthy();
@@ -425,18 +429,18 @@ describe("Ingest — tabs structure", () => {
   });
 
   it("File Path tab contains text input for path", () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     expect(screen.getByPlaceholderText(/absolute\/path/i)).toBeTruthy();
   });
 
   it("Paste Content tab contains textarea for PRD markdown", () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     fireEvent.click(screen.getByRole("tab", { name: /paste content/i }));
     expect(screen.getByPlaceholderText(/paste your prd/i)).toBeTruthy();
   });
 
   it("switching tabs preserves input values in both tabs", () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
 
     // Type in file path (default tab)
     const pathInput = screen.getByPlaceholderText(/absolute\/path/i);
@@ -457,7 +461,7 @@ describe("Ingest — tabs structure", () => {
   });
 
   it("ingest button is disabled when active tab's field is empty", () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     // File Path tab is active, path is empty
     const btn = screen.getByRole("button", { name: /^ingest$/i });
     expect((btn as HTMLButtonElement).disabled).toBe(true);
@@ -468,7 +472,7 @@ describe("Ingest — tabs structure", () => {
   });
 
   it("ingest button is enabled when active tab's field has content", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
 
     // Wait for config to load
     const btn = screen.getByRole("button", { name: /^ingest$/i });
@@ -498,7 +502,7 @@ describe("Ingest — File Path tab submission", () => {
     const fetchMock = mockFetchWith(() => new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     // Wait for config to load so button becomes enabled
     await waitFor(() => {
       expect(screen.getByLabelText(/transport/i)).toBeTruthy();
@@ -529,7 +533,7 @@ describe("Ingest — File Path tab submission", () => {
     const fetchMock = mockFetchWith(() => new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     // Wait for config to load so selectors are enabled
     await waitFor(() => {
       expect((screen.getByLabelText(/transport/i) as HTMLSelectElement).disabled).toBe(false);
@@ -575,7 +579,7 @@ describe("Ingest — Paste Content tab submission", () => {
     const fetchMock = mockFetchWith(() => new Promise(() => {}));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     // Wait for config to load
     await waitFor(() => {
       expect((screen.getByLabelText(/transport/i) as HTMLSelectElement).disabled).toBe(false);
@@ -601,7 +605,7 @@ describe("Ingest — Paste Content tab submission", () => {
   });
 
   it("shows loading spinner after clicking Ingest with pasted content", async () => {
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     // Wait for config to load
     await waitFor(() => {
       expect((screen.getByLabelText(/transport/i) as HTMLSelectElement).disabled).toBe(false);
@@ -667,7 +671,7 @@ describe("Ingest — error handling", () => {
       }),
     );
 
-    render(<Ingest onBack={vi.fn()} />);
+    renderWithClient(<Ingest onBack={vi.fn()} />);
     // Wait for config to load
     await waitFor(() => {
       expect((screen.getByLabelText(/transport/i) as HTMLSelectElement).disabled).toBe(false);

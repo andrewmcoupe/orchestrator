@@ -1,5 +1,6 @@
 // @ts-check
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   ArrowLeft,
   RefreshCw,
@@ -464,53 +465,46 @@ export function Ingest({ onBack }: IngestProps) {
   const [activeTab, setActiveTab] = useState<"path" | "content">("path");
   const [transport, setTransport] = useState<IngestTransport | null>(null);
   const [model, setModel] = useState<string | null>(null);
-  const [configLoaded, setConfigLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [accepting, setAccepting] = useState(false);
   // Track which pushbacks have been resolved locally (for re-ingest recovery)
   const [resolvedPushbacks, setResolvedPushbacks] = useState<Set<string>>(
     new Set(),
   );
 
   // Fetch ingest config defaults from the server on mount
-  useEffect(() => {
-    fetch("/api/config/ingest")
-      .then((res) => res.json())
-      .then((data: { transport?: IngestTransport; model?: string }) => {
-        const t = data.transport ?? "claude-code";
-        setTransport(t);
-        setModel(data.model ?? DEFAULT_MODELS[t]);
-        setConfigLoaded(true);
-      })
-      .catch(() => {
-        // Fall back to hard-coded defaults if config endpoint is unavailable
-        setTransport("claude-code");
-        setModel(DEFAULT_MODELS["claude-code"]);
-        setConfigLoaded(true);
-      });
-  }, []);
+  const configQuery = useQuery({
+    queryKey: ["ingest_config"],
+    queryFn: async () => {
+      const res = await fetch("/api/config/ingest");
+      if (!res.ok) throw new Error("Failed to load ingest config");
+      return res.json() as Promise<{ transport?: IngestTransport; model?: string }>;
+    },
+    staleTime: Infinity,
+  });
+
+  const configLoaded = configQuery.isSuccess || configQuery.isError;
+
+  // Sync config data into local state once loaded (allows user overrides)
+  if (configQuery.isSuccess && transport === null) {
+    const t = configQuery.data.transport ?? "claude-code";
+    setTransport(t);
+    setModel(configQuery.data.model ?? DEFAULT_MODELS[t]);
+  }
+  if (configQuery.isError && transport === null) {
+    setTransport("claude-code");
+    setModel(DEFAULT_MODELS["claude-code"]);
+  }
 
   // --------------------------------------------------------------------------
-  // Ingest action
+  // Ingest mutation
   // --------------------------------------------------------------------------
 
-  const handleIngest = useCallback(async () => {
-    const isContentMode = activeTab === "content";
-    const value = isContentMode ? prdContent.trim() : pathInput.trim();
-    if (!value || !transport || !model) return;
-    setError(null);
-    const label = isContentMode ? "pasted content" : pathInput;
-    setState({ phase: "loading", path: label });
-
-    try {
-      // 1. Call ingest command
-      const body = isContentMode
-        ? JSON.stringify({ content: value, transport, model })
-        : JSON.stringify({ path: value, transport, model });
+  const ingestMutation = useMutation({
+    mutationFn: async (input: { body: Record<string, unknown>; label: string }) => {
       const ingestRes = await fetch("/api/commands/prd/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body,
+        body: JSON.stringify(input.body),
       });
 
       if (!ingestRes.ok) {
@@ -522,7 +516,7 @@ export function Ingest({ onBack }: IngestProps) {
 
       const result = (await ingestRes.json()) as IngestResult;
 
-      // 2. Fetch pushback event details via correlation_id
+      // Fetch pushback event details via correlation_id
       const eventsRes = await fetch(
         `/api/events/recent?correlation_id=${encodeURIComponent(result.prd_id)}&limit=200`,
       );
@@ -543,20 +537,54 @@ export function Ingest({ onBack }: IngestProps) {
           suggested_resolutions: e.payload.suggested_resolutions,
         }));
 
-      setState({ phase: "review", result, pushbacks, path: label });
+      return { result, pushbacks, label: input.label };
+    },
+    onSuccess: (data) => {
+      setState({ phase: "review", result: data.result, pushbacks: data.pushbacks, path: data.label });
       setResolvedPushbacks(new Set());
-    } catch (err) {
-      setError((err as Error).message);
+      setError(null);
+    },
+    onError: (err: Error) => {
+      setError(err.message);
       setState({ phase: "idle" });
-    }
-  }, [activeTab, prdContent, pathInput, transport, model]);
+    },
+  });
+
+  const handleIngest = useCallback(() => {
+    const isContentMode = activeTab === "content";
+    const value = isContentMode ? prdContent.trim() : pathInput.trim();
+    if (!value || !transport || !model) return;
+    setError(null);
+    const label = isContentMode ? "pasted content" : pathInput;
+    setState({ phase: "loading", path: label });
+
+    const body = isContentMode
+      ? { content: value, transport, model }
+      : { path: value, transport, model };
+
+    ingestMutation.mutate({ body, label });
+  }, [activeTab, prdContent, pathInput, transport, model, ingestMutation]);
 
   // --------------------------------------------------------------------------
   // Pushback resolution
   // --------------------------------------------------------------------------
 
+  const resolvePushbackMutation = useMutation({
+    mutationFn: async (input: { pushbackId: string; body: Record<string, unknown> }) => {
+      await fetch(`/api/commands/pushback/${input.pushbackId}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input.body),
+      });
+      return input.pushbackId;
+    },
+    onSuccess: (pushbackId) => {
+      setResolvedPushbacks((prev) => new Set([...prev, pushbackId]));
+    },
+  });
+
   const handleResolvePushback = useCallback(
-    async (
+    (
       pushbackId: string,
       resolution: PushbackResolution,
       text?: string,
@@ -566,38 +594,35 @@ export function Ingest({ onBack }: IngestProps) {
         body.amended_proposition_text = text;
       if (text && resolution === "reply_inline") body.resolution_text = text;
 
-      await fetch(`/api/commands/pushback/${pushbackId}/resolve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      setResolvedPushbacks((prev) => new Set([...prev, pushbackId]));
+      resolvePushbackMutation.mutate({ pushbackId, body });
     },
-    [],
+    [resolvePushbackMutation],
   );
 
   // --------------------------------------------------------------------------
   // Accept — create tasks from draft summaries
   // --------------------------------------------------------------------------
 
-  const handleAccept = useCallback(async () => {
+  const acceptMutation = useMutation({
+    mutationFn: async (drafts: TaskDraftSummary[]) => {
+      for (const draft of drafts) {
+        await fetch("/api/commands/task/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: draft.title,
+            proposition_ids: draft.proposition_ids,
+          }),
+        });
+      }
+    },
+    onSuccess: () => onBack(),
+  });
+
+  const handleAccept = useCallback(() => {
     if (state.phase !== "review") return;
-    setAccepting(true);
-
-    for (const draft of state.result.draft_tasks) {
-      await fetch("/api/commands/task/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: draft.title,
-          proposition_ids: draft.proposition_ids,
-        }),
-      });
-    }
-
-    onBack();
-  }, [state, onBack]);
+    acceptMutation.mutate(state.result.draft_tasks);
+  }, [state, acceptMutation]);
 
   // --------------------------------------------------------------------------
   // Render: Idle — path input form
@@ -755,7 +780,7 @@ export function Ingest({ onBack }: IngestProps) {
 
   if (state.phase !== "review") return null;
   const { result, pushbacks, path } = state;
-  const isAccepting = accepting;
+  const isAccepting = acceptMutation.isPending;
 
   // Build pushbacks by proposition_id, filtering out resolved ones
   const pushbacksByProp = new Map<string, PushbackData[]>();
