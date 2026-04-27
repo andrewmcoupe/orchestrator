@@ -131,12 +131,16 @@ function AssistantMessagePreview({ text }: { text: string }) {
         <TooltipTrigger asChild>
           <p
             key={text}
-            className="text-xs text-text-secondary mt-1.5 leading-relaxed line-clamp-2 animate-fade-in cursor-default"
+            className="text-start text-xs text-text-secondary mt-1.5 leading-relaxed line-clamp-2 animate-fade-in cursor-default"
           >
             {truncated}
           </p>
         </TooltipTrigger>
-        <TooltipContent side="bottom" align="start" className="max-w-sm max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
+        <TooltipContent
+          side="bottom"
+          align="start"
+          className="max-w-sm max-h-60 overflow-y-auto whitespace-pre-wrap break-words"
+        >
           {text}
         </TooltipContent>
       </Tooltip>
@@ -185,8 +189,13 @@ function PhaseBox({
         </span>
       </div>
       <div className="text-xs text-text-secondary font-mono space-y-0.5">
-        <div><span className="text-text-tertiary">model:</span> {model}</div>
-        <div><span className="text-text-tertiary">prompt:</span> {phase.prompt_version_id || "v?"}</div>
+        <div>
+          <span className="text-text-tertiary">model:</span> {model}
+        </div>
+        <div>
+          <span className="text-text-tertiary">prompt:</span>{" "}
+          {phase.prompt_version_id || "v?"}
+        </div>
       </div>
       {status === "running" && latestAssistantMessage && (
         <AssistantMessagePreview text={latestAssistantMessage} />

@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import type { AttemptRow, AuditSummary, GateRunSummary, PhaseRunSummary } from "@shared/projections.js";
 import type { AuditConcern, TaskStatus } from "@shared/events.js";
-import { useTaskDetail } from "../../store/eventStore.js";
+import { useTaskDetail, useLatestAssistantMessage } from "../../store/eventStore.js";
 import { MergeDialog } from "./MergeDialog.js";
 
 // ============================================================================
@@ -456,6 +456,9 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
   // When undefined (task not yet in store), fall back to REST-loaded status.
   const storeDetail = useTaskDetail(taskId);
 
+  // Last assistant message — shown on the review page when the attempt is empty
+  const lastAssistantMessage = useLatestAssistantMessage(attemptId);
+
   // ── Load attempt + task detail ────────────────────────────────────────────
 
   useEffect(() => {
@@ -759,14 +762,33 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
           </div>
         )}
 
+        {/* ── No-changes explanation banner ─────────────────────────────── */}
+        {(attempt.empty || attempt.outcome === "no_changes") && !audit && (
+          <div className="border border-status-muted/30 bg-status-muted/5 px-4 py-3 flex items-start gap-3">
+            <AlertTriangle size={16} className="text-status-muted shrink-0 mt-0.5" />
+            <div className="text-sm space-y-1.5">
+              <p className="font-medium text-text-primary">No changes were made</p>
+              <p className="text-text-secondary leading-relaxed">
+                The implementer completed without producing file changes. The auditor was skipped because there was nothing to review.
+              </p>
+              {lastAssistantMessage && (
+                <div className="mt-2 border-l-2 border-border-muted pl-3 py-1">
+                  <p className="text-[11px] uppercase tracking-wider text-text-tertiary mb-1">Implementer's last message</p>
+                  <p className="text-text-secondary text-xs leading-relaxed whitespace-pre-wrap">{lastAssistantMessage}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── Verdict card ──────────────────────────────────────────────── */}
         {audit ? (
           <VerdictCard audit={audit} />
-        ) : (
+        ) : !(attempt.empty || attempt.outcome === "no_changes") ? (
           <div className="border border-border-muted p-4 text-text-secondary text-sm">
             No auditor verdict for this attempt.
           </div>
-        )}
+        ) : null}
 
         {/* ── Gates strip ───────────────────────────────────────────────── */}
         <GatesStrip gates={attempt.gate_runs} />

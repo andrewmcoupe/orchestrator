@@ -23,6 +23,7 @@ import {
 } from "./codex.js";
 import type { BlobStore } from "../blobStore.js";
 import type { InvocationCompleted } from "@shared/events.js";
+import { MODEL_PRICING, computeCost } from "./modelPricing.js";
 
 // ============================================================================
 // Helpers
@@ -76,6 +77,22 @@ function makeCtx(overrides?: Partial<TranslateContext>): TranslateContext {
     ...overrides,
   };
 }
+
+describe("model pricing", () => {
+  it("includes the required OpenAI model entries", () => {
+    expect(MODEL_PRICING["o3"]).toMatchObject({ input_per_1m: 2.0, output_per_1m: 8.0 });
+    expect(MODEL_PRICING["o4-mini"]).toMatchObject({ input_per_1m: 1.1, output_per_1m: 4.4 });
+    expect(MODEL_PRICING["gpt-4.1"]).toMatchObject({ input_per_1m: 2.0, output_per_1m: 8.0 });
+    expect(MODEL_PRICING["gpt-4.1-mini"]).toMatchObject({ input_per_1m: 0.4, output_per_1m: 1.6 });
+    expect(MODEL_PRICING["gpt-4.1-nano"]).toMatchObject({ input_per_1m: 0.1, output_per_1m: 0.4 });
+    expect(MODEL_PRICING["o3-pro"]).toMatchObject({ input_per_1m: 20.0, output_per_1m: 80.0 });
+  });
+
+  it("prefers the most specific prefix for versioned model IDs", () => {
+    expect(computeCost("o3-pro-2025-06-10", 1_000_000, 1_000_000)).toBe(100);
+    expect(computeCost("gpt-4.1-mini-2025-04-14", 1_000_000, 1_000_000)).toBe(2);
+  });
+});
 
 // ============================================================================
 // buildArgs
@@ -423,6 +440,7 @@ describe("translateLine", () => {
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs).toHaveLength(1);
     expect(inputs[0].type).toBe("invocation.completed");
+    const expectedCost = computeCost(baseOpts.model, 100, 50);
     expect(inputs[0].payload).toMatchObject({
       invocation_id: "inv-001",
       outcome: "success",
@@ -430,8 +448,7 @@ describe("translateLine", () => {
       tokens_out: 50,
       cached_tokens_in: 30,
       reasoning_tokens_out: 20,
-      // AC3: cost_usd is always 0 — Codex does not report cost
-      cost_usd: 0,
+      cost_usd: expectedCost,
       turns: 1,
       exit_code: 0,
       exit_reason: "normal",
@@ -440,7 +457,7 @@ describe("translateLine", () => {
     expect((inputs[0].payload as InvocationCompleted).duration_ms).toBeGreaterThan(0);
   });
 
-  it("AC3: turn.completed always sets cost_usd to 0 regardless of cost_usd in event", () => {
+  it("computes cost_usd from model pricing instead of using cost_usd from the event", () => {
     const ctx = makeCtx();
     const line: CodexLine = {
       type: "turn.completed",
@@ -449,6 +466,19 @@ describe("translateLine", () => {
       cost_usd: 0.99,
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
+    expect((inputs[0].payload as InvocationCompleted).cost_usd).toBe(
+      computeCost(baseOpts.model, 10, 5),
+    );
+  });
+
+  it("returns cost_usd=0 for unknown models", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "turn.completed",
+      turn_id: "turn-1",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    };
+    const inputs = translateLine(line, { ...baseOpts, model: "unknown-model" }, bs, ctx);
     expect((inputs[0].payload as InvocationCompleted).cost_usd).toBe(0);
   });
 
@@ -533,8 +563,7 @@ describe("invoke", () => {
     expect(completed.tokens_out).toBe(5);
     expect(completed.cached_tokens_in).toBe(3);
     expect(completed.reasoning_tokens_out).toBe(2);
-    // AC3: cost is always 0
-    expect(completed.cost_usd).toBe(0);
+    expect(completed.cost_usd).toBe(computeCost(baseOpts.model, 10, 5));
   });
 
   it("yields errored + completed when spawner throws, with classified exit_reason", async () => {
