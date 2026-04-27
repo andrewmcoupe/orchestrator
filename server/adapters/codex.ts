@@ -21,6 +21,7 @@ import type { BlobStore } from "../blobStore.js";
 import type { AppendEventInput } from "../eventStore.js";
 import type { EventType, ExitReason, PhaseName, TransportOptions } from "@shared/events.js";
 import { classifySubprocessError } from "./claudeCode.js";
+import { computeCost } from "./modelPricing.js";
 
 // ============================================================================
 // Public types
@@ -445,18 +446,19 @@ export function translateLine(
   if (line.type === "turn.completed") {
     ctx.turnCount += 1;
     const duration_ms = ctx.startedAt ? Date.now() - ctx.startedAt : (line.duration_ms ?? 0);
+    const tokens_in = line.usage?.input_tokens ?? 0;
+    const tokens_out = line.usage?.output_tokens ?? 0;
     return [{
       ...base,
       type: "invocation.completed",
       payload: {
         invocation_id: opts.invocation_id,
         outcome: "success",
-        tokens_in: line.usage?.input_tokens ?? 0,
-        tokens_out: line.usage?.output_tokens ?? 0,
+        tokens_in,
+        tokens_out,
         cached_tokens_in: line.usage?.cached_input_tokens ?? 0,
         reasoning_tokens_out: line.usage?.reasoning_output_tokens ?? 0,
-        // Codex does not report cost; OpenAI pricing deferred to modelPricing.ts
-        cost_usd: 0,
+        cost_usd: computeCost(opts.model, tokens_in, tokens_out),
         duration_ms,
         turns: ctx.turnCount,
         exit_code: 0,
@@ -663,7 +665,7 @@ export async function* invoke(
         outcome: "failed",
         tokens_in: 0,
         tokens_out: 0,
-        cost_usd: 0,
+        cost_usd: computeCost(opts.model, 0, 0),
         duration_ms: Date.now() - startedAt,
         turns: 0,
         exit_code: error.exitCode ?? 1,
