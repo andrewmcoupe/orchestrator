@@ -10,6 +10,7 @@ import {
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
   TaskStatus,
+  TaskConfig,
   PhaseConfig,
   GateConfig,
   AnyEvent,
@@ -345,22 +346,6 @@ function ActionButtons({
 }
 
 // ============================================================================
-// Retry policy summary
-// ============================================================================
-
-function retryPolicySummary(detail: TaskDetailRow): string {
-  const p = detail.config.retry_policy;
-  const parts: string[] = [];
-  parts.push(`${p.on_typecheck_fail.max_attempts}\u00d7 on typecheck`);
-  if (p.on_audit_reject === "escalate_to_human") {
-    parts.push("escalate on audit reject");
-  } else {
-    parts.push(`${p.on_audit_reject} on audit reject`);
-  }
-  return parts.join(" \u00b7 ");
-}
-
-// ============================================================================
 // Dependency editing section
 // ============================================================================
 
@@ -601,8 +586,16 @@ function PromptPreview({ promptVersionId }: { promptVersionId: string }) {
   );
 }
 
-function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
-  const enabledPhases = detail.config.phases.filter((p) => p.enabled);
+type TaskPreviewConfig = Pick<TaskConfig, "phases" | "gates">;
+
+function TaskPreviewPanel({
+  config,
+  propositionIds,
+}: {
+  config: TaskPreviewConfig;
+  propositionIds: string[];
+}) {
+  const enabledPhases = config.phases.filter((p) => p.enabled);
 
   return (
     <div className="space-y-4">
@@ -650,19 +643,18 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
       </div>
 
       {/* Gates */}
-      {detail.config.gates.length > 0 && (
+      {config.gates.length > 0 && (
         <div>
           <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
             Gates
           </h4>
           <div className="space-y-1">
-            {detail.config.gates.map((gate) => (
+            {config.gates.map((gate) => (
               <div
                 key={gate.name}
-                className="flex items-center justify-between text-[11px] px-2 py-1 bg-bg-secondary border border-border-muted"
+                className="text-[11px] px-2 py-1 bg-bg-secondary border border-border-muted"
               >
                 <span className="font-mono text-text-primary">{gate.name}</span>
-                <span className="text-text-tertiary">{gate.on_fail}</span>
               </div>
             ))}
           </div>
@@ -670,13 +662,13 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
       )}
 
       {/* Propositions */}
-      {detail.proposition_ids.length > 0 && (
+      {propositionIds.length > 0 && (
         <div>
           <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
-            Propositions ({detail.proposition_ids.length})
+            Propositions ({propositionIds.length})
           </h4>
           <div className="space-y-1">
-            {detail.proposition_ids.map((id) => (
+            {propositionIds.map((id) => (
               <div
                 key={id}
                 className="text-[11px] font-mono text-text-secondary px-2 py-1 bg-bg-secondary border border-border-muted truncate"
@@ -687,21 +679,6 @@ function TaskPreviewPanel({ detail }: { detail: TaskDetailRow }) {
           </div>
         </div>
       )}
-
-      {/* Retry policy summary */}
-      <div>
-        <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
-          Retry policy
-        </h4>
-        <div className="text-[11px] text-text-secondary font-mono bg-bg-secondary border border-border-muted p-2 space-y-0.5">
-          <div>
-            max attempts: {detail.config.retry_policy.max_total_attempts}
-          </div>
-          <div>
-            on audit reject: {detail.config.retry_policy.on_audit_reject}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -801,7 +778,10 @@ export function TaskDetailPane({
             {detail.title}
           </h2>
           <Popover>
-            <PopoverTrigger className="p-1 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer">
+            <PopoverTrigger
+              aria-label="Show task configuration preview"
+              className="p-1 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+            >
               <Info size={16} />
             </PopoverTrigger>
             <PopoverContent
@@ -809,7 +789,13 @@ export function TaskDetailPane({
               side="bottom"
               align="start"
             >
-              <TaskPreviewPanel detail={detail} />
+              <TaskPreviewPanel
+                config={{
+                  phases: detail.config.phases,
+                  gates: detail.config.gates,
+                }}
+                propositionIds={detail.proposition_ids}
+              />
             </PopoverContent>
           </Popover>
         </div>
@@ -903,24 +889,6 @@ export function TaskDetailPane({
         {detail.proposition_ids.length > 0 && (
           <AcceptanceCriteriaSection propositionIds={detail.proposition_ids} />
         )}
-
-        {/* Retry policy + attempt counter */}
-        <section>
-          <div className="flex items-center justify-between border border-border-muted bg-bg-secondary px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-text-tertiary">retry:</span>
-              <span className="text-xs text-text-primary font-medium">
-                {retryPolicySummary(detail)}
-              </span>
-            </div>
-            {listRow && (
-              <span className="text-xs text-text-secondary font-mono">
-                attempt {listRow.attempt_count}/
-                {detail.config.retry_policy.max_total_attempts}
-              </span>
-            )}
-          </div>
-        </section>
 
         {/* Task timeline */}
         <TaskTimeline taskId={detail.task_id} status={detail.status} />

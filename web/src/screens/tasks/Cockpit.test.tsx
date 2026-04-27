@@ -476,15 +476,18 @@ describe("TaskDetailPane", () => {
     expect(screen.getByText("integration")).toBeDefined();
   });
 
-  it("renders retry policy summary", () => {
+  it("does not render retry policy summary in the detail pane", async () => {
     withQuery(<TaskDetailPane detail={makeDetailRow()} listRow={makeListRow()} />);
-    // The × is Unicode \u00d7
-    expect(screen.getByText("2\u00d7 on typecheck \u00b7 escalate on audit reject")).toBeDefined();
-  });
+    expect(screen.queryByText("Retry Policy")).toBeNull();
+    expect(screen.queryByText("retry:")).toBeNull();
+    expect(screen.queryByText("2\u00d7 on typecheck \u00b7 escalate on audit reject")).toBeNull();
+    expect(screen.queryByText("attempt 1/3")).toBeNull();
 
-  it("renders attempt counter from list row", () => {
-    withQuery(<TaskDetailPane detail={makeDetailRow()} listRow={makeListRow({ attempt_count: 1 })} />);
-    expect(screen.getByText("attempt 1/3")).toBeDefined();
+    fireEvent.click(screen.getByLabelText("Show task configuration preview"));
+    expect(await screen.findByText("Propositions (1)")).toBeDefined();
+    expect(screen.queryByText("Retry Policy")).toBeNull();
+    expect(screen.queryByText("max_total_attempts")).toBeNull();
+    expect(screen.queryByText("on_typecheck_fail")).toBeNull();
   });
 
   it("shows Pause/Retry/Kill for running status", () => {
