@@ -131,7 +131,7 @@ function AssistantMessagePreview({ text }: { text: string }) {
         <TooltipTrigger asChild>
           <p
             key={text}
-            className="text-xs text-text-secondary mt-1.5 leading-relaxed line-clamp-2 animate-fade-in cursor-default"
+            className="text-start text-xs text-text-secondary mt-1.5 leading-relaxed line-clamp-2 animate-fade-in cursor-default"
           >
             {truncated}
           </p>
