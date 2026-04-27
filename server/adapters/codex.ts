@@ -61,9 +61,11 @@ export type CodexCommandExecutionItem = {
 export type CodexFileChangeItem = {
   type: "file_change";
   id: string;
-  path: string;
-  kind: "create" | "update" | "delete";
-  content?: string;
+  changes: Array<{
+    path: string;
+    kind: "add" | "update" | "delete";
+  }>;
+  status?: string;
 };
 
 export type CodexAgentMessageItem = {
@@ -338,7 +340,7 @@ export function translateLine(
     if (item.type === "file_change") {
       // AC5: item.started for file_change → invocation.tool_called
       const { hash: args_hash } = blobStore.putBlob(
-        JSON.stringify({ path: item.path, kind: item.kind }),
+        JSON.stringify({ changes: item.changes }),
       );
       return [{
         ...base,
@@ -377,7 +379,7 @@ export function translateLine(
       } satisfies AppendEventInput<"invocation.tool_returned">];
     }
 
-    // AC6: file_change completed → invocation.tool_returned + invocation.file_edited
+    // AC6: file_change completed → invocation.tool_returned + invocation.file_edited per change
     if (item.type === "file_change") {
       const inputs: AppendEventInput[] = [];
 
@@ -392,54 +394,31 @@ export function translateLine(
         },
       } satisfies AppendEventInput<"invocation.tool_returned">);
 
-      // Derive file_edited from structured change data
-      const operation = item.kind === "create" ? "create" as const
-        : item.kind === "delete" ? "delete" as const
-        : "update" as const;
+      // Emit one file_edited per change. Codex stages changes internally
+      // so git diff HEAD returns nothing — line counts will be 0 here.
+      // The phase-level diff snapshot (base_sha..HEAD) provides accurate
+      // counts for the review screen.
+      for (const change of item.changes ?? []) {
+        const operation = change.kind === "add" ? "create" as const
+          : change.kind === "delete" ? "delete" as const
+          : "update" as const;
 
-      // Compute line counts from item.content when available (especially
-      // important for kind=create where git diff safety net would be
-      // suppressed if we add the path to fileChangePathsSeen).
-      let lines_added = 0;
-      let lines_removed = 0;
-      if (item.content != null) {
-        // Count non-empty lines for created/updated content
-        const lineCount = item.content.split("\n").length;
-        if (operation === "create") {
-          lines_added = lineCount;
-        } else if (operation === "delete") {
-          lines_removed = lineCount;
-        } else {
-          // For updates, content represents the new state — we can only
-          // approximate lines_added; the git diff safety net will correct.
-          lines_added = lineCount;
-        }
+        const patchContent = `file_change: ${operation} ${change.path}`;
+        const patch_hash = createHash("sha256").update(patchContent).digest("hex");
+
+        inputs.push({
+          ...base,
+          type: "invocation.file_edited",
+          payload: {
+            invocation_id: opts.invocation_id,
+            path: change.path,
+            operation,
+            patch_hash,
+            lines_added: 0,
+            lines_removed: 0,
+          },
+        } satisfies AppendEventInput<"invocation.file_edited">);
       }
-
-      const patchContent = `file_change: ${operation} ${item.path}`;
-      const patch_hash = createHash("sha256").update(patchContent).digest("hex");
-
-      // Only suppress the git diff safety net when content-based line
-      // counts are accurate (create/delete). For updates, the content
-      // represents the new state so lines_added is the total line count
-      // (not the delta). Leave updates out of fileChangePathsSeen so
-      // invoke()'s detectFileEdits pass can provide precise counts.
-      if (item.content != null && operation !== "update") {
-        ctx.fileChangePathsSeen.add(item.path);
-      }
-
-      inputs.push({
-        ...base,
-        type: "invocation.file_edited",
-        payload: {
-          invocation_id: opts.invocation_id,
-          path: item.path,
-          operation,
-          patch_hash,
-          lines_added,
-          lines_removed,
-        },
-      } satisfies AppendEventInput<"invocation.file_edited">);
 
       return inputs;
     }
