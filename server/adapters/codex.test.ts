@@ -105,8 +105,8 @@ describe("buildArgs", () => {
     expect(modelIdx).toBeGreaterThan(-1);
     expect(args[modelIdx + 1]).toBe("o3");
 
-    // Prompt is the last positional argument
-    expect(args[args.length - 1]).toBe(baseOpts.prompt);
+    // Stdin pipe marker "-" is the last positional argument
+    expect(args[args.length - 1]).toBe("-");
   });
 
   it("always includes --ephemeral", () => {
@@ -292,7 +292,7 @@ describe("translateLine", () => {
   it("AC5: translates item.started (file_change) to invocation.tool_called", () => {
     const line: CodexLine = {
       type: "item.started",
-      item: { type: "file_change", id: "fc-1", path: "src/index.ts", kind: "update" },
+      item: { type: "file_change", id: "fc-1", changes: [{ path: "src/index.ts", kind: "update" }] },
     };
     const ctx = makeCtx();
     const inputs = translateLine(line, baseOpts, bs, ctx);
@@ -306,7 +306,7 @@ describe("translateLine", () => {
     // Args should be stored in blob store
     expect(bs.stored.size).toBe(1);
     const storedValue = [...bs.stored.values()][0];
-    expect(JSON.parse(storedValue)).toMatchObject({ path: "src/index.ts", kind: "update" });
+    expect(JSON.parse(storedValue)).toMatchObject({ changes: [{ path: "src/index.ts", kind: "update" }] });
   });
 
   // AC6: item.completed for file_change → invocation.tool_returned + invocation.file_edited
@@ -314,7 +314,7 @@ describe("translateLine", () => {
     const ctx = makeCtx({ itemStartTimes: { "fc-1": Date.now() - 200 } });
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "file_change", id: "fc-1", path: "src/index.ts", kind: "update" },
+      item: { type: "file_change", id: "fc-1", changes: [{ path: "src/index.ts", kind: "update" }] },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs).toHaveLength(2);
@@ -326,7 +326,7 @@ describe("translateLine", () => {
       success: true,
     });
 
-    // Second: file_edited with structured data from path + kind
+    // Second: file_edited with structured data from changes
     expect(inputs[1].type).toBe("invocation.file_edited");
     expect(inputs[1].payload).toMatchObject({
       invocation_id: "inv-001",
@@ -335,76 +335,59 @@ describe("translateLine", () => {
     });
   });
 
-  it("AC6: file_change with kind=create maps to operation=create", () => {
+  it("AC6: file_change with kind=add maps to operation=create", () => {
     const ctx = makeCtx();
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "file_change", id: "fc-2", path: "new-file.ts", kind: "create" },
+      item: { type: "file_change", id: "fc-2", changes: [{ path: "new-file.ts", kind: "add" }] },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs[1].payload).toMatchObject({ path: "new-file.ts", operation: "create" });
   });
 
-  it("AC6: file_change with kind=create and content computes lines_added from content", () => {
+  it("AC6: file_change with kind=add emits file_edited with lines_added=0 (line counts deferred to phase diff)", () => {
     const ctx = makeCtx();
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "file_change", id: "fc-content", path: "new-file.ts", kind: "create", content: "line1\nline2\nline3" },
+      item: { type: "file_change", id: "fc-content", changes: [{ path: "new-file.ts", kind: "add" }] },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs[1].payload).toMatchObject({
       path: "new-file.ts",
       operation: "create",
-      lines_added: 3,
-      lines_removed: 0,
-    });
-    // Path should be in fileChangePathsSeen since content was provided
-    expect(ctx.fileChangePathsSeen.has("new-file.ts")).toBe(true);
-  });
-
-  it("AC6: file_change with kind=create without content leaves lines_added=0 and does NOT suppress git diff safety net", () => {
-    const ctx = makeCtx();
-    const line: CodexLine = {
-      type: "item.completed",
-      item: { type: "file_change", id: "fc-nocontent", path: "new-file.ts", kind: "create" },
-    };
-    const inputs = translateLine(line, baseOpts, bs, ctx);
-    expect(inputs[1].payload).toMatchObject({
       lines_added: 0,
       lines_removed: 0,
     });
-    // Path should NOT be in fileChangePathsSeen so git diff safety net can correct
-    expect(ctx.fileChangePathsSeen.has("new-file.ts")).toBe(false);
-  });
-
-  it("AC6: file_change completed tracks path in fileChangePathsSeen for create with content (suppresses git diff)", () => {
-    const ctx = makeCtx();
-    const line: CodexLine = {
-      type: "item.completed",
-      item: { type: "file_change", id: "fc-dedup", path: "src/foo.ts", kind: "create", content: "new content" },
-    };
-    translateLine(line, baseOpts, bs, ctx);
-    expect(ctx.fileChangePathsSeen.has("src/foo.ts")).toBe(true);
-  });
-
-  it("AC6: file_change completed does NOT track path in fileChangePathsSeen for update with content (git diff corrects)", () => {
-    const ctx = makeCtx();
-    const line: CodexLine = {
-      type: "item.completed",
-      item: { type: "file_change", id: "fc-update", path: "src/bar.ts", kind: "update", content: "updated content" },
-    };
-    translateLine(line, baseOpts, bs, ctx);
-    expect(ctx.fileChangePathsSeen.has("src/bar.ts")).toBe(false);
   });
 
   it("AC6: file_change with kind=delete maps to operation=delete", () => {
     const ctx = makeCtx();
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "file_change", id: "fc-3", path: "old-file.ts", kind: "delete" },
+      item: { type: "file_change", id: "fc-3", changes: [{ path: "old-file.ts", kind: "delete" }] },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs[1].payload).toMatchObject({ path: "old-file.ts", operation: "delete" });
+  });
+
+  it("AC6: file_change with multiple changes emits one file_edited per change", () => {
+    const ctx = makeCtx();
+    const line: CodexLine = {
+      type: "item.completed",
+      item: {
+        type: "file_change",
+        id: "fc-multi",
+        changes: [
+          { path: "a.ts", kind: "add" },
+          { path: "b.ts", kind: "update" },
+        ],
+      },
+    };
+    const inputs = translateLine(line, baseOpts, bs, ctx);
+    // 1 tool_returned + 2 file_edited
+    expect(inputs).toHaveLength(3);
+    expect(inputs[1].payload).toMatchObject({ path: "a.ts", operation: "create" });
+    expect(inputs[2].payload).toMatchObject({ path: "b.ts", operation: "update" });
   });
 
   // AC7: item.completed for agent_message → invocation.assistant_message
@@ -412,7 +395,7 @@ describe("translateLine", () => {
     const ctx = makeCtx();
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "agent_message", id: "msg-1", content: "I've made the changes." },
+      item: { type: "agent_message", id: "msg-1", text: "I've made the changes." },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs).toHaveLength(1);
@@ -522,7 +505,7 @@ describe("invoke", () => {
     const lines: string[] = [
       JSON.stringify({ type: "thread.started", thread_id: "t-1", model: "o3" }),
       JSON.stringify({ type: "turn.started", turn_id: "turn-1" }),
-      JSON.stringify({ type: "item.completed", item: { type: "agent_message", id: "msg-1", content: "Done!" } }),
+      JSON.stringify({ type: "item.completed", item: { type: "agent_message", id: "msg-1", text: "Done!" } }),
       JSON.stringify({
         type: "turn.completed",
         turn_id: "turn-1",
@@ -715,8 +698,8 @@ describe("invoke", () => {
   it("file_change item.completed emits tool_returned + file_edited in invoke", async () => {
     const lines = [
       JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
-      JSON.stringify({ type: "item.started", item: { type: "file_change", id: "fc-1", path: "hello.ts", kind: "create" } }),
-      JSON.stringify({ type: "item.completed", item: { type: "file_change", id: "fc-1", path: "hello.ts", kind: "create" } }),
+      JSON.stringify({ type: "item.started", item: { type: "file_change", id: "fc-1", changes: [{ path: "hello.ts", kind: "add" }] } }),
+      JSON.stringify({ type: "item.completed", item: { type: "file_change", id: "fc-1", changes: [{ path: "hello.ts", kind: "add" }] } }),
       JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
 

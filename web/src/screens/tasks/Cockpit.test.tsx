@@ -521,10 +521,17 @@ describe("TaskDetailPane", () => {
     fetchSpy.mockRestore();
   });
 
-  it("renders proposition IDs", () => {
+  it("renders proposition IDs", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify([
+        { proposition_id: "P-001", text: "First proposition" },
+        { proposition_id: "P-002", text: "Second proposition" },
+      ])),
+    );
     withQuery(<TaskDetailPane detail={makeDetailRow({ proposition_ids: ["P-001", "P-002"] })} />);
-    expect(screen.getByText("P-001")).toBeDefined();
-    expect(screen.getByText("P-002")).toBeDefined();
+    expect(await screen.findByText("First proposition")).toBeDefined();
+    expect(screen.getByText("Second proposition")).toBeDefined();
+    fetchSpy.mockRestore();
   });
 
   it("hides proposition section when empty", () => {

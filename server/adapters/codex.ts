@@ -418,6 +418,9 @@ export function translateLine(
             lines_removed: 0,
           },
         } satisfies AppendEventInput<"invocation.file_edited">);
+
+        // Track path so git diff safety net skips duplicates
+        ctx.fileChangePathsSeen.add(change.path);
       }
 
       return inputs;

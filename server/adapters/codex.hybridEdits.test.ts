@@ -107,12 +107,12 @@ describe("AC1: file_change items emit file_edited directly", () => {
     setupGitDiffMock("", "");
   });
 
-  it("emits file_edited with path and operation=create for kind=create", async () => {
+  it("emits file_edited with path and operation=create for kind=add", async () => {
     const lines = [
       JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
       JSON.stringify({
         type: "item.completed",
-        item: { type: "file_change", id: "fc-1", path: "src/new.ts", kind: "create", content: "hello\nworld" },
+        item: { type: "file_change", id: "fc-1", changes: [{ path: "src/new.ts", kind: "add" }] },
       }),
       JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
@@ -127,7 +127,7 @@ describe("AC1: file_change items emit file_edited directly", () => {
     expect(fileEdited[0].payload).toMatchObject({
       path: "src/new.ts",
       operation: "create",
-      lines_added: 2,
+      lines_added: 0,
       lines_removed: 0,
     });
   });
@@ -137,7 +137,7 @@ describe("AC1: file_change items emit file_edited directly", () => {
       JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
       JSON.stringify({
         type: "item.completed",
-        item: { type: "file_change", id: "fc-2", path: "src/existing.ts", kind: "update" },
+        item: { type: "file_change", id: "fc-2", changes: [{ path: "src/existing.ts", kind: "update" }] },
       }),
       JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
@@ -160,7 +160,7 @@ describe("AC1: file_change items emit file_edited directly", () => {
       JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
       JSON.stringify({
         type: "item.completed",
-        item: { type: "file_change", id: "fc-3", path: "src/old.ts", kind: "delete", content: "removed\nlines\nhere" },
+        item: { type: "file_change", id: "fc-3", changes: [{ path: "src/old.ts", kind: "delete" }] },
       }),
       JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
@@ -176,24 +176,23 @@ describe("AC1: file_change items emit file_edited directly", () => {
       path: "src/old.ts",
       operation: "delete",
       lines_added: 0,
-      lines_removed: 3,
+      lines_removed: 0,
     });
   });
 
-  it("emits file_edited for each file_change item in a multi-file turn", async () => {
+  it("emits file_edited for each change in a multi-change item and across items", async () => {
     const lines = [
       JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
       JSON.stringify({
         type: "item.completed",
-        item: { type: "file_change", id: "fc-a", path: "a.ts", kind: "create", content: "a" },
+        item: { type: "file_change", id: "fc-a", changes: [
+          { path: "a.ts", kind: "add" },
+          { path: "b.ts", kind: "update" },
+        ]},
       }),
       JSON.stringify({
         type: "item.completed",
-        item: { type: "file_change", id: "fc-b", path: "b.ts", kind: "update" },
-      }),
-      JSON.stringify({
-        type: "item.completed",
-        item: { type: "file_change", id: "fc-c", path: "c.ts", kind: "delete", content: "c" },
+        item: { type: "file_change", id: "fc-c", changes: [{ path: "c.ts", kind: "delete" }] },
       }),
       JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
@@ -289,9 +288,9 @@ describe("AC2: command_execution triggers git diff safety net", () => {
     expect(newFile!.payload).toMatchObject({ operation: "create", lines_added: 10 });
   });
 
-  it("does not yield duplicate file_edited for paths already emitted by file_change with content", async () => {
-    // file_change (create with content) already emits file_edited for "src/foo.ts"
-    // git diff also reports "src/foo.ts" — it should be suppressed
+  it("does not yield duplicate file_edited for paths already emitted by file_change", async () => {
+    // file_change emits file_edited for "src/foo.ts"
+    // git diff also reports "src/foo.ts" — it should be suppressed via fileChangePathsSeen
     setupGitDiffMock(
       "3\t0\tsrc/foo.ts",
       "A\tsrc/foo.ts",
@@ -301,11 +300,11 @@ describe("AC2: command_execution triggers git diff safety net", () => {
       JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
       JSON.stringify({
         type: "item.started",
-        item: { type: "file_change", id: "fc-1", path: "src/foo.ts", kind: "create" },
+        item: { type: "file_change", id: "fc-1", changes: [{ path: "src/foo.ts", kind: "add" }] },
       }),
       JSON.stringify({
         type: "item.completed",
-        item: { type: "file_change", id: "fc-1", path: "src/foo.ts", kind: "create", content: "a\nb\nc" },
+        item: { type: "file_change", id: "fc-1", changes: [{ path: "src/foo.ts", kind: "add" }] },
       }),
       JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
@@ -315,19 +314,17 @@ describe("AC2: command_execution triggers git diff safety net", () => {
       events.push(ev);
     }
 
-    // Only one file_edited for src/foo.ts (from translateLine), not a duplicate from git diff
+    // file_edited from translateLine; git diff duplicate should be suppressed
     const fileEdited = events.filter(e => e.type === "invocation.file_edited");
     expect(fileEdited).toHaveLength(1);
     expect(fileEdited[0].payload).toMatchObject({
       path: "src/foo.ts",
       operation: "create",
-      lines_added: 3,
     });
   });
 
-  it("allows git diff to supplement file_edited for file_change update (content is approximate)", async () => {
-    // For kind=update, content represents new state, not a delta.
-    // fileChangePathsSeen does NOT include update paths, so git diff can provide precise counts.
+  it("suppresses git diff for file_change update paths (translateLine already emitted file_edited)", async () => {
+    // fileChangePathsSeen includes all file_change paths, so git diff is suppressed
     setupGitDiffMock(
       "4\t2\tsrc/bar.ts",
       "M\tsrc/bar.ts",
@@ -337,7 +334,7 @@ describe("AC2: command_execution triggers git diff safety net", () => {
       JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
       JSON.stringify({
         type: "item.completed",
-        item: { type: "file_change", id: "fc-1", path: "src/bar.ts", kind: "update", content: "new content\nhere" },
+        item: { type: "file_change", id: "fc-1", changes: [{ path: "src/bar.ts", kind: "update" }] },
       }),
       JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
@@ -347,18 +344,12 @@ describe("AC2: command_execution triggers git diff safety net", () => {
       events.push(ev);
     }
 
-    // Two file_edited events: one from translateLine (approximate), one from git diff (precise)
+    // Only one file_edited from translateLine; git diff duplicate suppressed
     const fileEdited = events.filter(e => e.type === "invocation.file_edited");
-    expect(fileEdited).toHaveLength(2);
-
-    // The git diff one should have precise counts
-    const gitDiffEdit = fileEdited.find(e => (e.payload as any).lines_added === 4);
-    expect(gitDiffEdit).toBeDefined();
-    expect(gitDiffEdit!.payload).toMatchObject({
+    expect(fileEdited).toHaveLength(1);
+    expect(fileEdited[0].payload).toMatchObject({
       path: "src/bar.ts",
       operation: "update",
-      lines_added: 4,
-      lines_removed: 2,
     });
   });
 

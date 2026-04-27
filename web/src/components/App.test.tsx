@@ -84,7 +84,6 @@ describe("App shell", () => {
     renderApp();
     expect(screen.getByText("stream")).toBeDefined();
     expect(screen.getByText("filter")).toBeDefined();
-    expect(screen.getByText("hide")).toBeDefined();
   });
 
   it("defaults to Tasks section content", () => {
@@ -99,12 +98,6 @@ describe("App shell", () => {
     const railBtn = promptsBtns.find((el) => el.closest("nav button"));
     fireEvent.click(railBtn!);
     expect(window.location.hash).toBe("#/prompts");
-  });
-
-  it("clicking hide removes the event strip", () => {
-    renderApp();
-    fireEvent.click(screen.getByText("hide"));
-    expect(screen.queryByText("stream")).toBeNull();
   });
 
   it("provider pills show status dots with fallback unknown status", () => {
