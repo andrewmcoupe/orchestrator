@@ -18,6 +18,7 @@ const SECTION_LABELS: Record<Section, string> = {
   providers: "Providers",
   measurement: "Measurement",
   settings: "Settings",
+  guide: "Guide",
 };
 
 export function TopBar({ section, providers, onProviderClick }: TopBarProps) {

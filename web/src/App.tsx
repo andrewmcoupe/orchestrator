@@ -21,6 +21,7 @@ import { Settings } from "./screens/settings/Settings.js";
 import { Ingest } from "./screens/ingest/Ingest.js";
 import { TaskConfig } from "./screens/config/TaskConfig.js";
 import { Review } from "./screens/review/Review.js";
+import { Guide } from "./screens/guide/Guide.js";
 
 /** Extracts task id from the config route: #/tasks/:id/config */
 function parseConfigTaskId(hash: string): string | null {
@@ -39,6 +40,7 @@ const SCREENS: Record<Exclude<Section, "tasks">, (() => React.JSX.Element) | nul
   providers: null, // rendered with focusedProvider prop
   measurement: Measurement,
   settings: Settings,
+  guide: Guide,
 };
 
 export function App() {
