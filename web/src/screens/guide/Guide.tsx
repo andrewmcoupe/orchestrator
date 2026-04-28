@@ -162,6 +162,55 @@ export function Guide() {
       </section>
 
       <section className="mb-8">
+        <h2 className="text-lg font-medium text-text-primary mb-3">
+          Best Practices: Review &amp; Merge
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <h3 className="text-sm font-semibold text-green-400 mb-2">Do</h3>
+            <ul className="space-y-2 text-sm text-text-secondary list-disc list-inside">
+              <li>
+                Review the full diff carefully, including test files.
+              </li>
+              <li>
+                Check that the implementation matches the original proposition
+                intent.
+              </li>
+              <li>
+                Use reject to send the task back for a fresh attempt when the
+                approach is fundamentally wrong.
+              </li>
+              <li>
+                Use revise when the implementation is close but needs specific
+                adjustments.
+              </li>
+              <li>
+                Add clear feedback when rejecting or requesting revisions —
+                this feeds back into the next attempt.
+              </li>
+              <li>Verify gate results passed before approving.</li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-red-400 mb-2">Don't</h3>
+            <ul className="space-y-2 text-sm text-text-secondary list-disc list-inside">
+              <li>Auto-approve without reviewing diffs.</li>
+              <li>Reject without providing actionable feedback.</li>
+              <li>
+                Merge tasks with failing gates unless you have a specific
+                reason.
+              </li>
+              <li>
+                Approve changes that introduce technical debt just to close the
+                task.
+              </li>
+              <li>Skip reviewing test coverage for new functionality.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section className="mb-8">
         <h2 className="text-lg font-medium text-text-primary mb-3">Glossary</h2>
         <dl className="space-y-4 text-sm">
           <div>
