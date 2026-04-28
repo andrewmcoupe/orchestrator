@@ -1,27 +1,35 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
+import { useCallback } from "react";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Review } from "../../../../screens/review/Review.js";
-import {
-  Dialog,
-  DialogContent,
-} from "../../../../components/ui/dialog.js";
 
 export const Route = createFileRoute("/tasks/$taskId/review/$attemptId")({
-  component: ReviewRoute,
+  component: ReviewDialog,
 });
 
-function ReviewRoute() {
-  const { taskId, attemptId } = Route.useParams();
+function ReviewDialog() {
+  const { taskId, attemptId } = useParams({
+    from: "/tasks/$taskId/review/$attemptId",
+  });
   const navigate = useNavigate();
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     navigate({ to: "/tasks/$taskId", params: { taskId } });
-  };
+  }, [navigate, taskId]);
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) handleClose(); }}>
-      <DialogContent className="max-w-[95vw] sm:max-w-[95vw] w-[95vw] h-[90vh] max-h-[90vh] overflow-y-auto p-0">
-        <Review taskId={taskId} attemptId={attemptId} onBack={handleClose} />
-      </DialogContent>
-    </Dialog>
+    <DialogPrimitive.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) handleClose();
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-black/40" />
+        <DialogPrimitive.Popup className="fixed inset-4 z-50 flex flex-col overflow-hidden rounded-none bg-bg-primary outline-none">
+          <Review taskId={taskId} attemptId={attemptId} />
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

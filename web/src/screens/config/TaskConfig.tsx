@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, Eye } from "lucide-react";
 import type { TaskDetailRow, PresetRow } from "@shared/projections.js";
 import type {
@@ -51,7 +52,6 @@ import {
 
 type TaskConfigProps = {
   taskId: string;
-  onBack: () => void;
 };
 
 type LoadState =
@@ -899,7 +899,8 @@ function SaveAsPresetModal({
 // Main component
 // ============================================================================
 
-export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
+export function TaskConfig({ taskId }: TaskConfigProps) {
+  const navigate = useNavigate();
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
   const [presets, setPresets] = useState<PresetRow[]>([]);
   const [editedConfig, setEditedConfig] = useState<TaskConfigType | null>(null);
@@ -978,8 +979,8 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
     });
 
     setSaving(false);
-    onBack();
-  }, [loadState, editedConfig, taskId, onBack]);
+    navigate({ to: "/tasks/$taskId", params: { taskId } });
+  }, [loadState, editedConfig, taskId, navigate]);
 
   // ── Save-as-preset ─────────────────────────────────────────────────────────
 
@@ -1056,7 +1057,7 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
           <button
             type="button"
             aria-label="back"
-            onClick={onBack}
+            onClick={() => navigate({ to: "/tasks/$taskId", params: { taskId } })}
             className="p-1.5 hover:bg-bg-secondary transition-colors cursor-pointer"
           >
             <ChevronLeft className="h-4 w-4 text-text-secondary" />
@@ -1077,7 +1078,7 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onBack}
+              onClick={() => navigate({ to: "/tasks/$taskId", params: { taskId } })}
               className="border border-border-default px-4 py-1.5 text-sm text-text-secondary hover:bg-bg-secondary transition-colors cursor-pointer"
             >
               Cancel

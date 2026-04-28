@@ -6,6 +6,11 @@ import { TaskConfig } from "./TaskConfig.js";
 import type { TaskDetailRow, PresetRow } from "@shared/projections.js";
 import type { TaskConfig as TaskConfigType } from "@shared/events.js";
 
+const mockNavigate = vi.fn();
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mockNavigate,
+}));
+
 afterEach(cleanup);
 
 /** Wrap component in a fresh QueryClientProvider per test. */
@@ -157,7 +162,7 @@ describe("TaskConfig — loading", () => {
       new Promise((r) => { resolve = r; })
     );
 
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     expect(screen.getByText(/loading/i)).toBeTruthy();
 
     resolve!(new Response(JSON.stringify(mockDetail), { status: 200 }));
@@ -166,14 +171,14 @@ describe("TaskConfig — loading", () => {
 
   it("renders the task title and id after loading", async () => {
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => expect(screen.getByText("Add login feature")).toBeTruthy());
     expect(screen.getByText("T-001")).toBeTruthy();
   });
 
   it("shows 404 message when task is not found", async () => {
     setupFetch({ detail: null });
-    withQuery(<TaskConfig taskId="T-999" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-999" />);
     await waitFor(() => expect(screen.getByText(/not found/i)).toBeTruthy());
   });
 });
@@ -183,24 +188,24 @@ describe("TaskConfig — loading", () => {
 // ============================================================================
 
 describe("TaskConfig — navigation", () => {
-  it("back button calls onBack without saving", async () => {
-    const onBack = vi.fn();
+  it("back button navigates without saving", async () => {
+    mockNavigate.mockClear();
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={onBack} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     fireEvent.click(screen.getByRole("button", { name: /back/i }));
-    expect(onBack).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledOnce();
   });
 
-  it("Cancel button calls onBack without saving", async () => {
-    const onBack = vi.fn();
+  it("Cancel button navigates without saving", async () => {
+    mockNavigate.mockClear();
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={onBack} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
-    expect(onBack).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledOnce();
   });
 });
 
@@ -211,7 +216,7 @@ describe("TaskConfig — navigation", () => {
 describe("TaskConfig — preset strip", () => {
   it("shows preset dropdown with the selected preset value", async () => {
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     // base-ui Select renders a hidden input with the selected value
@@ -228,7 +233,7 @@ describe("TaskConfig — preset strip", () => {
 describe("TaskConfig — phases section", () => {
   it("renders a card for each phase", async () => {
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     expect(screen.getByText("implementer")).toBeTruthy();
@@ -237,7 +242,7 @@ describe("TaskConfig — phases section", () => {
 
   it("enabled phase shows toggle as checked", async () => {
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     const checkboxes = screen.getAllByRole("checkbox");
@@ -247,7 +252,7 @@ describe("TaskConfig — phases section", () => {
 
   it("toggling a phase checkbox changes its checked state", async () => {
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     // Find the "enabled" label checkboxes — each phase card has one
@@ -268,7 +273,7 @@ describe("TaskConfig — phases section", () => {
 describe("TaskConfig — gates section", () => {
   it("renders gate rows from config", async () => {
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     expect(screen.getAllByText("typecheck").length).toBeGreaterThan(0);
@@ -276,7 +281,7 @@ describe("TaskConfig — gates section", () => {
 
   it("gate timeout input accepts a new value", async () => {
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     // Wait for gate library to load and render the timeout input
@@ -295,7 +300,7 @@ describe("TaskConfig — gates section", () => {
 describe("TaskConfig — retry policy", () => {
   it("renders max total attempts field", async () => {
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     expect(screen.getByDisplayValue("3")).toBeTruthy();
@@ -303,7 +308,7 @@ describe("TaskConfig — retry policy", () => {
 
   it("changing max_total_attempts updates the input value", async () => {
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     const maxAttemptsInput = screen.getByLabelText(/max attempts/i);
@@ -320,7 +325,7 @@ describe("TaskConfig — retry policy", () => {
 describe("TaskConfig — save", () => {
   it("save button POSTs to /api/commands/task/:id/config", async () => {
     const fetchSpy = setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     // Use exact "Save" text to avoid matching "Save as preset"
@@ -336,7 +341,7 @@ describe("TaskConfig — save", () => {
 
   it("save only includes changed fields in the diff", async () => {
     const fetchSpy = setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     // Change only retry policy max_total_attempts
@@ -358,19 +363,19 @@ describe("TaskConfig — save", () => {
     });
   });
 
-  it("save calls onBack after success", async () => {
-    const onBack = vi.fn();
+  it("save navigates after success", async () => {
+    mockNavigate.mockClear();
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={onBack} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-    await waitFor(() => expect(onBack).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledOnce());
   });
 
   it("save-as-preset opens a modal and POSTs on confirm", async () => {
     const fetchSpy = setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     // Open modal
@@ -409,7 +414,7 @@ describe("TaskConfig — auto-merge section", () => {
       detail: { ...mockDetail, config: configWithAutoMerge },
       presets: [{ ...mockPreset, config: configWithAutoMerge }],
     });
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     // base-ui Select renders a hidden input with the selected value
@@ -420,7 +425,7 @@ describe("TaskConfig — auto-merge section", () => {
 
   it("renders shadow mode toggle", async () => {
     setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     expect(screen.getByLabelText(/shadow mode/i)).toBeTruthy();
@@ -428,7 +433,7 @@ describe("TaskConfig — auto-merge section", () => {
 
   it("save includes shadow_mode in diff when toggled", async () => {
     const fetchSpy = setupFetch();
-    withQuery(<TaskConfig taskId="T-001" onBack={vi.fn()} />);
+    withQuery(<TaskConfig taskId="T-001" />);
     await waitFor(() => screen.getByText("Add login feature"));
 
     // Toggle shadow mode
