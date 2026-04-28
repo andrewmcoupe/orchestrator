@@ -1,3 +1,6 @@
+import { ArrowRightIcon } from "@phosphor-icons/react";
+import { cn } from "@shared/lib/utils";
+
 export type FlowStep = {
   label: string;
   description?: string;
@@ -6,6 +9,7 @@ export type FlowStep = {
 type FlowDiagramProps = {
   steps: FlowStep[];
   direction?: "horizontal" | "vertical";
+  cols?: 5 | 6;
 };
 
 function Arrow({ direction }: { direction: "horizontal" | "vertical" }) {
@@ -25,32 +29,45 @@ function Arrow({ direction }: { direction: "horizontal" | "vertical" }) {
   );
 }
 
-export function FlowDiagram({ steps, direction = "horizontal" }: FlowDiagramProps) {
+export function FlowDiagram({
+  steps,
+  direction = "horizontal",
+  cols = 5,
+}: FlowDiagramProps) {
   const isHorizontal = direction === "horizontal";
+  const colsClassName = cn(cols === 5 ? "grid-cols-5" : "grid-cols-6");
 
   return (
     <div
-      className={`flex ${isHorizontal ? "flex-row items-center flex-wrap gap-y-3" : "flex-col items-stretch"}`}
+      className={` ${isHorizontal ? `grid grid-auto-cols grid-flow-col items-center flex-wrap` : "flex-col items-stretch"}`}
     >
       {steps.map((step, i) => (
-        <div
-          key={i}
-          className={`flex ${isHorizontal ? "flex-row items-center" : "flex-col items-center"}`}
-        >
+        <>
           <div
-            className={`
-              border border-border-default rounded-md bg-bg-secondary
+            key={i}
+            className={`flex ${isHorizontal ? "flex-row items-center" : "flex-col items-center"}`}
+          >
+            <div
+              className={`
+              border border-border-default rounded-md bg-secondary
               px-4 py-3 text-center
               ${isHorizontal ? "min-w-[120px] max-w-[180px]" : "w-full"}
             `}
-          >
-            <div className="text-sm font-medium text-text-primary">{step.label}</div>
-            {step.description && (
-              <div className="text-xs text-text-tertiary mt-1">{step.description}</div>
-            )}
+            >
+              <div className="text-sm font-medium text-text-primary">
+                {step.label}
+              </div>
+              {step.description && (
+                <div className="text-xs text-text-tertiary mt-1">
+                  {step.description}
+                </div>
+              )}
+            </div>
           </div>
-          {i < steps.length - 1 && <Arrow direction={direction} />}
-        </div>
+          <div className="last:hidden">
+            <ArrowRightIcon />
+          </div>
+        </>
       ))}
     </div>
   );
