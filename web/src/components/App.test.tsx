@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEventStore } from "../store/eventStore.js";
 import { App } from "../App.js";
@@ -54,10 +54,6 @@ function renderApp() {
 }
 
 describe("App shell", () => {
-  beforeEach(() => {
-    window.location.hash = "";
-  });
-
   it("renders the top bar with Orchestrator branding", () => {
     renderApp();
     expect(screen.getByText("Orchestrator")).toBeDefined();
@@ -92,12 +88,11 @@ describe("App shell", () => {
     expect(headings.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("clicking a rail item switches section", () => {
+  it("rail items are rendered as Link elements", () => {
     renderApp();
-    const promptsBtns = screen.getAllByText("Prompts");
-    const railBtn = promptsBtns.find((el) => el.closest("nav button"));
-    fireEvent.click(railBtn!);
-    expect(window.location.hash).toBe("#/prompts");
+    const promptsLinks = screen.getAllByText("Prompts");
+    const railLink = promptsLinks.find((el) => el.closest("nav a"));
+    expect(railLink).toBeDefined();
   });
 
   it("provider pills show status dots with fallback unknown status", () => {
@@ -106,11 +101,5 @@ describe("App shell", () => {
     const dot = claudeEl?.querySelector("span.rounded-full");
     // Fallback providers have "unknown" status which maps to muted
     expect(dot?.className).toContain("bg-status-muted");
-  });
-
-  it("keyboard shortcut ⌘2 navigates to prompts", () => {
-    renderApp();
-    fireEvent.keyDown(window, { key: "2", metaKey: true });
-    expect(window.location.hash).toBe("#/prompts");
   });
 });

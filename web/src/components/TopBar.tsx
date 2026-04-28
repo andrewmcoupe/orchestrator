@@ -1,5 +1,5 @@
 import { BookOpen } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { Link, useMatches } from "@tanstack/react-router";
 import { ProviderPill } from "./ProviderPill.js";
 import { ModeToggle } from "./mode-toggle.js";
 import type { ProviderStatus } from "./ProviderPill.js";
@@ -11,7 +11,6 @@ type ProviderInfo = { name: string; status: ProviderStatus };
 type TopBarProps = {
   section: Section;
   providers: ProviderInfo[];
-  onProviderClick?: (name: string) => void;
 };
 
 /* Section labels with initial caps */
@@ -25,7 +24,7 @@ const SECTION_LABELS: Record<Section, string> = {
   ingest: "Ingest",
 };
 
-export function TopBar({ section, providers, onProviderClick }: TopBarProps) {
+export function TopBar({ section, providers }: TopBarProps) {
   return (
     <header className="flex items-center justify-between border-b border-border-default px-4 h-12 bg-bg-primary shrink-0">
       {/* Left: logo + breadcrumb */}
@@ -55,12 +54,16 @@ export function TopBar({ section, providers, onProviderClick }: TopBarProps) {
         </Link>
         <ModeToggle />
         {providers.map((p) => (
-          <ProviderPill
+          <Link
             key={p.name}
-            name={p.name}
-            status={p.status}
-            onClick={() => onProviderClick?.(p.name)}
-          />
+            to="/providers"
+            search={{ focus: p.name }}
+          >
+            <ProviderPill
+              name={p.name}
+              status={p.status}
+            />
+          </Link>
         ))}
       </div>
     </header>

@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createRouter, createRootRoute, createRoute, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { TaskListSidebar } from "./TaskListSidebar.js";
 import { TaskDetailPane } from "./TaskDetailPane.js";
 import type { TaskListRow, TaskDetailRow } from "@shared/projections.js";
@@ -9,10 +10,19 @@ import type { TaskConfig } from "@shared/events.js";
 
 afterEach(cleanup);
 
-/** Wrap component in a fresh QueryClientProvider per test. */
+/** Wrap component in a fresh QueryClientProvider and RouterProvider per test. */
 function withQuery(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  const rootRoute = createRootRoute({ component: () => ui });
+  const router = createRouter({
+    routeTree: rootRoute,
+    history: createMemoryHistory({ initialEntries: ["/tasks"] }),
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router as any} />
+    </QueryClientProvider>,
+  );
 }
 
 // ============================================================================
@@ -109,7 +119,7 @@ describe("TaskListSidebar", () => {
   ];
 
   it("renders all task IDs", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
     expect(screen.getByText("T-003")).toBeDefined();
     expect(screen.getByText("T-004")).toBeDefined();
     expect(screen.getByText("T-005")).toBeDefined();
@@ -118,7 +128,7 @@ describe("TaskListSidebar", () => {
   });
 
   it("renders task titles", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
     expect(screen.getByText("Rate limit /api/messages")).toBeDefined();
     expect(screen.getByText("Fix worker queue race")).toBeDefined();
     expect(screen.getByText("Paginate admin dashboard")).toBeDefined();
@@ -127,50 +137,42 @@ describe("TaskListSidebar", () => {
   });
 
   it("shows auditor flagged status for awaiting_review", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
     expect(screen.getByText("auditor flagged")).toBeDefined();
   });
 
   it("shows spec pushback annotation for tasks with pushbacks", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
     expect(screen.getByText("paused · spec pushback")).toBeDefined();
   });
 
   it("highlights selected task with border", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId="T-003" onSelect={() => {}} />);
-    const btn = screen.getByText("Rate limit /api/messages").closest("button");
-    expect(btn?.className).toContain("border-l-status-warning");
+    withQuery(<TaskListSidebar tasks={tasks} selectedId="T-003" />);
+    const link = screen.getByText("Rate limit /api/messages").closest("a");
+    expect(link?.className).toContain("border-l-status-warning");
   });
 
-  it("calls onSelect with task ID when clicking", () => {
-    const onSelect = vi.fn();
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={onSelect} />);
-    fireEvent.click(screen.getByText("Rate limit /api/messages"));
-    expect(onSelect).toHaveBeenCalledWith("T-003");
-  });
-
-  it("deselects when clicking the already-selected task", () => {
-    const onSelect = vi.fn();
-    withQuery(<TaskListSidebar tasks={tasks} selectedId="T-003" onSelect={onSelect} />);
-    fireEvent.click(screen.getByText("Rate limit /api/messages"));
-    expect(onSelect).toHaveBeenCalledWith(null);
+  it("renders task items as Link elements", () => {
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
+    const link = screen.getByText("Rate limit /api/messages").closest("a");
+    expect(link).toBeDefined();
   });
 
   it("filters tasks by search query", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
     fireEvent.change(screen.getByPlaceholderText("search tasks"), { target: { value: "rate limit" } });
     expect(screen.getByText("T-003")).toBeDefined();
     expect(screen.queryByText("T-004")).toBeNull();
   });
 
   it("shows empty state when no results", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
     fireEvent.change(screen.getByPlaceholderText("search tasks"), { target: { value: "nonexistent" } });
     expect(screen.getByText("No tasks match your search.")).toBeDefined();
   });
 
   it("groups tasks by PRD", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
     expect(screen.getByText("PRD-001")).toBeDefined();
     expect(screen.getByText("Standalone Tasks")).toBeDefined();
   });
@@ -179,52 +181,42 @@ describe("TaskListSidebar", () => {
 
   it("shows 'ready to merge → main' for approved tasks when currentBranch provided", () => {
     const approvedTask = makeListRow({ task_id: "T-007", title: "Ready task", status: "approved", current_attempt_id: "ATT-007" });
-    withQuery(<TaskListSidebar tasks={[approvedTask]} selectedId={null} onSelect={() => {}} currentBranch="main" />);
+    withQuery(<TaskListSidebar tasks={[approvedTask]} selectedId={null} currentBranch="main" />);
     expect(screen.getByText("ready to merge → main")).toBeDefined();
   });
 
   it("shows 'ready to merge → main' as fallback when no branch provided", () => {
     const approvedTask = makeListRow({ task_id: "T-007", title: "Ready task", status: "approved", current_attempt_id: "ATT-007" });
-    withQuery(<TaskListSidebar tasks={[approvedTask]} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={[approvedTask]} selectedId={null} />);
     expect(screen.getByText("ready to merge → main")).toBeDefined();
   });
 
   it("renders merge icon button for approved task with current_attempt_id", () => {
     const approvedTask = makeListRow({ task_id: "T-007", title: "Ready task", status: "approved", current_attempt_id: "ATT-007" });
-    withQuery(<TaskListSidebar tasks={[approvedTask]} selectedId={null} onSelect={() => {}} onMergeIconClick={vi.fn()} />);
+    withQuery(<TaskListSidebar tasks={[approvedTask]} selectedId={null} />);
     expect(screen.getByLabelText("Open merge review")).toBeDefined();
   });
 
-  it("calls onMergeIconClick with taskId and attemptId when merge icon is clicked", () => {
-    const onMerge = vi.fn();
+  it("renders merge icon as a Link element", () => {
     const approvedTask = makeListRow({ task_id: "T-007", title: "Ready task", status: "approved", current_attempt_id: "ATT-007" });
-    withQuery(<TaskListSidebar tasks={[approvedTask]} selectedId={null} onSelect={() => {}} onMergeIconClick={onMerge} />);
-    fireEvent.click(screen.getByLabelText("Open merge review"));
-    expect(onMerge).toHaveBeenCalledWith("T-007", "ATT-007");
-  });
-
-  it("clicking merge icon does not also trigger task selection", () => {
-    const onSelect = vi.fn();
-    const onMerge = vi.fn();
-    const approvedTask = makeListRow({ task_id: "T-007", title: "Ready task", status: "approved", current_attempt_id: "ATT-007" });
-    withQuery(<TaskListSidebar tasks={[approvedTask]} selectedId={null} onSelect={onSelect} onMergeIconClick={onMerge} />);
-    fireEvent.click(screen.getByLabelText("Open merge review"));
-    expect(onSelect).not.toHaveBeenCalled();
+    withQuery(<TaskListSidebar tasks={[approvedTask]} selectedId={null} />);
+    const mergeLink = screen.getByLabelText("Open merge review");
+    expect(mergeLink.tagName).toBe("A");
   });
 
   it("shows 'N ready to merge' counter when approved tasks exist", () => {
     const approvedTask = makeListRow({ task_id: "T-007", title: "Ready task", status: "approved", current_attempt_id: "ATT-007" });
-    withQuery(<TaskListSidebar tasks={[approvedTask, ...tasks]} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={[approvedTask, ...tasks]} selectedId={null} />);
     expect(screen.getByText("1 ready to merge")).toBeDefined();
   });
 
   it("does not show counter when no approved tasks exist", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
     expect(screen.queryByText(/ready to merge/)).toBeNull();
   });
 
   it("renders status filter select with All, Draft, Active, Approved, Done options", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
     const select = screen.getByRole("combobox", { name: /status filter/i });
     expect(select).toBeDefined();
     expect(screen.getByRole("option", { name: "All" })).toBeDefined();
@@ -236,7 +228,7 @@ describe("TaskListSidebar", () => {
 
   it("filters to only approved tasks when Approved filter is selected", () => {
     const approvedTask = makeListRow({ task_id: "T-007", title: "Ready task", status: "approved", current_attempt_id: "ATT-007" });
-    withQuery(<TaskListSidebar tasks={[...tasks, approvedTask]} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={[...tasks, approvedTask]} selectedId={null} />);
     const select = screen.getByRole("combobox", { name: /status filter/i });
     fireEvent.change(select, { target: { value: "approved" } });
     expect(screen.getByText("T-007")).toBeDefined();
@@ -244,7 +236,7 @@ describe("TaskListSidebar", () => {
   });
 
   it("filters to active tasks when Active filter is selected", () => {
-    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={tasks} selectedId={null} />);
     const select = screen.getByRole("combobox", { name: /status filter/i });
     fireEvent.change(select, { target: { value: "active" } });
     // T-003 (running) and T-004 (awaiting_review) are active; T-002 (merged) and T-005 (paused) should be filtered
@@ -259,7 +251,7 @@ describe("TaskListSidebar", () => {
       status: "merged",
       auto_merged: true,
     });
-    withQuery(<TaskListSidebar tasks={[autoMergedTask]} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={[autoMergedTask]} selectedId={null} />);
     expect(screen.getByText("auto")).toBeDefined();
   });
 
@@ -270,7 +262,7 @@ describe("TaskListSidebar", () => {
       status: "merged",
       auto_merged: false,
     });
-    withQuery(<TaskListSidebar tasks={[manualMergedTask]} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={[manualMergedTask]} selectedId={null} />);
     expect(screen.queryByText("auto")).toBeNull();
   });
 
@@ -284,10 +276,10 @@ describe("TaskListSidebar", () => {
       blocked: true,
       depends_on: ["T-019"],
     });
-    withQuery(<TaskListSidebar tasks={[blockedTask]} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={[blockedTask]} selectedId={null} />);
     expect(screen.getByLabelText("Blocked")).toBeDefined();
-    const btn = screen.getByText("Blocked feature").closest("button");
-    expect(btn?.className).toContain("opacity-50");
+    const link = screen.getByText("Blocked feature").closest("a");
+    expect(link?.className).toContain("opacity-50");
   });
 
   it("shows 'Blocked by T-XXXXX' badge with dependency IDs", () => {
@@ -300,7 +292,7 @@ describe("TaskListSidebar", () => {
       blocked: true,
       depends_on: ["T-019", "T-018"],
     });
-    withQuery(<TaskListSidebar tasks={[dep1, dep2, blockedTask]} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={[dep1, dep2, blockedTask]} selectedId={null} />);
     expect(screen.getByText("Blocked by T-019, T-018")).toBeDefined();
   });
 
@@ -313,7 +305,7 @@ describe("TaskListSidebar", () => {
       blocked: true,
       depends_on: ["T-019"],
     });
-    withQuery(<TaskListSidebar tasks={[rejectedDep, blockedTask]} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={[rejectedDep, blockedTask]} selectedId={null} />);
     expect(screen.getByLabelText("Dependency failed")).toBeDefined();
   });
 
@@ -325,7 +317,7 @@ describe("TaskListSidebar", () => {
       blocked: false,
       depends_on: ["T-019"],
     });
-    withQuery(<TaskListSidebar tasks={[normalTask]} selectedId={null} onSelect={() => {}} />);
+    withQuery(<TaskListSidebar tasks={[normalTask]} selectedId={null} />);
     expect(screen.queryByLabelText("Blocked")).toBeNull();
     expect(screen.queryByText(/Blocked by/)).toBeNull();
   });

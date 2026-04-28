@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet, useParams, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useParams, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEventStore, useTaskDetail, useTaskList } from "../store/eventStore.js";
 import { TaskListSidebar } from "../screens/tasks/TaskListSidebar.js";
@@ -131,27 +131,6 @@ function TasksLayout() {
     return () => window.removeEventListener("keydown", handler);
   }, [selectedId, tasks, showToast]);
 
-  const handleSelectTask = useCallback(
-    (id: string | null) => {
-      if (id) {
-        navigate({ to: "/tasks/$taskId", params: { taskId: id } });
-      } else {
-        navigate({ to: "/tasks" });
-      }
-    },
-    [navigate],
-  );
-
-  const handleMergeIconClick = useCallback(
-    (taskId: string, attemptId: string) => {
-      navigate({
-        to: "/tasks/$taskId/review/$attemptId",
-        params: { taskId, attemptId },
-      });
-    },
-    [navigate],
-  );
-
   const handleViewDetails = useCallback(
     (taskId: string) => {
       navigate({ to: "/tasks/$taskId", params: { taskId } });
@@ -232,10 +211,7 @@ function TasksLayout() {
           <TaskListSidebar
             tasks={tasks}
             selectedId={selectedId}
-            onSelect={handleSelectTask}
-            onIngest={() => navigate({ to: "/ingest" })}
             currentBranch={currentBranch}
-            onMergeIconClick={handleMergeIconClick}
           />
 
           {selectedId && taskDetail ? (
@@ -243,18 +219,6 @@ function TasksLayout() {
               detail={taskDetail}
               listRow={selectedListRow}
               allTasks={tasks}
-              onEditConfig={() =>
-                navigate({
-                  to: "/tasks/$taskId/config",
-                  params: { taskId: selectedId },
-                })
-              }
-              onReview={(taskId: string, attemptId: string) =>
-                navigate({
-                  to: "/tasks/$taskId/review/$attemptId",
-                  params: { taskId, attemptId },
-                })
-              }
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center gap-3">

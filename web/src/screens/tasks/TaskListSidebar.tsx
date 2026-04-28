@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Search, GitMerge, Lock, AlertTriangle } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
 import type { TaskListRow } from "@shared/projections.js";
 import type { TaskStatus } from "@shared/events.js";
 import { useCreateTask } from "../../hooks/useTaskMutations.js";
@@ -10,12 +11,8 @@ type StatusFilter = "all" | "draft" | "active" | "approved" | "done";
 type TaskListSidebarProps = {
   tasks: TaskListRow[];
   selectedId: string | null;
-  onSelect: (id: string | null) => void;
-  onIngest?: () => void;
   /** Current branch of the main working tree — shown on approved task rows. */
   currentBranch?: string | null;
-  /** Called when the merge icon on an approved task row is clicked. */
-  onMergeIconClick?: (taskId: string, attemptId: string) => void;
 };
 
 /** Status dot colour mapped to design tokens */
@@ -104,10 +101,7 @@ function groupByPrd(
 export function TaskListSidebar({
   tasks,
   selectedId,
-  onSelect,
-  onIngest,
   currentBranch,
-  onMergeIconClick,
 }: TaskListSidebarProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -115,6 +109,7 @@ export function TaskListSidebar({
   const [newTitle, setNewTitle] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const createTask = useCreateTask();
+  const navigate = useNavigate();
 
   // Count of tasks in approved/awaiting_merge state (for the "N ready to merge" counter)
   const approvedCount = useMemo(
@@ -139,11 +134,14 @@ export function TaskListSidebar({
         onSuccess: (data) => {
           setNewTitle("");
           setShowNewTask(false);
-          onSelect(data.payload.task_id);
+          navigate({
+            to: "/tasks/$taskId",
+            params: { taskId: data.payload.task_id },
+          });
         },
       },
     );
-  }, [newTitle, createTask, onSelect]);
+  }, [newTitle, createTask, navigate]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -239,16 +237,13 @@ export function TaskListSidebar({
         )}
 
         <div className="flex gap-2">
-          {onIngest && (
-            <button
-              type="button"
-              onClick={onIngest}
-              className="grow shrink-0 border border-border-default px-2 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors font-medium"
-              title="Ingest PRD"
-            >
-              + ingest
-            </button>
-          )}
+          <Link
+            to="/ingest"
+            className="grow shrink-0 border border-border-default px-2 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors font-medium text-center"
+            title="Ingest PRD"
+          >
+            + ingest
+          </Link>
           <button
             type="button"
             onClick={() => setShowNewTask((v) => !v)}
@@ -307,7 +302,7 @@ export function TaskListSidebar({
             {group.tasks.map((task) => {
               const isApproved = APPROVED_STATUSES.has(task.status);
               const canMerge =
-                isApproved && !!task.current_attempt_id && !!onMergeIconClick;
+                isApproved && !!task.current_attempt_id;
               const isBlocked = !!task.blocked;
               const hasFailedDep =
                 isBlocked &&
@@ -317,13 +312,11 @@ export function TaskListSidebar({
                 });
 
               return (
-                <button
+                <Link
                   key={task.task_id}
-                  type="button"
-                  onClick={() =>
-                    onSelect(task.task_id === selectedId ? null : task.task_id)
-                  }
-                  className={`w-full text-left px-3 py-2.5 border-l-2 transition-colors cursor-pointer group ${
+                  to="/tasks/$taskId"
+                  params={{ taskId: task.task_id }}
+                  className={`block w-full text-left px-3 py-2.5 border-l-2 transition-colors cursor-pointer group ${
                     task.task_id === selectedId
                       ? "border-l-status-warning bg-bg-secondary"
                       : "border-l-transparent hover:bg-bg-secondary"
@@ -342,34 +335,21 @@ export function TaskListSidebar({
                     {hasFailedDep && (
                       <AlertTriangle size={12} className="shrink-0 text-status-danger" aria-label="Dependency failed" />
                     )}
-                    {/* Merge icon for approved tasks — visible always (subtle), focus on hover */}
+                    {/* Merge icon for approved tasks — navigates to review */}
                     {canMerge && (
-                      <span
-                        role="button"
-                        tabIndex={0}
+                      <Link
+                        to="/tasks/$taskId/review/$attemptId"
+                        params={{
+                          taskId: task.task_id,
+                          attemptId: task.current_attempt_id!,
+                        }}
                         aria-label="Open merge review"
                         title="Open review to merge"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onMergeIconClick(
-                            task.task_id,
-                            task.current_attempt_id!,
-                          );
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            onMergeIconClick(
-                              task.task_id,
-                              task.current_attempt_id!,
-                            );
-                          }
-                        }}
+                        onClick={(e) => e.stopPropagation()}
                         className="ml-auto shrink-0 p-0.5 text-purple-400 opacity-50 hover:opacity-100 hover:text-purple-200 hover:bg-purple-900/20 transition-all cursor-pointer"
                       >
                         <GitMerge size={12} />
-                      </span>
+                      </Link>
                     )}
                   </div>
                   <div className="text-sm font-medium text-text-primary truncate flex items-center gap-1.5">
@@ -387,7 +367,7 @@ export function TaskListSidebar({
                       ? `Blocked by ${(task.depends_on ?? []).join(", ")}`
                       : statusLine(task, currentBranch)}
                   </div>
-                </button>
+                </Link>
               );
             })}
           </div>

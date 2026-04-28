@@ -95,14 +95,6 @@ function RootLayout() {
     return () => window.removeEventListener("keydown", handler);
   }, [navigate]);
 
-  const handleNavigate = (section: string) => {
-    navigate({ to: `/${section}` as any });
-  };
-
-  const handleProviderClick = (name: string) => {
-    navigate({ to: "/providers", search: { focus: name } });
-  };
-
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light" storageKey="orchestrator-ui-theme">
@@ -111,11 +103,10 @@ function RootLayout() {
             <TopBar
               section={activeSection}
               providers={providers}
-              onProviderClick={handleProviderClick}
             />
 
             <div className="flex flex-1 min-h-0">
-              <Rail active={activeSection} onNavigate={handleNavigate} />
+              <Rail />
               <main className="flex-1 min-h-0 overflow-hidden bg-bg-primary">
                 <Outlet />
               </main>

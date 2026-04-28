@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useState, useMemo, useEffect } from "react";
 import { SlidersHorizontal, ClipboardList, Plus, X, Info } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
   TaskStatus,
@@ -46,8 +47,6 @@ type TaskDetailPaneProps = {
   listRow?: TaskListRow;
   /** All tasks in the project — needed for the dependency picker. */
   allTasks?: TaskListRow[];
-  onEditConfig?: () => void;
-  onReview?: (taskId: string, attemptId: string) => void;
 };
 
 // ============================================================================
@@ -880,8 +879,6 @@ export function TaskDetailPane({
   detail,
   listRow,
   allTasks,
-  onEditConfig,
-  onReview,
 }: TaskDetailPaneProps) {
   const enabledPhases = detail.config.phases.filter((p) => p.enabled);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
@@ -895,46 +892,59 @@ export function TaskDetailPane({
       {/* Action toolbar */}
       <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-6 py-2.5 border-b border-border-muted bg-bg-secondary shrink-0">
         <div className="flex items-center gap-2">
-          {onEditConfig &&
-            detail.status !== "merged" &&
+          {detail.status !== "merged" &&
             detail.status !== "archived" && (
-              <Button type="button" onClick={onEditConfig} variant={"outline"}>
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                Config
+              <Button type="button" variant={"outline"} asChild>
+                <Link
+                  to="/tasks/$taskId/config"
+                  params={{ taskId: detail.task_id }}
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  Config
+                </Link>
               </Button>
             )}
-          {onReview &&
-            detail.current_attempt_id &&
+          {detail.current_attempt_id &&
             (detail.status === "awaiting_review" ? (
-              <Button
-                onClick={() =>
-                  onReview(detail.task_id, detail.current_attempt_id!)
-                }
-              >
-                <ClipboardList className="h-3.5 w-3.5" />
-                Review
+              <Button asChild>
+                <Link
+                  to="/tasks/$taskId/review/$attemptId"
+                  params={{
+                    taskId: detail.task_id,
+                    attemptId: detail.current_attempt_id!,
+                  }}
+                >
+                  <ClipboardList className="h-3.5 w-3.5" />
+                  Review
+                </Link>
               </Button>
             ) : detail.status === "approved" ? (
-              <Button
-                type="button"
-                onClick={() =>
-                  onReview(detail.task_id, detail.current_attempt_id!)
-                }
-                title="Review changes from last attempt"
-              >
-                <ClipboardList className="h-3.5 w-3.5" />
-                Review changes
+              <Button type="button" asChild>
+                <Link
+                  to="/tasks/$taskId/review/$attemptId"
+                  params={{
+                    taskId: detail.task_id,
+                    attemptId: detail.current_attempt_id!,
+                  }}
+                  title="Review changes from last attempt"
+                >
+                  <ClipboardList className="h-3.5 w-3.5" />
+                  Review changes
+                </Link>
               </Button>
             ) : detail.status === "merged" || detail.status === "rejected" ? (
-              <Button
-                type="button"
-                onClick={() =>
-                  onReview(detail.task_id, detail.current_attempt_id!)
-                }
-                title="View diff from last attempt"
-              >
-                <ClipboardList className="h-3.5 w-3.5" />
-                View diff
+              <Button type="button" asChild>
+                <Link
+                  to="/tasks/$taskId/review/$attemptId"
+                  params={{
+                    taskId: detail.task_id,
+                    attemptId: detail.current_attempt_id!,
+                  }}
+                  title="View diff from last attempt"
+                >
+                  <ClipboardList className="h-3.5 w-3.5" />
+                  View diff
+                </Link>
               </Button>
             ) : null)}
         </div>
