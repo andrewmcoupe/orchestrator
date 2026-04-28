@@ -106,7 +106,7 @@ export function evaluateExitReasonPolicy(
   exitReason: ExitReason | undefined,
   policy: RetryPolicy,
   attemptNumber: number,
-): { action: "retry_same" | "escalate_to_human"; reason: string } | null {
+): { action: ExitReasonPolicy; reason: string } | null {
   if (!exitReason || exitReason === "normal") return null;
 
   const userMap = policy.on_exit_reason ?? {};
@@ -1009,7 +1009,7 @@ export async function runAttempt(
           // Auto-merge succeeded — task.auto_approved and task.merged already emitted
           // by handleAutoMerge and mergeTask. Set status to merged.
           newStatus = "merged";
-        } else if (finalOutcome === "no_changes") {
+        } else if ((finalOutcome as string) === "no_changes") {
           // No diff produced — user decides what to do next
           newStatus = "awaiting_review";
         } else {

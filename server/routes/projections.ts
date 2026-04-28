@@ -166,6 +166,7 @@ type RawAttemptRow = {
   commit_sha: string | null;
   empty: number | null;
   effective_diff_attempt_id: string | null;
+  last_failure_reason: string | null;
   last_event_id: string;
 };
 
@@ -191,6 +192,7 @@ function parseAttemptRow(raw: RawAttemptRow): AttemptRow {
     commit_sha: raw.commit_sha ?? undefined,
     empty: raw.empty != null ? Boolean(raw.empty) : undefined,
     effective_diff_attempt_id: raw.effective_diff_attempt_id ?? undefined,
+    last_failure_reason: raw.last_failure_reason ?? null,
     last_event_id: raw.last_event_id,
   };
 }
