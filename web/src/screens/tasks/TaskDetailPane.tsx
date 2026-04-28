@@ -1,12 +1,5 @@
 import { Fragment, useCallback, useState, useMemo, useEffect } from "react";
-import {
-  SlidersHorizontal,
-  ClipboardList,
-  Plus,
-  X,
-  Info,
-  ChevronRight,
-} from "lucide-react";
+import { SlidersHorizontal, ClipboardList, Plus, X, Info } from "lucide-react";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
   TaskStatus,
@@ -46,6 +39,7 @@ import {
   DialogFooter,
   DialogClose,
 } from "@web/src/components/ui/dialog";
+import { ArrowRightIcon } from "@phosphor-icons/react/dist/ssr";
 
 type TaskDetailPaneProps = {
   detail: TaskDetailRow;
@@ -212,9 +206,11 @@ function PhaseBox({
           Auditing the implementers changes against the acceptance criteria...
         </p>
       )}
-      {status === "running" && phase.name !== "auditor" && latestAssistantMessage && (
-        <AssistantMessagePreview text={latestAssistantMessage} />
-      )}
+      {status === "running" &&
+        phase.name !== "auditor" &&
+        latestAssistantMessage && (
+          <AssistantMessagePreview text={latestAssistantMessage} />
+        )}
       {status === "done" && (
         <span className="text-xs text-text-tertiary mt-1">Finished</span>
       )}
@@ -786,7 +782,8 @@ function StartConfirmDialog({
                     <div className="text-[10px] text-text-tertiary">
                       max turns: {phase.transport_options.max_turns ?? "∞"} ·
                       budget: ${phase.transport_options.max_budget_usd ?? "∞"} ·
-                      permission: {phase.transport_options.permission_mode ?? "default"}
+                      permission:{" "}
+                      {phase.transport_options.permission_mode ?? "default"}
                     </div>
                   )}
                   {phase.transport_options.kind === "api" && (
@@ -815,7 +812,8 @@ function StartConfirmDialog({
                       {gate.name}
                     </span>
                     <span className="text-text-tertiary">
-                      {gate.required ? "required" : "optional"} · {gate.timeout_seconds}s · on fail: {gate.on_fail}
+                      {gate.required ? "required" : "optional"} ·{" "}
+                      {gate.timeout_seconds}s · on fail: {gate.on_fail}
                     </span>
                   </div>
                 ))}
@@ -830,9 +828,13 @@ function StartConfirmDialog({
             </h4>
             <div className="text-[11px] text-text-secondary px-2 py-1.5 bg-bg-secondary border border-border-muted">
               Max attempts: {config.retry_policy.max_total_attempts}
-              {config.auto_merge_policy && config.auto_merge_policy !== "off" && (
-                <span> · auto-merge: {config.auto_merge_policy.replace(/_/g, " ")}</span>
-              )}
+              {config.auto_merge_policy &&
+                config.auto_merge_policy !== "off" && (
+                  <span>
+                    {" "}
+                    · auto-merge: {config.auto_merge_policy.replace(/_/g, " ")}
+                  </span>
+                )}
               {config.shadow_mode && <span> · shadow mode</span>}
             </div>
           </div>
@@ -1047,7 +1049,7 @@ export function TaskDetailPane({
             {enabledPhases.map((phase, i) => (
               <Fragment key={phase.name}>
                 {i > 0 && (
-                  <ChevronRight
+                  <ArrowRightIcon
                     size={14}
                     className="text-text-tertiary self-center"
                   />
