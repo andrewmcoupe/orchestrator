@@ -2,7 +2,7 @@
  * Tests for CLI entry point argument parsing and git validation.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { parseArgs, isInsideGitRepo } from "./cli.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -10,37 +10,59 @@ import path from "node:path";
 describe("parseArgs", () => {
   it("returns default port 4321 when no flags given", () => {
     const result = parseArgs([]);
-    expect(result).toEqual({ port: 4321 });
+    expect(result).toEqual({ port: 4321, open: true, verbose: false });
   });
 
   it("parses --port flag", () => {
     const result = parseArgs(["--port", "8080"]);
-    expect(result).toEqual({ port: 8080 });
+    expect(result).toEqual({ port: 8080, open: true, verbose: false });
   });
 
   it("parses --port=value syntax", () => {
     const result = parseArgs(["--port=9999"]);
-    expect(result).toEqual({ port: 9999 });
+    expect(result).toEqual({ port: 9999, open: true, verbose: false });
   });
 
   it("returns { help: true } for --help flag", () => {
-    const result = parseArgs(["--help"]);
-    expect(result).toEqual({ help: true });
+    expect(parseArgs(["--help"])).toEqual({ help: true });
   });
 
   it("returns { version: true } for --version flag", () => {
-    const result = parseArgs(["--version"]);
-    expect(result).toEqual({ version: true });
+    expect(parseArgs(["--version"])).toEqual({ version: true });
+  });
+
+  it("returns { init: true } for --init flag", () => {
+    expect(parseArgs(["--init"])).toEqual({ init: true });
   });
 
   it("--help takes precedence over other flags", () => {
-    const result = parseArgs(["--port", "8080", "--help"]);
-    expect(result).toEqual({ help: true });
+    expect(parseArgs(["--port", "8080", "--help"])).toEqual({ help: true });
   });
 
   it("--version takes precedence over port but not help", () => {
-    const result = parseArgs(["--port", "8080", "--version"]);
-    expect(result).toEqual({ version: true });
+    expect(parseArgs(["--port", "8080", "--version"])).toEqual({
+      version: true,
+    });
+  });
+
+  it("parses --no-open flag", () => {
+    const result = parseArgs(["--no-open"]);
+    expect(result).toEqual({ port: 4321, open: false, verbose: false });
+  });
+
+  it("parses --verbose flag", () => {
+    const result = parseArgs(["--verbose"]);
+    expect(result).toEqual({ port: 4321, open: true, verbose: true });
+  });
+
+  it("parses --quiet flag (default behavior)", () => {
+    const result = parseArgs(["--quiet"]);
+    expect(result).toEqual({ port: 4321, open: true, verbose: false });
+  });
+
+  it("combines multiple flags", () => {
+    const result = parseArgs(["--port", "5000", "--no-open", "--verbose"]);
+    expect(result).toEqual({ port: 5000, open: false, verbose: true });
   });
 
   it("throws on invalid port value", () => {

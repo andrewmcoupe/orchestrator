@@ -3,50 +3,34 @@ import { Search, GitMerge, Lock, AlertTriangle } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { TaskListRow } from "@shared/projections.js";
 import type { TaskStatus } from "@shared/events.js";
+import type { StatusFilterParam } from "../../routes/tasks.js";
 import { useCreateTask } from "../../hooks/useTaskMutations.js";
 import { Button } from "@web/src/components/ui/button.js";
-
-type StatusFilter = "all" | "draft" | "active" | "approved" | "done";
 
 type TaskListSidebarProps = {
   tasks: TaskListRow[];
   selectedId: string | null;
   /** Current branch of the main working tree — shown on approved task rows. */
   currentBranch?: string | null;
+  /** Status filter from URL search param */
+  statusFilter?: StatusFilterParam;
 };
 
-/** Status dot colour mapped to design tokens */
+/** Status dot colour — synced with the status count strip in the toolbar */
 const STATUS_DOT: Record<TaskStatus, string> = {
   draft: "bg-status-muted",
-  queued: "bg-status-muted",
+  queued: "bg-status-healthy",       // "ready" = green
   running: "bg-status-warning",
-  paused: "bg-status-muted",
+  paused: "bg-status-warning",
   awaiting_review: "bg-status-warning",
   revising: "bg-status-warning",
-  // approved = ready to merge; purple to differentiate from running/done
-  approved: "bg-purple-500",
-  awaiting_merge: "bg-purple-500",
-  merged: "bg-status-healthy",
+  approved: "bg-blue-400",           // "done" = blue
+  awaiting_merge: "bg-blue-400",
+  merged: "bg-blue-400",
   rejected: "bg-status-danger",
   archived: "bg-status-muted",
   blocked: "bg-status-danger",
 };
-
-/** Statuses that count as "active" for the filter */
-const ACTIVE_STATUSES: Set<TaskStatus> = new Set([
-  "queued",
-  "running",
-  "revising",
-  "awaiting_review",
-  "paused",
-  "blocked",
-]);
-
-/** Statuses that count as "done" for the filter */
-const DONE_STATUSES: Set<TaskStatus> = new Set([
-  "merged",
-  "rejected",
-]);
 
 /** Statuses that count as "approved" for the filter */
 const APPROVED_STATUSES: Set<TaskStatus> = new Set([
@@ -98,13 +82,18 @@ function groupByPrd(
   }));
 }
 
+const READY_STATUSES: Set<TaskStatus> = new Set(["draft", "queued"]);
+const RUNNING_STATUSES: Set<TaskStatus> = new Set(["running", "paused", "revising", "awaiting_review"]);
+const DONE_STATUSES_SIDEBAR: Set<TaskStatus> = new Set(["merged", "approved", "awaiting_merge"]);
+const BLOCKED_STATUSES_SIDEBAR: Set<TaskStatus> = new Set(["blocked", "rejected"]);
+
 export function TaskListSidebar({
   tasks,
   selectedId,
   currentBranch,
+  statusFilter,
 }: TaskListSidebarProps) {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -166,17 +155,18 @@ export function TaskListSidebar({
           t.status.toLowerCase().includes(q),
       );
     }
-    // Status filter — "all" excludes drafts by default
-    if (statusFilter === "all") {
-      result = result.filter((t) => t.status !== "draft");
-    } else if (statusFilter === "draft") {
-      result = result.filter((t) => t.status === "draft");
-    } else if (statusFilter === "active") {
-      result = result.filter((t) => ACTIVE_STATUSES.has(t.status));
-    } else if (statusFilter === "approved") {
-      result = result.filter((t) => APPROVED_STATUSES.has(t.status));
+    // URL-based status filter
+    if (statusFilter === "ready") {
+      result = result.filter((t) => READY_STATUSES.has(t.status));
+    } else if (statusFilter === "running") {
+      result = result.filter((t) => RUNNING_STATUSES.has(t.status));
     } else if (statusFilter === "done") {
-      result = result.filter((t) => DONE_STATUSES.has(t.status));
+      result = result.filter((t) => DONE_STATUSES_SIDEBAR.has(t.status));
+    } else if (statusFilter === "blocked") {
+      result = result.filter((t) => BLOCKED_STATUSES_SIDEBAR.has(t.status));
+    } else {
+      // No filter — show all except drafts
+      result = result.filter((t) => t.status !== "draft");
     }
     return result;
   }, [tasks, search, statusFilter]);
@@ -210,30 +200,17 @@ export function TaskListSidebar({
               className="bg-transparent text-sm text-text-primary placeholder:text-text-tertiary outline-none flex-1 min-w-0"
             />
           </div>
-          {/* Status filter dropdown */}
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            aria-label="Status filter"
-            className="border border-border-default bg-bg-secondary px-1.5 py-1.5 text-xs text-text-secondary outline-none cursor-pointer hover:text-text-primary transition-colors"
-          >
-            <option value="all">All</option>
-            <option value="draft">Draft</option>
-            <option value="active">Active</option>
-            <option value="approved">Approved</option>
-            <option value="done">Done</option>
-          </select>
         </div>
 
         {/* "N ready to merge" counter */}
         {approvedCount > 0 && (
-          <button
-            type="button"
-            onClick={() => setStatusFilter("approved")}
-            className="text-left text-xs text-purple-400 hover:text-purple-300 transition-colors font-medium"
+          <Link
+            to="/tasks"
+            search={{ status: statusFilter === "done" ? undefined : "done" }}
+            className="text-left text-xs text-blue-400 hover:text-blue-300 transition-colors font-medium"
           >
             {approvedCount} ready to merge
-          </button>
+          </Link>
         )}
 
         <div className="flex gap-2">
@@ -346,7 +323,7 @@ export function TaskListSidebar({
                         aria-label="Open merge review"
                         title="Open review to merge"
                         onClick={(e) => e.stopPropagation()}
-                        className="ml-auto shrink-0 p-0.5 text-purple-400 opacity-50 hover:opacity-100 hover:text-purple-200 hover:bg-purple-900/20 transition-all cursor-pointer"
+                        className="ml-auto shrink-0 p-0.5 text-blue-400 opacity-50 hover:opacity-100 hover:text-blue-300 hover:bg-blue-900/20 transition-all cursor-pointer"
                       >
                         <GitMerge size={12} />
                       </Link>
@@ -355,13 +332,13 @@ export function TaskListSidebar({
                   <div className="text-sm font-medium text-text-primary truncate flex items-center gap-1.5">
                     {task.title}
                     {task.status === "merged" && task.auto_merged && (
-                      <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 bg-purple-500/15 text-purple-400 border border-purple-500/25">
+                      <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 bg-blue-400/15 text-blue-400 border border-blue-400/25">
                         auto
                       </span>
                     )}
                   </div>
                   <div
-                    className={`text-xs mt-0.5 ${isApproved ? "text-purple-400" : "text-text-tertiary"}`}
+                    className={`text-xs mt-0.5 ${isApproved ? "text-blue-400" : "text-text-tertiary"}`}
                   >
                     {isBlocked
                       ? `Blocked by ${(task.depends_on ?? []).join(", ")}`

@@ -7,8 +7,17 @@ import { TaskDetailPane } from "../screens/tasks/TaskDetailPane.js";
 import { DependencyGraph } from "../screens/tasks/DependencyGraph.js";
 import { MergeDialog } from "../screens/review/MergeDialog.js";
 import type { TaskStatus } from "@shared/events.js";
+import { z } from "zod";
+
+const statusFilterValues = ["ready", "running", "done", "blocked"] as const;
+export type StatusFilterParam = (typeof statusFilterValues)[number];
+
+const searchSchema = z.object({
+  status: z.enum(statusFilterValues).optional(),
+});
 
 export const Route = createFileRoute("/tasks")({
+  validateSearch: searchSchema,
   component: TasksLayout,
 });
 
@@ -24,6 +33,7 @@ const BLOCKED_STATUSES = new Set<TaskStatus>(["blocked", "rejected"]);
 function TasksLayout() {
   const tasks = useTaskList();
   const navigate = useNavigate();
+  const { status: statusFilter } = Route.useSearch();
 
   const { data: archivedTasks } = useQuery({
     queryKey: ["archived_tasks"],
@@ -184,18 +194,25 @@ function TasksLayout() {
         <div className="w-px h-4 bg-border-default" />
 
         <div className="flex items-center gap-3 text-xs text-text-secondary">
-          <span>
-            <span className="text-status-healthy font-medium">{statusCounts.ready}</span> ready
-          </span>
-          <span>
-            <span className="text-status-warning font-medium">{statusCounts.running}</span> running
-          </span>
-          <span>
-            <span className="text-blue-400 font-medium">{statusCounts.done}</span> done
-          </span>
-          <span>
-            <span className="text-status-danger font-medium">{statusCounts.blocked}</span> blocked
-          </span>
+          {([
+            { key: "ready", count: statusCounts.ready, color: "text-status-healthy" },
+            { key: "running", count: statusCounts.running, color: "text-status-warning" },
+            { key: "done", count: statusCounts.done, color: "text-blue-400" },
+            { key: "blocked", count: statusCounts.blocked, color: "text-status-danger" },
+          ] as const).map(({ key, count, color }) => (
+            <Link
+              key={key}
+              to="/tasks"
+              search={{ status: statusFilter === key ? undefined : key }}
+              className={`transition-colors hover:text-text-primary ${
+                statusFilter === key
+                  ? `${color} font-medium`
+                  : ""
+              }`}
+            >
+              <span className={`${color} font-medium`}>{count}</span> {key}
+            </Link>
+          ))}
           {archivedCount > 0 && (
             <Link
               to="/archive"
@@ -231,6 +248,7 @@ function TasksLayout() {
             tasks={tasks}
             selectedId={selectedId}
             currentBranch={currentBranch}
+            statusFilter={statusFilter}
           />
 
           {selectedId && taskDetail ? (

@@ -60,11 +60,9 @@ const STATUS_PILL: Record<TaskStatus, string> = {
   paused: "bg-status-muted/15 text-status-muted",
   awaiting_review: "bg-status-warning/15 text-status-warning",
   revising: "bg-status-warning/15 text-status-warning",
-  // approved = human has signed off, awaiting merge action
-  approved: "bg-purple-500/15 text-purple-400",
-  // awaiting_merge = merge process in flight (gates running, squashing, etc.)
-  awaiting_merge: "bg-purple-500/15 text-purple-400",
-  merged: "bg-status-healthy/15 text-status-healthy",
+  approved: "bg-blue-400/15 text-blue-400",
+  awaiting_merge: "bg-blue-400/15 text-blue-400",
+  merged: "bg-blue-400/15 text-blue-400",
   rejected: "bg-status-danger/15 text-status-danger",
   archived: "bg-bg-tertiary text-text-tertiary",
   blocked: "bg-status-danger/15 text-status-danger",
