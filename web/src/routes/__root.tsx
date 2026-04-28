@@ -1,18 +1,20 @@
 import { useState, useEffect, useRef } from "react";
-import { createRootRoute, Outlet } from "@tanstack/react-router";
+import { createRootRoute, Outlet, useNavigate, useMatches } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@web/src/components/ui/tooltip";
 import { ThemeProvider } from "../components/theme-provider.js";
 import { TopBar } from "../components/TopBar.js";
 import { Rail } from "../components/Rail.js";
 import { EventStreamStrip } from "../components/EventStreamStrip.js";
-import { useEventStore, useProviderHealth, useRecentEvents, useTaskDetail } from "../store/eventStore.js";
+import { useEventStore, useProviderHealth, useRecentEvents } from "../store/eventStore.js";
 import { createSSEClient } from "../lib/sse.js";
 import type { SSEClient } from "../lib/sse.js";
 import type { ProviderInfo } from "../components/TopBar.js";
 import type { ProviderStatus } from "../components/ProviderPill.js";
 
 const queryClient = new QueryClient();
+
+type Section = "tasks" | "prompts" | "providers" | "measurement" | "settings" | "guide" | "ingest";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -22,11 +24,19 @@ function RootLayout() {
   const [stripVisible, setStripVisible] = useState(true);
   const [connected, setConnected] = useState(false);
   const sseRef = useRef<SSEClient | null>(null);
+  const navigate = useNavigate();
 
   const hydrate = useEventStore((s) => s.hydrate);
   const applyEvent = useEventStore((s) => s.applyEvent);
 
-  // Provider health from the store (falls back to stubs for fresh DBs)
+  // Derive active section from the current route
+  const matches = useMatches();
+  const topPath = matches[1]?.pathname?.split("/").filter(Boolean)[0] ?? "tasks";
+  const activeSection = (["tasks", "prompts", "providers", "measurement", "settings", "guide", "ingest"].includes(topPath)
+    ? topPath
+    : "tasks") as Section;
+
+  // Provider health from the store
   const providerHealthRows = useProviderHealth();
   const providers: ProviderInfo[] = providerHealthRows.length > 0
     ? providerHealthRows.map((r) => ({
@@ -40,7 +50,6 @@ function RootLayout() {
         { name: "local", status: "unknown" as ProviderStatus },
       ];
 
-  // Derive correlation filter for the event stream strip
   const recentEvents = useRecentEvents();
   const latestEvent = recentEvents[0]
     ? {
@@ -71,19 +80,42 @@ function RootLayout() {
     };
   }, [hydrate, applyEvent]);
 
+  // Keyboard shortcuts for section navigation
+  useEffect(() => {
+    const sections = ["/tasks", "/prompts", "/providers", "/measurement", "/settings"] as const;
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const idx = parseInt(e.key, 10);
+      if (idx >= 1 && idx <= 5) {
+        e.preventDefault();
+        navigate({ to: sections[idx - 1] });
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [navigate]);
+
+  const handleNavigate = (section: string) => {
+    navigate({ to: `/${section}` as any });
+  };
+
+  const handleProviderClick = (name: string) => {
+    navigate({ to: "/providers", search: { focus: name } });
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light" storageKey="orchestrator-ui-theme">
         <TooltipProvider>
           <div className="flex flex-col h-screen overflow-hidden">
             <TopBar
-              section="tasks"
+              section={activeSection}
               providers={providers}
-              onProviderClick={() => {}}
+              onProviderClick={handleProviderClick}
             />
 
             <div className="flex flex-1 min-h-0">
-              <Rail active="tasks" onNavigate={() => {}} />
+              <Rail active={activeSection} onNavigate={handleNavigate} />
               <main className="flex-1 min-h-0 overflow-hidden bg-bg-primary">
                 <Outlet />
               </main>
@@ -95,7 +127,7 @@ function RootLayout() {
               latestEvent={latestEvent}
               events={recentEvents}
               onToggleFilter={() => {}}
-              onToggleVisible={() => setStripVisible(false)}
+              onToggleVisible={() => setStripVisible((v) => !v)}
             />
           </div>
         </TooltipProvider>
