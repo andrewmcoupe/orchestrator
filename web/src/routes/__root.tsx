@@ -22,7 +22,6 @@ export const Route = createRootRoute({
 });
 
 function RootLayout() {
-  const [stripVisible, setStripVisible] = useState(true);
   const [connected, setConnected] = useState(false);
   const sseRef = useRef<SSEClient | null>(null);
   const navigate = useNavigate();
@@ -102,12 +101,9 @@ function RootLayout() {
             </div>
 
             <EventStreamStrip
-              visible={stripVisible}
               connected={connected}
               latestEvent={latestEvent}
               events={recentEvents}
-              onToggleFilter={() => {}}
-              onToggleVisible={() => setStripVisible((v) => !v)}
             />
           </div>
         </TooltipProvider>

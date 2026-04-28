@@ -2,8 +2,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { AnyEvent } from "@shared/events.js";
 
 type EventStreamStripProps = {
-  /** Whether the strip is visible */
-  visible?: boolean;
   /** Whether the SSE connection is live */
   connected?: boolean;
   /** Latest event to display in the collapsed strip */
@@ -14,8 +12,6 @@ type EventStreamStripProps = {
   } | null;
   /** Full list of recent events for the expanded panel */
   events?: AnyEvent[];
-  onToggleFilter?: () => void;
-  onToggleVisible?: () => void;
 };
 
 // ============================================================================
@@ -195,12 +191,9 @@ const MIN_PANEL_HEIGHT = 120;
 const MAX_PANEL_HEIGHT = 500;
 
 export function EventStreamStrip({
-  visible = true,
   connected = false,
   latestEvent = null,
   events = [],
-  onToggleFilter,
-  onToggleVisible,
 }: EventStreamStripProps) {
   const [expanded, setExpanded] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<AnyEvent | null>(null);
@@ -226,8 +219,6 @@ export function EventStreamStrip({
       scrollRef.current.scrollTop = 0;
     }
   }, [events.length, expanded]);
-
-  if (!visible) return null;
 
   const time = latestEvent
     ? formatTime(latestEvent.ts)
@@ -306,13 +297,6 @@ export function EventStreamStrip({
             className="border border-border-default px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
           >
             {expanded ? "collapse" : "events"}
-          </button>
-          <button
-            type="button"
-            onClick={onToggleFilter}
-            className="border border-border-default px-2 py-0.5 text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors cursor-pointer"
-          >
-            filter
           </button>
         </div>
       </footer>

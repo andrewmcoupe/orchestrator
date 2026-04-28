@@ -18,7 +18,7 @@ import {
 } from "../../hooks/useQueries.js";
 import { useLatestAssistantMessage } from "../../store/eventStore.js";
 import { MergeDialog } from "../review/MergeDialog.js";
-import { Button } from "@web/src/components/ui/button";
+import { Button, buttonVariants } from "@web/src/components/ui/button";
 import {
   Popover,
   PopoverTrigger,
@@ -894,58 +894,54 @@ export function TaskDetailPane({
         <div className="flex items-center gap-2">
           {detail.status !== "merged" &&
             detail.status !== "archived" && (
-              <Button type="button" variant={"outline"} asChild>
-                <Link
-                  to="/tasks/$taskId/config"
-                  params={{ taskId: detail.task_id }}
-                >
-                  <SlidersHorizontal className="h-3.5 w-3.5" />
-                  Config
-                </Link>
-              </Button>
+              <Link
+                to="/tasks/$taskId/config"
+                params={{ taskId: detail.task_id }}
+                className={buttonVariants({ variant: "outline" })}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Config
+              </Link>
             )}
           {detail.current_attempt_id &&
             (detail.status === "awaiting_review" ? (
-              <Button asChild>
-                <Link
-                  to="/tasks/$taskId/review/$attemptId"
-                  params={{
-                    taskId: detail.task_id,
-                    attemptId: detail.current_attempt_id!,
-                  }}
-                >
-                  <ClipboardList className="h-3.5 w-3.5" />
-                  Review
-                </Link>
-              </Button>
+              <Link
+                to="/tasks/$taskId/review/$attemptId"
+                params={{
+                  taskId: detail.task_id,
+                  attemptId: detail.current_attempt_id!,
+                }}
+                className={buttonVariants()}
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                Review
+              </Link>
             ) : detail.status === "approved" ? (
-              <Button type="button" asChild>
-                <Link
-                  to="/tasks/$taskId/review/$attemptId"
-                  params={{
-                    taskId: detail.task_id,
-                    attemptId: detail.current_attempt_id!,
-                  }}
-                  title="Review changes from last attempt"
-                >
-                  <ClipboardList className="h-3.5 w-3.5" />
-                  Review changes
-                </Link>
-              </Button>
+              <Link
+                to="/tasks/$taskId/review/$attemptId"
+                params={{
+                  taskId: detail.task_id,
+                  attemptId: detail.current_attempt_id!,
+                }}
+                title="Review changes from last attempt"
+                className={buttonVariants()}
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                Review changes
+              </Link>
             ) : detail.status === "merged" || detail.status === "rejected" ? (
-              <Button type="button" asChild>
-                <Link
-                  to="/tasks/$taskId/review/$attemptId"
-                  params={{
-                    taskId: detail.task_id,
-                    attemptId: detail.current_attempt_id!,
-                  }}
-                  title="View diff from last attempt"
-                >
-                  <ClipboardList className="h-3.5 w-3.5" />
-                  View diff
-                </Link>
-              </Button>
+              <Link
+                to="/tasks/$taskId/review/$attemptId"
+                params={{
+                  taskId: detail.task_id,
+                  attemptId: detail.current_attempt_id!,
+                }}
+                title="View diff from last attempt"
+                className={buttonVariants()}
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                View diff
+              </Link>
             ) : null)}
         </div>
         <ActionButtons
