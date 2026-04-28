@@ -113,7 +113,14 @@ function Sparkline({ providerId, events }: SparklineProps) {
         height={H}
         className="opacity-30"
       >
-        <line x1={0} y1={H / 2} x2={W} y2={H / 2} stroke="currentColor" strokeWidth={1} />
+        <line
+          x1={0}
+          y1={H / 2}
+          x2={W}
+          y2={H / 2}
+          stroke="currentColor"
+          strokeWidth={1}
+        />
       </svg>
     );
   }
@@ -158,7 +165,8 @@ type EditConfigFormProps = {
 };
 
 function EditConfigForm({ row, onSave, onCancel }: EditConfigFormProps) {
-  const isCli = row.transport !== "anthropic-api" && row.transport !== "openai-api";
+  const isCli =
+    row.transport !== "anthropic-api" && row.transport !== "openai-api";
   const [binaryPath, setBinaryPath] = useState(row.binary_path ?? "");
   const [endpoint, setEndpoint] = useState(row.endpoint ?? "");
   const [authMethod, setAuthMethod] = useState<EditState["auth_method"]>(
@@ -180,10 +188,16 @@ function EditConfigForm({ row, onSave, onCancel }: EditConfigFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="mt-3 border border-border-default p-3 bg-bg-secondary space-y-3">
+    <form
+      onSubmit={handleSubmit}
+      className="mt-3 border border-border-default p-3 bg-bg-secondary space-y-3"
+    >
       {isCli ? (
         <div className="flex flex-col gap-1">
-          <label htmlFor={`binary-path-${row.provider_id}`} className="text-xs text-text-secondary">
+          <label
+            htmlFor={`binary-path-${row.provider_id}`}
+            className="text-xs text-text-secondary"
+          >
             Binary Path
           </label>
           <input
@@ -198,7 +212,10 @@ function EditConfigForm({ row, onSave, onCancel }: EditConfigFormProps) {
         </div>
       ) : (
         <div className="flex flex-col gap-1">
-          <label htmlFor={`endpoint-${row.provider_id}`} className="text-xs text-text-secondary">
+          <label
+            htmlFor={`endpoint-${row.provider_id}`}
+            className="text-xs text-text-secondary"
+          >
             Endpoint
           </label>
           <input
@@ -214,7 +231,10 @@ function EditConfigForm({ row, onSave, onCancel }: EditConfigFormProps) {
       )}
 
       <div className="flex flex-col gap-1">
-        <label htmlFor={`auth-method-${row.provider_id}`} className="text-xs text-text-secondary">
+        <label
+          htmlFor={`auth-method-${row.provider_id}`}
+          className="text-xs text-text-secondary"
+        >
           Auth Method
         </label>
         {isCli ? (
@@ -272,20 +292,31 @@ type ProviderCardProps = {
   onConfigure: (values: Partial<EditState>) => Promise<void>;
 };
 
-function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: ProviderCardProps) {
+function ProviderCard({
+  row,
+  probeEvents,
+  focused,
+  onReprobe,
+  onConfigure,
+}: ProviderCardProps) {
   const [editing, setEditing] = useState(false);
   const [reprobing, setReprobing] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
   // Scroll focused card into view on mount (guard for jsdom which lacks scrollIntoView)
   useEffect(() => {
-    if (focused && cardRef.current && typeof cardRef.current.scrollIntoView === "function") {
+    if (
+      focused &&
+      cardRef.current &&
+      typeof cardRef.current.scrollIntoView === "function"
+    ) {
       cardRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
   }, [focused]);
 
   const StatusIcon = STATUS_ICONS[row.status];
-  const isCli = row.transport !== "anthropic-api" && row.transport !== "openai-api";
+  const isCli =
+    row.transport !== "anthropic-api" && row.transport !== "openai-api";
 
   const handleReprobe = async () => {
     setReprobing(true);
@@ -310,17 +341,26 @@ function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: Pro
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <span className={`inline-block h-2.5 w-2.5 rounded-full mt-0.5 ${STATUS_DOT[row.status]}`} />
+          <span
+            className={`inline-block h-2.5 w-2.5 rounded-full mt-0.5 ${STATUS_DOT[row.status]}`}
+          />
           <div>
             <div className="flex items-center gap-2">
-              <span data-testid="provider-name" className="font-semibold text-sm text-text-primary">{row.provider_id}</span>
+              <span
+                data-testid="provider-name"
+                className="font-semibold text-sm text-text-primary"
+              >
+                {row.provider_id}
+              </span>
               <span className="text-xs text-text-tertiary bg-bg-tertiary px-1.5 py-0.5">
                 {row.transport}
               </span>
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
               <StatusIcon className={`h-3 w-3 ${STATUS_COLORS[row.status]}`} />
-              <span className={`text-xs ${STATUS_COLORS[row.status]}`}>{statusLabel(row.status, isCli)}</span>
+              <span className={`text-xs ${STATUS_COLORS[row.status]}`}>
+                {statusLabel(row.status, isCli)}
+              </span>
             </div>
           </div>
         </div>
@@ -333,7 +373,9 @@ function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: Pro
             disabled={reprobing}
             className="flex items-center gap-1.5 text-xs px-2.5 py-1 border border-border-default text-text-secondary hover:bg-bg-tertiary transition-colors disabled:opacity-40"
           >
-            <RefreshCw className={`h-3 w-3 ${reprobing ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-3 w-3 ${reprobing ? "animate-spin" : ""}`}
+            />
             Re-probe
           </button>
           <button
@@ -341,7 +383,11 @@ function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: Pro
             onClick={() => setEditing((v) => !v)}
             className="flex items-center gap-1.5 text-xs px-2.5 py-1 border border-border-default text-text-secondary hover:bg-bg-tertiary transition-colors"
           >
-            {editing ? <X className="h-3 w-3" /> : <SlidersHorizontal className="h-3 w-3" />}
+            {editing ? (
+              <X className="h-3 w-3" />
+            ) : (
+              <SlidersHorizontal className="h-3 w-3" />
+            )}
             {editing ? "Close" : "Edit config"}
           </button>
         </div>
@@ -356,7 +402,10 @@ function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: Pro
             <span className="text-text-primary font-mono truncate">
               {row.binary_path}
               {row.status !== "down" && !row.binary_path.includes("/") && (
-                <span className="text-text-tertiary font-sans"> · Found on PATH</span>
+                <span className="text-text-tertiary font-sans">
+                  {" "}
+                  · Found on PATH
+                </span>
               )}
             </span>
           </>
@@ -364,7 +413,9 @@ function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: Pro
         {!isCli && row.endpoint && (
           <>
             <span className="text-text-tertiary">Endpoint</span>
-            <span className="text-text-primary font-mono truncate">{row.endpoint}</span>
+            <span className="text-text-primary font-mono truncate">
+              {row.endpoint}
+            </span>
           </>
         )}
 
@@ -372,13 +423,16 @@ function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: Pro
         <span className="text-text-tertiary">Auth</span>
         <div className="flex items-center gap-1.5">
           <span className="text-text-primary">{row.auth_method}</span>
-          {row.auth_method !== "cli_login" && (
-            row.auth_present ? (
-              <span className="text-status-healthy text-xs font-medium">auth ok</span>
+          {row.auth_method !== "cli_login" &&
+            (row.auth_present ? (
+              <span className="text-status-healthy text-xs font-medium">
+                auth ok
+              </span>
             ) : (
-              <span className="text-status-danger text-xs font-medium">auth missing</span>
-            )
-          )}
+              <span className="text-status-danger text-xs font-medium">
+                auth missing
+              </span>
+            ))}
         </div>
 
         {/* Latency — hide when provider is down since the value is just error-handling overhead */}
@@ -386,7 +440,9 @@ function ProviderCard({ row, probeEvents, focused, onReprobe, onConfigure }: Pro
           <>
             <span className="text-text-tertiary">Latency</span>
             <div className="flex items-center gap-3">
-              <span className="text-text-primary">{formatLatency(row.latency_ms)}</span>
+              <span className="text-text-primary">
+                {formatLatency(row.latency_ms)}
+              </span>
               <Sparkline providerId={row.provider_id} events={probeEvents} />
             </div>
           </>
@@ -470,7 +526,9 @@ function useProbeHistory(providerId: string): ProbeEvent[] {
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/events/recent?aggregate_id=${encodeURIComponent(providerId)}&limit=48`)
+    fetch(
+      `/api/events/recent?aggregate_id=${encodeURIComponent(providerId)}&limit=48`,
+    )
       .then((r) => r.json())
       .then((data: unknown[]) => {
         if (!active) return;
@@ -478,8 +536,12 @@ function useProbeHistory(providerId: string): ProbeEvent[] {
           (data as ProbeEvent[]).filter((e) => e.payload?.latency_ms != null),
         );
       })
-      .catch(() => {/* silent */});
-    return () => { active = false; };
+      .catch(() => {
+        /* silent */
+      });
+    return () => {
+      active = false;
+    };
   }, [providerId]);
 
   return events;
@@ -496,7 +558,12 @@ type ProviderCardWithHistoryProps = {
   onConfigure: (id: string, values: Partial<EditState>) => Promise<void>;
 };
 
-function ProviderCardWithHistory({ row, focused, onReprobe, onConfigure }: ProviderCardWithHistoryProps) {
+function ProviderCardWithHistory({
+  row,
+  focused,
+  onReprobe,
+  onConfigure,
+}: ProviderCardWithHistoryProps) {
   const probeEvents = useProbeHistory(row.provider_id);
 
   return (
@@ -517,38 +584,57 @@ function ProviderCardWithHistory({ row, focused, onReprobe, onConfigure }: Provi
 export function Providers({ focusedProvider }: ProvidersProps = {}) {
   const { rows, loading, reload, setRows } = useProviderHealth();
 
-  const handleReprobe = useCallback(async (providerId: string): Promise<ProviderHealthRow> => {
-    const res = await fetch(`/api/providers/probe/${encodeURIComponent(providerId)}`, {
-      method: "POST",
-    });
-    if (!res.ok) throw new Error(`Probe failed: ${res.status}`);
-    const updated: ProviderHealthRow = await res.json();
-    setRows((prev) => prev.map((r) => (r.provider_id === providerId ? updated : r)));
-    return updated;
-  }, [setRows]);
+  const handleReprobe = useCallback(
+    async (providerId: string): Promise<ProviderHealthRow> => {
+      const res = await fetch(
+        `/api/providers/probe/${encodeURIComponent(providerId)}`,
+        {
+          method: "POST",
+        },
+      );
+      if (!res.ok) throw new Error(`Probe failed: ${res.status}`);
+      const updated: ProviderHealthRow = await res.json();
+      setRows((prev) =>
+        prev.map((r) => (r.provider_id === providerId ? updated : r)),
+      );
+      return updated;
+    },
+    [setRows],
+  );
 
-  const handleConfigure = useCallback(async (
-    providerId: string,
-    values: Partial<EditState>,
-  ): Promise<void> => {
-    const res = await fetch(`/api/providers/configure/${encodeURIComponent(providerId)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(values),
-    });
-    if (!res.ok) throw new Error(`Configure failed: ${res.status}`);
-    const updated: ProviderHealthRow = await res.json();
-    setRows((prev) => prev.map((r) => (r.provider_id === providerId ? updated : r)));
-  }, [setRows]);
+  const handleConfigure = useCallback(
+    async (providerId: string, values: Partial<EditState>): Promise<void> => {
+      const res = await fetch(
+        `/api/providers/configure/${encodeURIComponent(providerId)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(values),
+        },
+      );
+      if (!res.ok) throw new Error(`Configure failed: ${res.status}`);
+      const updated: ProviderHealthRow = await res.json();
+      setRows((prev) =>
+        prev.map((r) => (r.provider_id === providerId ? updated : r)),
+      );
+    },
+    [setRows],
+  );
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-border-default shrink-0">
         <div>
-          <p className="text-xs text-text-tertiary uppercase tracking-wide">Providers</p>
-          <h1 className="text-lg font-semibold text-text-primary">Provider Health</h1>
-          <p className="text-xs text-text-tertiary mt-1">Status, auth, and latency for each configured AI provider.</p>
+          <p className="text-xs text-text-tertiary uppercase tracking-wide">
+            Providers
+          </p>
+          <h1 className="text-lg font-semibold text-text-primary">
+            Provider Health
+          </h1>
+          <p className="text-xs text-text-tertiary mt-1">
+            Status, auth, and latency for each configured AI provider.
+          </p>
         </div>
         <button
           type="button"
@@ -562,31 +648,27 @@ export function Providers({ focusedProvider }: ProvidersProps = {}) {
       {/* Cards */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
         {loading && (
-          <div className="text-sm text-text-tertiary py-8 text-center">Loading providers…</div>
+          <div className="text-sm text-text-tertiary py-8 text-center">
+            Loading providers…
+          </div>
         )}
 
         {!loading && rows.length === 0 && (
-          <div className="text-sm text-text-tertiary py-8 text-center">No providers configured.</div>
+          <div className="text-sm text-text-tertiary py-8 text-center">
+            No providers configured.
+          </div>
         )}
 
-        {!loading && rows.map((row) => (
-          <ProviderCardWithHistory
-            key={row.provider_id}
-            row={row}
-            focused={row.provider_id === focusedProvider}
-            onReprobe={handleReprobe}
-            onConfigure={handleConfigure}
-          />
-        ))}
-
-        {/* Add provider button */}
-        <button
-          type="button"
-          className="w-full flex items-center justify-center gap-2 border border-dashed border-border-default text-text-tertiary hover:border-text-tertiary hover:text-text-secondary transition-colors py-3 text-sm"
-        >
-          <Plus className="h-4 w-4" />
-          Add provider
-        </button>
+        {!loading &&
+          rows.map((row) => (
+            <ProviderCardWithHistory
+              key={row.provider_id}
+              row={row}
+              focused={row.provider_id === focusedProvider}
+              onReprobe={handleReprobe}
+              onConfigure={handleConfigure}
+            />
+          ))}
       </div>
     </div>
   );
