@@ -1,165 +1,134 @@
-# Guide Page — Application Documentation & Best Practices
+# Migrate UI to TanStack Router with File-Based Routing
 
 ## Overview
 
-Add a comprehensive documentation page to Orchestrator that serves as both an onboarding overview for new users and a reference guide for experienced users. The page covers how the system works end-to-end, defines all key domain concepts, documents the task lifecycle, and provides actionable best practices for writing PRDs, configuring tasks, and reviewing code.
+Replace the custom hash-based routing system with TanStack Router using the Vite plugin for file-based route generation. This migrates all navigation from `window.location.hash` assignments to TanStack Router primitives (`<Link>`, `useNavigate`, `useParams`), converts full-screen overlays (ingest, config, review) to route-based dialogs, and removes the legacy routing hooks.
 
-## Navigation & Routing
+## Install TanStack Router and configure Vite plugin
 
-### Add help icon to TopBar
+- Install `@tanstack/react-router` and `@tanstack/router-plugin` as dependencies in `web/`.
+- Update `web/vite.config.ts` to add the `tanstackRouter` plugin before `@vitejs/plugin-react` with `target: "react"` and `autoCodeSplitting: true`.
+- Configure `routesDirectory` to `./src/routes` and `generatedRouteTree` to `./src/routeTree.gen.ts`.
+- Add `routeTree.gen.ts` to `.gitignore`, `.prettierignore`, and ESLint ignore patterns.
+- Add VSCode settings to mark `routeTree.gen.ts` as readonly and exclude it from search and file watcher.
 
-- Add a help/book icon (e.g., `BookOpen` from lucide-react) to the `TopBar` component.
-- Clicking the icon navigates to `#/guide`.
-- The guide page renders as a standard routed page with the rail and event stream strip still visible.
-- Active state styling on the icon when on the guide route.
+## Create root layout route
 
-### Register route
+- Create `web/src/routes/__root.tsx` as the root layout route.
+- Render the shared shell: `TopBar`, `Rail`, `EventStreamStrip`, and an `<Outlet />` for child content.
+- Move the `QueryClientProvider`, `ThemeProvider`, and any other top-level providers from `App.tsx` into the root layout or the router context.
+- The root layout must always render the rail, topbar, and event stream strip — overlays are now dialogs on top, not layout replacements.
 
-- Add `guide` as a recognized section in the hash-based router.
-- Render the `Guide` screen component when the section is `guide`.
+## Create the router instance and update App.tsx
 
-## Page Layout
+- Create a `web/src/router.tsx` file that instantiates the TanStack Router with the generated route tree.
+- Update `web/src/App.tsx` to render `<RouterProvider router={router} />` instead of the current section-based conditional rendering.
+- Remove all overlay state management (`isIngest`, `configTaskId`, `reviewRoute`) and their associated `useState`/`useEffect` hooks from `App.tsx`.
+- Remove the `hashchange` event listener logic.
 
-### Single scrollable page with sticky TOC sidebar
+## Create file-based route files for each section
 
-- Left column: sticky table of contents listing all section headings with anchor links for in-page navigation.
-- Right column: scrollable content area containing all sections in order.
-- TOC highlights the currently visible section as the user scrolls.
-- Responsive: TOC collapses or hides on smaller viewports.
+- Create `web/src/routes/index.tsx` that redirects to `/tasks` using TanStack Router's `redirect` or `Navigate` component.
+- Create `web/src/routes/tasks.tsx` as a layout route for the tasks section, rendering the `TaskListSidebar` and an `<Outlet />` for the detail pane.
+- Create `web/src/routes/tasks/index.tsx` for `/tasks` with no task selected (empty detail pane or placeholder).
+- Create `web/src/routes/tasks/$taskId.tsx` for `/tasks/:taskId` that reads `taskId` from `useParams` and renders `TaskDetailPane`.
+- Create `web/src/routes/tasks/$taskId/config.tsx` for `/tasks/:taskId/config` that renders the `TaskConfig` component inside a large viewport-filling dialog. Closing the dialog navigates back to `/tasks/:taskId`.
+- Create `web/src/routes/tasks/$taskId/review/$attemptId.tsx` for `/tasks/:taskId/review/:attemptId` that renders the `Review` component inside a large viewport-filling dialog. Closing the dialog navigates back to `/tasks/:taskId`.
+- Create `web/src/routes/ingest.tsx` for `/ingest` that renders the `Ingest` component inside a large viewport-filling dialog. Closing the dialog navigates to `/tasks`.
+- Create `web/src/routes/prompts.tsx` for `/prompts` rendering the `Prompts` screen.
+- Create `web/src/routes/providers.tsx` for `/providers` rendering the `Providers` screen. Accept an optional `focus` search param for provider focus (e.g., `/providers?focus=claude-code`).
+- Create `web/src/routes/measurement.tsx` for `/measurement` rendering the `Measurement` screen.
+- Create `web/src/routes/settings.tsx` for `/settings` rendering the `Settings` screen.
+- Create `web/src/routes/guide.tsx` for `/guide` rendering the `Guide` screen.
 
-## Sections
+## Convert overlays to route-based dialogs
 
-### 1. How It Works
+- Replace the full-screen overlay pattern for ingest, config, and review with large viewport-filling dialog modals.
+- Each dialog route renders the existing screen component inside a `Dialog` component that covers a large proportion of the viewport.
+- The dialog backdrop shows the parent route content beneath (rail, topbar, strip remain visible).
+- Closing the dialog (escape key, backdrop click, or close/back button) uses TanStack Router's `useNavigate` to navigate to the parent route.
+- The ingest dialog navigates back to `/tasks` on close.
+- The config dialog navigates back to `/tasks/$taskId` on close.
+- The review dialog navigates back to `/tasks/$taskId` on close.
 
-- High-level overview of the Orchestrator flow from PRD to merged code.
-- Static CSS flow diagram (styled HTML boxes and arrows) showing the pipeline:
-  `PRD -> Propositions -> Tasks -> Phases -> Review -> Merge`
-- Brief text explanation beneath each step in the diagram describing what happens at that stage.
-- No interactive components — keep it simple and visual.
+## Replace all navigation with TanStack Router primitives
 
-### 2. Glossary
+- Replace all `window.location.hash = "#/..."` assignments throughout the codebase with `<Link>` components or `useNavigate()` calls.
+- Prefer `<Link>` for clickable navigation elements (buttons, list items, icons).
+- Use `useNavigate()` only for programmatic navigation (e.g., after an action completes).
+- Remove navigation callback props (`onIngest`, `onEditConfig`, `onReview`, `onBack`, `onMergeIconClick`) from all components. Each component navigates directly using TanStack Router hooks.
+- Update `web/src/components/Rail.tsx` to use `<Link>` for each section with TanStack Router's active link styling instead of manual `section === "tasks"` comparisons.
+- Update `web/src/components/TopBar.tsx` to use `<Link to="/guide">` for the help icon and `<Link to="/providers" search={{ focus: providerId }}>` for provider pill clicks.
+- Update `web/src/screens/tasks/TaskListSidebar.tsx` to use `<Link to="/tasks/$taskId" params={{ taskId }}>` for task selection and `<Link to="/ingest">` for the ingest button.
+- Update `web/src/screens/tasks/TaskDetailPane.tsx` to use `<Link>` for the config and review navigation buttons.
 
-- Alphabetically ordered list of all key domain terms.
-- Each entry: term name (bold) + short paragraph (definition + one or two sentences of context explaining why it matters or how it relates to other concepts).
-- Terms to include:
-  - **A/B Experiment**: Test different prompt versions against task execution metrics to compare cost, success rate, and quality.
-  - **Attempt**: A single execution run of a task. Each task can have multiple attempts with retry logic. Tracks phase summaries, gate results, audit verdict, files changed, cost, and outcome.
-  - **Context Policy**: Configuration controlling what code context is provided to the LLM during a phase — symbol graph depth, token budget, whether to include tests.
-  - **Event**: An immutable fact recorded in the event store. All state changes in Orchestrator are captured as events, enabling full audit trails and reproducible projections.
-  - **Event Store**: The append-only SQLite log of all events. The single source of truth from which all projections are derived.
-  - **Gate**: A validation rule run before or after a phase. Can be built-in (from config.yaml) or library-based (custom definitions). Gates enforce quality and correctness checks.
-  - **Phase**: A stage in the task execution pipeline. Default phases are test-author (generate tests), implementer (generate code), and auditor (review quality). Each phase has its own transport, model, and context policy.
-  - **Preset**: A reusable task configuration template bundling phase configs, gate definitions, retry policies, and auto-merge settings.
-  - **Projection**: A derived read-model computed by replaying events from the event store. Projections provide the current state views displayed in the UI (task lists, provider health, cost dashboards).
-  - **Proposition**: An atomic requirement extracted from a PRD during ingestion. Each proposition has a confidence score and source location reference back to the original document.
-  - **Provider**: An external LLM or code tool integration (Claude Code, Codex, OpenAI API, Gemini CLI). Providers are monitored for health and latency.
-  - **PRD (Product Requirements Document)**: The input document describing desired code changes. Ingested by Orchestrator to extract propositions and generate tasks.
-  - **Pushback**: An objection raised during PRD ingestion. Can be blocking (must resolve before proceeding), advisory (warning), or a question (needs clarification). Pushbacks must be resolved before tasks are created.
-  - **Task**: An executable unit of work created from one or more propositions. Tasks flow through a defined lifecycle and are executed by AI agents through configured phases.
-  - **Transport**: The specific CLI tool or API used to execute a phase (claude-code, codex, anthropic-api, aider, gemini-cli).
+## Convert provider focus to a search param
 
-### 3. Best Practices: Writing PRDs
+- The `Providers` screen currently receives `focusedProvider` as React state passed from `App.tsx`.
+- Define a `focus` search param on the `/providers` route using TanStack Router's search param validation.
+- Read the focused provider from `useSearch()` instead of props.
+- Provider pill clicks in `TopBar` navigate to `/providers?focus=<providerId>`.
+- Remove the `focusedProvider` state and `setFocusedProvider` from `App.tsx`.
 
-- Presented as Do/Don't lists.
-- Do:
-  - Use the grill-me skill (or similar structured interview process) before writing a PRD. Walking through the full design decision tree results in comprehensive, well-considered requirements.
-  - Break requirements into small, atomic statements — each should describe one change.
-  - Include acceptance criteria for each requirement.
-  - Reference specific files or modules when the change location is known.
-  - Specify what is out of scope to prevent over-engineering.
-  - Include context about why a change is needed, not just what.
-- Don't:
-  - Write vague, high-level requirements that leave too much to interpretation.
-  - Bundle unrelated changes into a single PRD.
-  - Assume the LLM knows your project conventions — state them explicitly.
-  - Skip edge cases or error handling requirements.
-  - Write PRDs longer than necessary — conciseness improves extraction quality.
+## Update keyboard shortcuts
 
-### 4. Best Practices: Task Configuration
+- The current `useHotkeys` for `⌘1` through `⌘5` calls `navigate(section)` from `useSection`.
+- Update the hotkey handlers to use TanStack Router's `useNavigate()` with the corresponding paths: `/tasks`, `/prompts`, `/providers`, `/measurement`, `/settings`.
+- Move the hotkey registration into the root layout route or keep it in a shared hook that uses `useNavigate`.
 
-- Presented as Do/Don't lists.
-- Do:
-  - Start with a preset that matches your use case and customise from there.
-  - Enable the auditor phase for critical or complex changes.
-  - Configure context policies to include only relevant code — smaller context windows improve output quality and reduce cost.
-  - Set appropriate retry limits — 2-3 retries is usually sufficient.
-  - Use gates to enforce project-specific quality checks (linting, type checking, test passes).
-  - Review the dependency graph before running tasks to ensure correct execution order.
-- Don't:
-  - Enable all phases for trivial changes — the implementer phase alone is often enough.
-  - Set token budgets too high — more context does not always mean better results.
-  - Skip gate configuration — ungated tasks may produce code that doesn't meet project standards.
-  - Use auto-merge without an auditor phase enabled.
-  - Ignore cost projections — check the measurement dashboard to understand spend patterns.
+## Delete legacy routing code
 
-### 5. Best Practices: Review & Merge
+- Delete `web/src/hooks/useSection.ts`.
+- Delete `web/src/hooks/useSelectedTaskId.ts`.
+- Remove the `Section` type and `SCREENS` map from `App.tsx`.
+- Remove the `parseConfigTaskId`, `parseReviewRoute`, and related regex parsing functions from `App.tsx`.
+- Remove the `navigateFromIngest`, `navigateFromConfig`, `navigateFromReview` callback functions from `App.tsx`.
+- Remove all `onBack` props from `Ingest`, `TaskConfig`, and `Review` screen components — they navigate directly now.
 
-- Presented as Do/Don't lists.
-- Do:
-  - Review the full diff carefully, including test files.
-  - Check that the implementation matches the original proposition intent.
-  - Use reject to send the task back for a fresh attempt when the approach is fundamentally wrong.
-  - Use revise when the implementation is close but needs specific adjustments.
-  - Add clear feedback when rejecting or requesting revisions — this feeds back into the next attempt.
-  - Verify gate results passed before approving.
-- Don't:
-  - Auto-approve without reviewing diffs.
-  - Reject without providing actionable feedback.
-  - Merge tasks with failing gates unless you have a specific reason.
-  - Approve changes that introduce technical debt just to close the task.
-  - Skip reviewing test coverage for new functionality.
+## Update SSE event stream filtering
 
-### 6. Task Lifecycle Reference
-
-#### Flow diagram
-
-- Static CSS flow diagram showing all task statuses and transitions:
-  ```
-  draft -> queued -> running -> paused / revising
-                                    |
-                              awaiting_review
-                              /            \
-                        approved          rejected
-                        /                     \
-                  awaiting_merge          (back to queued)
-                  /          \
-              merged      escalated
-                            |
-                        archived / blocked
-  ```
-
-#### Status descriptions
-
-- Text list beneath the diagram with each status defined:
-  - **draft**: Task created but not yet queued for execution.
-  - **queued**: Task is waiting to be picked up by the execution pipeline.
-  - **running**: Task is actively being executed through its configured phases.
-  - **paused**: Execution has been manually paused by the user.
-  - **revising**: Task is being re-executed with revision feedback from a previous review.
-  - **awaiting_review**: All phases complete — task is ready for human review.
-  - **approved**: Reviewer has approved the changes.
-  - **rejected**: Reviewer has rejected the changes — task returns to queue for a new attempt.
-  - **awaiting_merge**: Approved changes are ready to be merged into the target branch.
-  - **merged**: Changes have been successfully merged.
-  - **escalated**: Task has exceeded retry limits or encountered unresolvable issues — requires manual intervention.
-  - **archived**: Task has been archived and is no longer active.
-  - **blocked**: Task cannot proceed due to unmet dependencies.
+- The `EventStreamStrip` currently receives a `correlationId` derived from the selected task ID (via `useSelectedTaskId`).
+- Update it to read the task ID from TanStack Router's route params using `useParams` or `useMatch` for the tasks routes.
+- If the current route is not a task route, pass no correlation filter.
 
 ## Implementation Touchpoints
 
 | File | Change |
 |---|---|
-| `web/src/components/TopBar.tsx` | Add help/book icon with navigation to `#/guide` |
-| `web/src/hooks/useSection.ts` | Add `guide` to recognized sections |
-| `web/src/App.tsx` | Add route case for `guide` section rendering `Guide` component |
-| `web/src/screens/guide/Guide.tsx` | New — main guide page with TOC sidebar and all content sections |
-| `web/src/screens/guide/TableOfContents.tsx` | New — sticky TOC component with scroll-aware active highlighting |
-| `web/src/screens/guide/FlowDiagram.tsx` | New — reusable static CSS flow diagram component (used for How It Works and Task Lifecycle) |
+| `web/package.json` | Add `@tanstack/react-router` and `@tanstack/router-plugin` |
+| `web/vite.config.ts` | Add `tanstackRouter` plugin before React plugin |
+| `web/src/routes/__root.tsx` | New — root layout with TopBar, Rail, EventStreamStrip, Outlet |
+| `web/src/routes/index.tsx` | New — redirect to `/tasks` |
+| `web/src/routes/tasks.tsx` | New — tasks layout with TaskListSidebar and Outlet |
+| `web/src/routes/tasks/index.tsx` | New — empty task selection state |
+| `web/src/routes/tasks/$taskId.tsx` | New — task detail pane via useParams |
+| `web/src/routes/tasks/$taskId/config.tsx` | New — TaskConfig in viewport-filling dialog |
+| `web/src/routes/tasks/$taskId/review/$attemptId.tsx` | New — Review in viewport-filling dialog |
+| `web/src/routes/ingest.tsx` | New — Ingest in viewport-filling dialog |
+| `web/src/routes/prompts.tsx` | New — Prompts screen |
+| `web/src/routes/providers.tsx` | New — Providers screen with `focus` search param |
+| `web/src/routes/measurement.tsx` | New — Measurement screen |
+| `web/src/routes/settings.tsx` | New — Settings screen |
+| `web/src/routes/guide.tsx` | New — Guide screen |
+| `web/src/router.tsx` | New — router instance creation |
+| `web/src/App.tsx` | Replace conditional rendering with RouterProvider, remove overlay state and legacy routing |
+| `web/src/components/Rail.tsx` | Replace `navigate(section)` with `<Link>` components, use active link styling |
+| `web/src/components/TopBar.tsx` | Replace hash navigation with `<Link>`, provider pills use search params |
+| `web/src/screens/tasks/Tasks.tsx` | Remove navigation callback props |
+| `web/src/screens/tasks/TaskListSidebar.tsx` | Replace hash navigation with `<Link>` components |
+| `web/src/screens/tasks/TaskDetailPane.tsx` | Replace callback props with `<Link>` for config/review |
+| `web/src/screens/ingest/Ingest.tsx` | Remove `onBack` prop, use `useNavigate` for close, wrap in dialog |
+| `web/src/screens/config/TaskConfig.tsx` | Remove `onBack` prop, use `useNavigate` for close, wrap in dialog |
+| `web/src/screens/review/Review.tsx` | Remove `onBack` prop, use `useNavigate` for close, wrap in dialog |
+| `web/src/components/EventStreamStrip.tsx` | Read correlation ID from router params instead of props |
+| `web/src/hooks/useSection.ts` | Delete |
+| `web/src/hooks/useSelectedTaskId.ts` | Delete |
 
 ## Out of Scope
 
-- Keyboard shortcuts reference.
-- Video tutorials or animated walkthroughs.
-- In-app contextual tooltips or guided tours.
-- Search functionality within the guide.
-- Versioned documentation tied to application releases.
+- Server-side rendering or SSR integration.
+- Loader-based data fetching — keep existing TanStack Query hooks for data fetching.
+- Route-level error boundaries beyond the default TanStack Router behaviour.
+- Animated route transitions.
+- Nested layouts beyond the tasks section.
+- Migrating from TanStack Query to TanStack Router loaders.
