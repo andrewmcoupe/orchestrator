@@ -51,6 +51,102 @@ export function Guide() {
         </p>
         <FlowDiagram steps={taskLifecycleSteps} cols={6} />
       </section>
+
+      <section className="mb-8">
+        <h2 className="text-lg font-medium text-text-primary mb-3">Glossary</h2>
+        <dl className="space-y-4 text-sm">
+          <div>
+            <dt className="font-bold text-text-primary">A/B Experiment</dt>
+            <dd className="text-text-secondary mt-1">
+              Test different prompt versions against task execution metrics to compare cost, success rate, and quality. A/B experiments help you iterate on prompts with data-driven confidence rather than guesswork.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Attempt</dt>
+            <dd className="text-text-secondary mt-1">
+              A single execution run of a task. Each task can have multiple attempts with retry logic. Tracks phase summaries, gate results, audit verdict, files changed, cost, and outcome.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Context Policy</dt>
+            <dd className="text-text-secondary mt-1">
+              Configuration controlling what code context is provided to the LLM during a phase — symbol graph depth, token budget, whether to include tests. Tuning context policies balances output quality against cost and latency.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Event</dt>
+            <dd className="text-text-secondary mt-1">
+              An immutable fact recorded in the event store. All state changes in Orchestrator are captured as events, enabling full audit trails and reproducible projections.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Event Store</dt>
+            <dd className="text-text-secondary mt-1">
+              The append-only SQLite log of all events. The single source of truth from which all projections are derived.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Gate</dt>
+            <dd className="text-text-secondary mt-1">
+              A validation rule run before or after a phase. Can be built-in (from config.yaml) or library-based (custom definitions). Gates enforce quality and correctness checks.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Phase</dt>
+            <dd className="text-text-secondary mt-1">
+              A stage in the task execution pipeline. Default phases are test-author (generate tests), implementer (generate code), and auditor (review quality). Each phase has its own transport, model, and context policy.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">PRD (Product Requirements Document)</dt>
+            <dd className="text-text-secondary mt-1">
+              The input document describing desired code changes. Ingested by Orchestrator to extract propositions and generate tasks.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Preset</dt>
+            <dd className="text-text-secondary mt-1">
+              A reusable task configuration template bundling phase configs, gate definitions, retry policies, and auto-merge settings. Presets let you standardize workflows across your team.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Projection</dt>
+            <dd className="text-text-secondary mt-1">
+              A derived read-model computed by replaying events from the event store. Projections provide the current state views displayed in the UI (task lists, provider health, cost dashboards).
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Proposition</dt>
+            <dd className="text-text-secondary mt-1">
+              An atomic requirement extracted from a PRD during ingestion. Each proposition has a confidence score and source location reference back to the original document.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Provider</dt>
+            <dd className="text-text-secondary mt-1">
+              An external LLM or code tool integration (Claude Code, Codex, OpenAI API, Gemini CLI). Providers are monitored for health and latency.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Pushback</dt>
+            <dd className="text-text-secondary mt-1">
+              An objection raised during PRD ingestion. Can be blocking (must resolve before proceeding), advisory (warning), or a question (needs clarification). Pushbacks must be resolved before tasks are created.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Task</dt>
+            <dd className="text-text-secondary mt-1">
+              An executable unit of work created from one or more propositions. Tasks flow through a defined lifecycle and are executed by AI agents through configured phases.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-bold text-text-primary">Transport</dt>
+            <dd className="text-text-secondary mt-1">
+              The specific CLI tool or API used to execute a phase (claude-code, codex, anthropic-api, aider, gemini-cli). The transport determines how Orchestrator communicates with the underlying model or tool.
+            </dd>
+          </div>
+        </dl>
+      </section>
     </div>
   );
 }
