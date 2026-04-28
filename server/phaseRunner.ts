@@ -55,6 +55,7 @@ import {
 import { evaluate as evaluateRetryPolicy } from "./retryPolicy.js";
 import { handleAutoMerge } from "./autoMerge.js";
 import { getBlobsDir } from "./paths.js";
+import { assign as assignAbVariant } from "./ab/assign.js";
 
 import type {
   TaskConfig,
@@ -497,6 +498,25 @@ export async function runAttempt(
 
       const phaseStartedAt = Date.now();
 
+      // ----- A/B variant resolution -----
+      let resolvedPromptVersionId = phase.prompt_version_id;
+      let abVariant: "A" | "B" | undefined;
+
+      if (phase.ab_experiment_id) {
+        const expRow = db
+          .prepare(
+            "SELECT variant_a_id, variant_b_id, status FROM proj_ab_experiment WHERE experiment_id = ?",
+          )
+          .get(phase.ab_experiment_id) as
+          | { variant_a_id: string; variant_b_id: string; status: string }
+          | undefined;
+
+        if (expRow && expRow.status === "running") {
+          abVariant = assignAbVariant(db, phase.ab_experiment_id, task_id, phase.name);
+          resolvedPromptVersionId = abVariant === "A" ? expRow.variant_a_id : expRow.variant_b_id;
+        }
+      }
+
       // ----- phase.started -----
       appendAndProject(db, {
         type: "phase.started",
@@ -509,7 +529,8 @@ export async function runAttempt(
           phase_name: phase.name,
           transport: phase.transport,
           model: phase.model,
-          prompt_version_id: phase.prompt_version_id,
+          prompt_version_id: resolvedPromptVersionId,
+          ab_variant: abVariant,
         },
       });
 
@@ -614,8 +635,8 @@ export async function runAttempt(
               model: isAuditorPhase ? (phase.model || AUDITOR_MODEL) : phase.model,
               prompt: packResult.prompt,
               prompt_version_id: isAuditorPhase
-                ? (phase.prompt_version_id || AUDITOR_PROMPT_VERSION_ID)
-                : phase.prompt_version_id,
+                ? (resolvedPromptVersionId || AUDITOR_PROMPT_VERSION_ID)
+                : resolvedPromptVersionId,
               context_manifest_hash: packResult.manifest_hash,
               systemPromptFile: packResult.system_prompt_file,
               cwd: worktree_path ?? "/tmp/no-worktree",
@@ -642,8 +663,8 @@ export async function runAttempt(
               model: isAuditorPhase ? (phase.model || AUDITOR_MODEL) : phase.model,
               messages: [{ role: "user", content: packResult.prompt }],
               prompt_version_id: isAuditorPhase
-                ? (phase.prompt_version_id || AUDITOR_PROMPT_VERSION_ID)
-                : phase.prompt_version_id,
+                ? (resolvedPromptVersionId || AUDITOR_PROMPT_VERSION_ID)
+                : resolvedPromptVersionId,
               context_manifest_hash: packResult.manifest_hash,
               transport_options: effectiveTransportOpts,
             } satisfies ApiInvokeOptions,
@@ -727,7 +748,7 @@ export async function runAttempt(
                 summary: verdict.summary,
                 concerns: verdict.concerns,
                 model: phase.model || AUDITOR_MODEL,
-                prompt_version_id: phase.prompt_version_id || AUDITOR_PROMPT_VERSION_ID,
+                prompt_version_id: resolvedPromptVersionId || AUDITOR_PROMPT_VERSION_ID,
               },
             });
 

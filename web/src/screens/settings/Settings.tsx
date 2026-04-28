@@ -616,7 +616,7 @@ function ApiKeysSection() {
   if (loading) return <div className="text-sm text-text-secondary p-4">Loading providers…</div>;
 
   const apiProviders = providers.filter(
-    (p) => p.transport === "anthropic-api" || p.transport === "openai-api" || p.transport === "gemini-cli",
+    (p) => p.transport === "anthropic-api" || p.transport === "openai-api",
   );
 
   return (

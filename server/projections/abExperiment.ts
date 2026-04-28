@@ -111,6 +111,37 @@ export const abExperimentProjection: Projection<AbExperimentRow> = {
       return row;
     }
 
+    // For phase.completed — resolve prompt_version_id via the paired phase.started event
+    if (event.type === "phase.completed") {
+      const attemptId = event.payload.attempt_id;
+      const phaseName = event.payload.phase_name;
+
+      const startedEvent = db
+        .prepare(
+          "SELECT payload_json FROM events WHERE type = 'phase.started' AND json_extract(payload_json, '$.attempt_id') = ? AND json_extract(payload_json, '$.phase_name') = ? LIMIT 1",
+        )
+        .get(attemptId, phaseName) as { payload_json: string } | undefined;
+
+      if (!startedEvent) return null;
+
+      const startedPayload = JSON.parse(startedEvent.payload_json) as {
+        prompt_version_id: string;
+      };
+      const pvId = startedPayload.prompt_version_id;
+
+      const raw = db
+        .prepare(
+          "SELECT * FROM proj_ab_experiment WHERE status = 'running' AND (variant_a_id = ? OR variant_b_id = ?) LIMIT 1",
+        )
+        .get(pvId, pvId) as RawAbExperimentRow | undefined;
+
+      if (!raw) return null;
+
+      const row = rowFromRaw(raw);
+      row._variant = row.variant_a_id === pvId ? "A" : "B";
+      return row;
+    }
+
     // For auditor.judged — prompt_version_id is in the payload directly
     if (event.type === "auditor.judged") {
       const pvId = event.payload.prompt_version_id;
@@ -137,7 +168,7 @@ export const abExperimentProjection: Projection<AbExperimentRow> = {
     if (!next) return null;
 
     // Recompute significance after every stats-updating event
-    if (event.type === "invocation.completed" || event.type === "auditor.judged") {
+    if (event.type === "invocation.completed" || event.type === "auditor.judged" || event.type === "phase.completed") {
       next.significance_p = computeSignificance(
         next.a_success_n,
         next.a_n,
