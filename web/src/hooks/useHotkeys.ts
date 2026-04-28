@@ -1,23 +1,16 @@
 import { useEffect } from "react";
-import type { Section } from "./useSection.js";
 
-const SECTION_KEYS: Record<string, Section> = {
-  "1": "tasks",
-  "2": "prompts",
-  "3": "providers",
-  "4": "measurement",
-  "5": "settings",
-};
+const SECTION_PATHS = ["/tasks", "/prompts", "/providers", "/measurement", "/settings"] as const;
 
-/** Register ⌘1..⌘5 shortcuts to switch sections. */
-export function useHotkeys(navigate: (s: Section) => void): void {
+/** Register ⌘1..⌘5 shortcuts to switch sections via TanStack Router navigate. */
+export function useHotkeys(navigate: (opts: { to: string }) => void): void {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;
-      const section = SECTION_KEYS[e.key];
-      if (section) {
+      const idx = parseInt(e.key, 10);
+      if (idx >= 1 && idx <= 5) {
         e.preventDefault();
-        navigate(section);
+        navigate({ to: SECTION_PATHS[idx - 1] });
       }
     };
     window.addEventListener("keydown", handler);

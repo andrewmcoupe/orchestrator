@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createRootRoute, Outlet, useNavigate, useMatches } from "@tanstack/react-router";
+import { useHotkeys } from "../hooks/useHotkeys.js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@web/src/components/ui/tooltip";
 import { ThemeProvider } from "../components/theme-provider.js";
@@ -80,20 +81,8 @@ function RootLayout() {
     };
   }, [hydrate, applyEvent]);
 
-  // Keyboard shortcuts for section navigation
-  useEffect(() => {
-    const sections = ["/tasks", "/prompts", "/providers", "/measurement", "/settings"] as const;
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      const idx = parseInt(e.key, 10);
-      if (idx >= 1 && idx <= 5) {
-        e.preventDefault();
-        navigate({ to: sections[idx - 1] });
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [navigate]);
+  // Keyboard shortcuts for section navigation (⌘1..⌘5)
+  useHotkeys(navigate);
 
   return (
     <QueryClientProvider client={queryClient}>
