@@ -27,6 +27,7 @@ import {
 import type { PresetRow, ProviderHealthRow, GateLibraryRow, GlobalSettingsRow } from "@shared/projections.js";
 import type { GateConfig } from "@shared/events.js";
 import { Maintenance } from "./Maintenance.js";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select.js";
 
 // ============================================================================
 // Types
@@ -407,6 +408,7 @@ function GatesSection() {
 
 function DefaultsSection() {
   const { defaults, loading, reload } = useDefaults();
+  const { presets } = usePresets();
   const [form, setForm] = useState<{
     default_preset_id: string;
     auto_delete_worktree_on_merge: boolean;
@@ -505,17 +507,24 @@ function DefaultsSection() {
       </p>
 
       <div className="space-y-4">
-        <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-text-primary">Default preset ID</span>
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-text-primary">Default preset</span>
           <span className="text-xs text-text-tertiary">Applied to new tasks when no preset is explicitly chosen.</span>
-          <input
-            className="mt-1 border border-surface-tertiary bg-surface-secondary px-3 py-1.5 text-sm text-text-primary max-w-xs"
-            placeholder="e.g. preset-default-new-feature"
+          <Select
             value={form.default_preset_id}
-            onChange={(e) => setForm({ ...form, default_preset_id: e.target.value })}
-            data-testid="default-preset-input"
-          />
-        </label>
+            onValueChange={(val) => setForm({ ...form, default_preset_id: val ?? "" })}
+          >
+            <SelectTrigger className="mt-1 max-w-xs" data-testid="default-preset-input">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">— none —</SelectItem>
+              {presets.map((p) => (
+                <SelectItem key={p.preset_id} value={p.preset_id}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
         <label className="flex items-start gap-3">
           <input

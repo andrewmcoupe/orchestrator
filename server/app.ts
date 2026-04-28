@@ -16,7 +16,7 @@ import {
 } from "./providers/probeScheduler.js";
 import { loadGateRegistry } from "./gates/registry.js";
 import { seedPrompts } from "./seedPrompts.js";
-import { seedBuiltinPresets } from "./presets.js";
+
 import { createPresetCommandRoutes } from "./routes/presetCommands.js";
 import { createPromptCommandRoutes } from "./routes/promptCommands.js";
 import { createMeasurementRoutes } from "./routes/measurement.js";
@@ -52,8 +52,6 @@ await configureProviders(db);
 // Seed all bundled prompts (idempotent — checks event log first)
 seedPrompts(db);
 
-// Seed 4 built-in presets (idempotent — checks event log first)
-seedBuiltinPresets(db);
 
 // Create probe scheduler (started by index.ts, exposed for shutdown)
 const probeScheduler: ProbeScheduler = createProbeScheduler(db);
