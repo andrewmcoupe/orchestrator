@@ -627,6 +627,48 @@ export function createCommandRoutes(db: Database.Database) {
   });
 
   // --------------------------------------------------------------------------
+  // DELETE /api/commands/task/:id
+  //
+  // Permanently removes an archived task from projections.
+  // Only archived tasks can be deleted. Events are kept for audit history.
+  // --------------------------------------------------------------------------
+  app.delete("/api/commands/task/:id", (c) => {
+    const taskId = c.req.param("id");
+
+    const detail = db
+      .prepare("SELECT status FROM proj_task_detail WHERE task_id = ?")
+      .get(taskId) as { status: string } | undefined;
+
+    if (!detail) {
+      return c.json({ error: `Task ${taskId} not found` }, 404);
+    }
+
+    if (detail.status !== "archived") {
+      return c.json(
+        { error: `Cannot delete task in status '${detail.status}'. Only archived tasks can be deleted.` },
+        409,
+      );
+    }
+
+    db.prepare("DELETE FROM proj_task_detail WHERE task_id = ?").run(taskId);
+
+    return c.json({ deleted: taskId });
+  });
+
+  // --------------------------------------------------------------------------
+  // DELETE /api/commands/archived_tasks
+  //
+  // Permanently removes all archived tasks from projections.
+  // --------------------------------------------------------------------------
+  app.delete("/api/commands/archived_tasks", (c) => {
+    const result = db
+      .prepare("DELETE FROM proj_task_detail WHERE status = 'archived'")
+      .run();
+
+    return c.json({ deleted: result.changes });
+  });
+
+  // --------------------------------------------------------------------------
   // POST /api/commands/attempt/:id/approve
   //
   // Transitions awaiting_review → approved (merge is a separate step).

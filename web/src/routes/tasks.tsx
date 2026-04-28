@@ -1,5 +1,6 @@
-import { createFileRoute, Outlet, useParams, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useParams, useNavigate, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useEventStore, useTaskDetail, useTaskList } from "../store/eventStore.js";
 import { TaskListSidebar } from "../screens/tasks/TaskListSidebar.js";
 import { TaskDetailPane } from "../screens/tasks/TaskDetailPane.js";
@@ -17,12 +18,22 @@ type ViewMode = "list" | "graph";
 
 const READY_STATUSES = new Set<TaskStatus>(["draft", "queued"]);
 const RUNNING_STATUSES = new Set<TaskStatus>(["running", "paused", "revising", "awaiting_review"]);
-const DONE_STATUSES = new Set<TaskStatus>(["merged", "approved", "awaiting_merge", "archived"]);
+const DONE_STATUSES = new Set<TaskStatus>(["merged", "approved", "awaiting_merge"]);
 const BLOCKED_STATUSES = new Set<TaskStatus>(["blocked", "rejected"]);
 
 function TasksLayout() {
   const tasks = useTaskList();
   const navigate = useNavigate();
+
+  const { data: archivedTasks } = useQuery({
+    queryKey: ["archived_tasks"],
+    queryFn: async () => {
+      const res = await fetch("/api/projections/archived_tasks");
+      if (!res.ok) return [];
+      return res.json() as Promise<unknown[]>;
+    },
+  });
+  const archivedCount = archivedTasks?.length ?? 0;
 
   // Get selected task ID from child route params
   const params = useParams({ strict: false }) as { taskId?: string };
@@ -185,6 +196,14 @@ function TasksLayout() {
           <span>
             <span className="text-status-danger font-medium">{statusCounts.blocked}</span> blocked
           </span>
+          {archivedCount > 0 && (
+            <Link
+              to="/archive"
+              className="hover:text-text-primary transition-colors"
+            >
+              <span className="text-text-tertiary font-medium">{archivedCount}</span> archived
+            </Link>
+          )}
         </div>
 
         {viewMode === "graph" && prdOptions.length > 1 && (
