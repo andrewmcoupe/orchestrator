@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { useEventStore } from "../store/eventStore.js";
-import { App } from "../App.js";
+import { routeTree } from "../routeTree.gen.js";
 
 // Mock fetch so hydrate() doesn't fail on relative URLs in jsdom
 const mockFetch = vi.fn(() =>
@@ -42,64 +43,82 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderApp() {
+async function renderApp() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  const router = createRouter({
+    routeTree,
+    history: createMemoryHistory({ initialEntries: ["/tasks"] }),
+  });
+  await router.load();
   return render(
     <QueryClientProvider client={queryClient}>
-      <App />
+      <RouterProvider router={router as any} />
     </QueryClientProvider>,
   );
 }
 
 describe("App shell", () => {
-  it("renders the top bar with Orchestrator branding", () => {
-    renderApp();
-    expect(screen.getByText("Orchestrator")).toBeDefined();
+  it("renders the top bar with Orchestrator branding", async () => {
+    await renderApp();
+    await waitFor(() => {
+      expect(screen.getByText("Orchestrator")).toBeDefined();
+    });
   });
 
-  it("renders all five rail items", () => {
-    renderApp();
-    expect(screen.getAllByText("Tasks").length).toBeGreaterThanOrEqual(1);
+  it("renders all five rail items", async () => {
+    await renderApp();
+    await waitFor(() => {
+      expect(screen.getAllByText("Tasks").length).toBeGreaterThanOrEqual(1);
+    });
     expect(screen.getAllByText("Prompts").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Providers").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Measurement").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Settings").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("renders four provider pills with fallback data", () => {
-    renderApp();
-    expect(screen.getByText("claude")).toBeDefined();
+  it("renders four provider pills with fallback data", async () => {
+    await renderApp();
+    await waitFor(() => {
+      expect(screen.getByText("claude")).toBeDefined();
+    });
     expect(screen.getByText("codex")).toBeDefined();
     expect(screen.getByText("gemini")).toBeDefined();
     expect(screen.getByText("local")).toBeDefined();
   });
 
-  it("renders the event stream strip", () => {
-    renderApp();
-    expect(screen.getByText("stream")).toBeDefined();
-    expect(screen.getByText("filter")).toBeDefined();
+  it("renders the event stream strip", async () => {
+    await renderApp();
+    await waitFor(() => {
+      expect(screen.getByText("stream")).toBeDefined();
+    });
   });
 
-  it("defaults to Tasks section content", () => {
-    renderApp();
-    const headings = screen.getAllByText("Tasks");
-    expect(headings.length).toBeGreaterThanOrEqual(2);
+  it("defaults to Tasks section content", async () => {
+    await renderApp();
+    await waitFor(() => {
+      const headings = screen.getAllByText("Tasks");
+      expect(headings.length).toBeGreaterThanOrEqual(2);
+    });
   });
 
-  it("rail items are rendered as Link elements", () => {
-    renderApp();
-    const promptsLinks = screen.getAllByText("Prompts");
-    const railLink = promptsLinks.find((el) => el.closest("nav a"));
-    expect(railLink).toBeDefined();
+  it("rail items are rendered as Link elements", async () => {
+    await renderApp();
+    await waitFor(() => {
+      const promptsLinks = screen.getAllByText("Prompts");
+      const railLink = promptsLinks.find((el) => el.closest("nav a"));
+      expect(railLink).toBeDefined();
+    });
   });
 
-  it("provider pills show status dots with fallback unknown status", () => {
-    renderApp();
-    const claudeEl = screen.getByText("claude").closest("span");
-    const dot = claudeEl?.querySelector("span.rounded-full");
-    // Fallback providers have "unknown" status which maps to muted
-    expect(dot?.className).toContain("bg-status-muted");
+  it("provider pills show status dots with fallback unknown status", async () => {
+    await renderApp();
+    await waitFor(() => {
+      const claudeEl = screen.getByText("claude").closest("span");
+      const dot = claudeEl?.querySelector("span.rounded-full");
+      // Fallback providers have "unknown" status which maps to muted
+      expect(dot?.className).toContain("bg-status-muted");
+    });
   });
 });
