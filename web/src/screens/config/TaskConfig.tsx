@@ -7,11 +7,36 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Eye } from "lucide-react";
 import type { TaskDetailRow, PresetRow } from "@shared/projections.js";
-import type { TaskConfig as TaskConfigType, PhaseConfig, GateConfig, RetryPolicy, RetryStrategy, Transport, AutoMergePolicy } from "@shared/events.js";
-import { useGateLibraryQuery } from "../../hooks/useQueries.js";
+import type {
+  TaskConfig as TaskConfigType,
+  PhaseConfig,
+  GateConfig,
+  RetryPolicy,
+  RetryStrategy,
+  Transport,
+  AutoMergePolicy,
+} from "@shared/events.js";
+import {
+  useGateLibraryQuery,
+  usePromptLibraryQuery,
+  usePromptTemplateQuery,
+} from "../../hooks/useQueries.js";
 import type { LibraryGate } from "../../hooks/useQueries.js";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../components/ui/tooltip.js";
 
 // ============================================================================
 // Types
@@ -54,7 +79,10 @@ function computeDiff(
   if (rp) diff.retry_policy = { ...original.retry_policy, ...rp };
 
   // Check auto-merge fields
-  if ((original.auto_merge_policy ?? "off") !== (edited.auto_merge_policy ?? "off")) {
+  if (
+    (original.auto_merge_policy ?? "off") !==
+    (edited.auto_merge_policy ?? "off")
+  ) {
     diff.auto_merge_policy = edited.auto_merge_policy;
   }
   if ((original.shadow_mode ?? false) !== (edited.shadow_mode ?? false)) {
@@ -69,9 +97,15 @@ function computeRetryPolicyDiff(
   edited: RetryPolicy,
 ): Partial<RetryPolicy> | null {
   const diff: Partial<RetryPolicy> = {};
-  if (JSON.stringify(original.on_typecheck_fail) !== JSON.stringify(edited.on_typecheck_fail))
+  if (
+    JSON.stringify(original.on_typecheck_fail) !==
+    JSON.stringify(edited.on_typecheck_fail)
+  )
     diff.on_typecheck_fail = edited.on_typecheck_fail;
-  if (JSON.stringify(original.on_test_fail) !== JSON.stringify(edited.on_test_fail))
+  if (
+    JSON.stringify(original.on_test_fail) !==
+    JSON.stringify(edited.on_test_fail)
+  )
     diff.on_test_fail = edited.on_test_fail;
   if (original.on_audit_reject !== edited.on_audit_reject)
     diff.on_audit_reject = edited.on_audit_reject;
@@ -86,7 +120,10 @@ function computeRetryPolicyDiff(
  * Count override keys: fields that differ from the referenced preset.
  * Returns 0 when no preset is selected.
  */
-function countOverrides(edited: TaskConfigType, preset: PresetRow | null): number {
+function countOverrides(
+  edited: TaskConfigType,
+  preset: PresetRow | null,
+): number {
   if (!preset) return 0;
   let count = 0;
   const p = preset.config;
@@ -94,12 +131,19 @@ function countOverrides(edited: TaskConfigType, preset: PresetRow | null): numbe
   // Count phase-level overrides
   for (const phase of edited.phases) {
     const presetPhase = p.phases.find((ph) => ph.name === phase.name);
-    if (!presetPhase) { count++; continue; }
+    if (!presetPhase) {
+      count++;
+      continue;
+    }
     if (phase.enabled !== presetPhase.enabled) count++;
     if (phase.transport !== presetPhase.transport) count++;
     if (phase.model !== presetPhase.model) count++;
     if (phase.prompt_version_id !== presetPhase.prompt_version_id) count++;
-    if (JSON.stringify(phase.transport_options) !== JSON.stringify(presetPhase.transport_options)) count++;
+    if (
+      JSON.stringify(phase.transport_options) !==
+      JSON.stringify(presetPhase.transport_options)
+    )
+      count++;
   }
 
   // Count gate overrides
@@ -110,7 +154,8 @@ function countOverrides(edited: TaskConfigType, preset: PresetRow | null): numbe
   if (rpDiff) count += Object.keys(rpDiff).length;
 
   // Count auto-merge overrides
-  if ((edited.auto_merge_policy ?? "off") !== (p.auto_merge_policy ?? "off")) count++;
+  if ((edited.auto_merge_policy ?? "off") !== (p.auto_merge_policy ?? "off"))
+    count++;
   if ((edited.shadow_mode ?? false) !== (p.shadow_mode ?? false)) count++;
 
   return count;
@@ -133,8 +178,8 @@ const MODELS_BY_TRANSPORT: Record<Transport, string[]> = {
   "claude-code": ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-6"],
   "anthropic-api": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
   "openai-api": ["gpt-4o", "gpt-4-turbo", "o3"],
-  "codex": ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.5"],
-  "aider": ["aider-default"],
+  codex: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.5"],
+  aider: ["aider-default"],
   "gemini-cli": ["gemini-2.5-pro", "gemini-2.0-flash"],
 };
 
@@ -177,7 +222,7 @@ function OverridePill({ label }: { label?: string }) {
 
 function SectionHeader({ title }: { title: string }) {
   return (
-    <h3 className="text-xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
+    <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground mb-3">
       {title}
     </h3>
   );
@@ -200,17 +245,27 @@ function PhaseCard({
   gateNames: string[];
   onChange: (index: number, updated: PhaseConfig) => void;
 }) {
-  const update = (patch: Partial<PhaseConfig>) => onChange(index, { ...phase, ...patch });
+  const update = (patch: Partial<PhaseConfig>) =>
+    onChange(index, { ...phase, ...patch });
   const models = MODELS_BY_TRANSPORT[phase.transport] ?? [];
+  const { data: prompts } = usePromptLibraryQuery(phase.name);
+  const activePrompts = (prompts ?? []).filter((p) => !p.retired);
+  const { data: templateData } = usePromptTemplateQuery(
+    phase.prompt_version_id,
+  );
 
   const isOverride = (field: keyof PhaseConfig) =>
-    presetPhase ? JSON.stringify(phase[field]) !== JSON.stringify(presetPhase[field]) : false;
+    presetPhase
+      ? JSON.stringify(phase[field]) !== JSON.stringify(presetPhase[field])
+      : false;
 
   return (
     <div className="flex-1 border border-border-default bg-bg-secondary p-4">
       {/* Phase name + enabled toggle */}
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-text-primary">{phase.name}</span>
+        <span className="text-sm font-semibold text-text-primary">
+          {phase.name}
+        </span>
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
@@ -233,29 +288,46 @@ function PhaseCard({
             Transport
           </label>
           <div className="flex items-center gap-1.5">
-            <select
-              id={`transport-${index}`}
+            <Select
               value={phase.transport}
-              onChange={(e) => {
-                const newTransport = e.target.value as Transport;
-                const isCli = ["claude-code", "codex", "aider", "gemini-cli"].includes(newTransport);
+              onValueChange={(val) => {
+                if (!val) return;
+                const newTransport = val as Transport;
+                const isCli = [
+                  "claude-code",
+                  "codex",
+                  "aider",
+                  "gemini-cli",
+                ].includes(newTransport);
                 const wasCli = phase.transport_options.kind === "cli";
                 update({
                   transport: newTransport,
                   model: MODELS_BY_TRANSPORT[newTransport]?.[0] ?? phase.model,
-                  transport_options: isCli && !wasCli
-                    ? { kind: "cli" as const, max_turns: 10, max_budget_usd: 5, permission_mode: "acceptEdits" as const }
-                    : !isCli && wasCli
-                    ? { kind: "api" as const, max_tokens: 4096 }
-                    : phase.transport_options,
+                  transport_options:
+                    isCli && !wasCli
+                      ? {
+                          kind: "cli" as const,
+                          max_turns: 10,
+                          max_budget_usd: 5,
+                          permission_mode: "acceptEdits" as const,
+                        }
+                      : !isCli && wasCli
+                        ? { kind: "api" as const, max_tokens: 4096 }
+                        : phase.transport_options,
                 });
               }}
-              className="flex-1 border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
             >
-              {TRANSPORTS.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+              <SelectTrigger className="flex-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TRANSPORTS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {isOverride("transport") && <OverridePill />}
           </div>
         </div>
@@ -269,21 +341,26 @@ function PhaseCard({
             Model
           </label>
           <div className="flex items-center gap-1.5">
-            <select
-              id={`model-${index}`}
+            <Select
               value={phase.model}
-              onChange={(e) => update({ model: e.target.value })}
-              aria-label="model"
-              className="flex-1 border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
+              onValueChange={(val) => {
+                if (val) update({ model: val });
+              }}
             >
-              {models.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-              {/* Allow current model even if not in list */}
-              {!models.includes(phase.model) && (
-                <option value={phase.model}>{phase.model}</option>
-              )}
-            </select>
+              <SelectTrigger className="flex-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {models.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+                {!models.includes(phase.model) && (
+                  <SelectItem value={phase.model}>{phase.model}</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
             {isOverride("model") && <OverridePill />}
           </div>
         </div>
@@ -291,83 +368,145 @@ function PhaseCard({
 
       {/* Prompt version */}
       <div className="mt-3">
-        <label
-          htmlFor={`prompt-${index}`}
-          className="block text-xs text-text-secondary mb-1"
-        >
+        <label className="block text-xs text-text-secondary mb-1">
           Prompt version
         </label>
         <div className="flex items-center gap-1.5">
-          <input
-            id={`prompt-${index}`}
-            type="text"
+          <Select
             value={phase.prompt_version_id}
-            onChange={(e) => update({ prompt_version_id: e.target.value })}
-            className="flex-1 border border-border-default bg-bg-primary px-2 py-1.5 font-mono text-xs text-text-primary"
-          />
+            onValueChange={(val) => {
+              if (val) update({ prompt_version_id: val });
+            }}
+          >
+            <SelectTrigger className="flex-1 font-mono">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {activePrompts.map((p) => (
+                <SelectItem
+                  key={p.prompt_version_id}
+                  value={p.prompt_version_id}
+                >
+                  {p.name} ({p.prompt_version_id.slice(0, 8)})
+                </SelectItem>
+              ))}
+              {!activePrompts.some(
+                (p) => p.prompt_version_id === phase.prompt_version_id,
+              ) && (
+                <SelectItem value={phase.prompt_version_id}>
+                  {phase.prompt_version_id}
+                </SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+          {templateData?.template && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger className="text-text-tertiary hover:text-text-secondary transition-colors">
+                  <Eye className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent
+                  side="bottom"
+                  className="max-w-lg max-h-[70dvh] overflow-y-auto"
+                >
+                  <pre className="text-[10px] leading-tight whitespace-pre-wrap break-words">
+                    {templateData.template}
+                  </pre>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           {isOverride("prompt_version_id") && <OverridePill />}
         </div>
       </div>
 
       {/* CLI transport options */}
       {phase.transport_options.kind === "cli" && (
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          <div>
-            <label className="block text-xs text-text-secondary mb-1">Max turns</label>
-            <input
-              type="number"
-              min={1}
-              value={phase.transport_options.max_turns}
-              onChange={(e) =>
-                update({
-                  transport_options: {
-                    ...phase.transport_options,
-                    kind: "cli",
-                    max_turns: Number(e.target.value),
-                  } as typeof phase.transport_options,
-                })
-              }
-              className="w-full border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-text-secondary mb-1">Budget USD</label>
-            <input
-              type="number"
-              min={0.1}
-              step={0.1}
-              value={phase.transport_options.max_budget_usd}
-              onChange={(e) =>
-                update({
-                  transport_options: {
-                    ...phase.transport_options,
-                    kind: "cli",
-                    max_budget_usd: Number(e.target.value),
-                  } as typeof phase.transport_options,
-                })
-              }
-              className="w-full border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-text-secondary mb-1">Permission</label>
-            <select
-              value={phase.transport_options.permission_mode}
-              onChange={(e) =>
-                update({
-                  transport_options: {
-                    ...phase.transport_options,
-                    kind: "cli",
-                    permission_mode: e.target.value as "acceptEdits" | "acceptAll" | "plan" | "default",
-                  } as typeof phase.transport_options,
-                })
-              }
-              className="w-full border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
-            >
-              {(["default", "plan", "acceptEdits", "bypassPermissions", "dontAsk", "auto"] as const).map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+        <div className="mt-3">
+          <span className="block text-xs font-medium text-text-primary mb-0.5">
+            Agent guardrails
+          </span>
+          <p className="text-[11px] text-text-tertiary mb-2">
+            Safety limits for this phase. The defaults are sensible for most
+            tasks — only adjust if you need longer runs or tighter cost control.
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block text-xs text-text-secondary mb-1">
+                Max turns
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={phase.transport_options.max_turns ?? 10}
+                onChange={(e) =>
+                  update({
+                    transport_options: {
+                      ...phase.transport_options,
+                      kind: "cli",
+                      max_turns: Number(e.target.value),
+                    } as typeof phase.transport_options,
+                  })
+                }
+                className="w-full border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-text-secondary mb-1">
+                Budget USD
+              </label>
+              <input
+                type="number"
+                min={0.1}
+                step={0.1}
+                value={phase.transport_options.max_budget_usd}
+                onChange={(e) =>
+                  update({
+                    transport_options: {
+                      ...phase.transport_options,
+                      kind: "cli",
+                      max_budget_usd: Number(e.target.value),
+                    } as typeof phase.transport_options,
+                  })
+                }
+                className="w-full border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-text-secondary mb-1">
+                Permission
+              </label>
+              <Select
+                value={phase.transport_options.permission_mode}
+                onValueChange={(val) => {
+                  if (!val) return;
+                  update({
+                    transport_options: {
+                      ...phase.transport_options,
+                      kind: "cli",
+                      permission_mode: val as
+                        | "acceptEdits"
+                        | "acceptAll"
+                        | "plan"
+                        | "default",
+                    } as typeof phase.transport_options,
+                  });
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(
+                    ["default", "acceptEdits", "bypassPermissions"] as const
+                  ).map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       )}
@@ -375,7 +514,20 @@ function PhaseCard({
       {/* API transport options */}
       {phase.transport_options.kind === "api" && (
         <div className="mt-3">
-          <label className="block text-xs text-text-secondary mb-1">Max tokens</label>
+          <span className="block text-xs font-medium text-text-primary mb-0.5">
+            API limits
+          </span>
+          <p className="text-[11px] text-text-tertiary mb-2">
+            When using the API transport, the model receives your prompt and
+            responds in a single pass — there is no multi-turn tool use. Max
+            tokens controls the upper bound on how long that response can be. A
+            token is roughly ¾ of a word, so 4 096 tokens ≈ 3 000 words. If the
+            model&apos;s answer is cut short, increase this value. Larger values
+            do not cost more unless the model actually generates more output.
+          </p>
+          <label className="block text-xs text-text-secondary mb-1">
+            Max tokens
+          </label>
           <input
             type="number"
             min={256}
@@ -405,7 +557,10 @@ function PhaseCard({
             {gateNames.map((name) => {
               const skipped = phase.skip_gates?.includes(name) ?? false;
               return (
-                <label key={name} className="flex items-center gap-1.5 cursor-pointer">
+                <label
+                  key={name}
+                  className="flex items-center gap-1.5 cursor-pointer"
+                >
                   <input
                     type="checkbox"
                     checked={skipped}
@@ -414,11 +569,15 @@ function PhaseCard({
                       const next = e.target.checked
                         ? [...current, name]
                         : current.filter((g) => g !== name);
-                      update({ skip_gates: next.length > 0 ? next : undefined });
+                      update({
+                        skip_gates: next.length > 0 ? next : undefined,
+                      });
                     }}
                     className="h-3.5 w-3.5 accent-status-warning"
                   />
-                  <span className="text-xs font-mono text-text-primary">{name}</span>
+                  <span className="text-xs font-mono text-text-primary">
+                    {name}
+                  </span>
                 </label>
               );
             })}
@@ -479,17 +638,29 @@ function GatesTable({
             <thead>
               <tr className="border-b border-border-muted bg-bg-secondary">
                 <th className="px-4 py-2 w-10" />
-                <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary">Name</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary">Command</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary">Required</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary">Timeout</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary">On fail</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary">
+                  Name
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary">
+                  Command
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary">
+                  Required
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary">
+                  Timeout
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-text-secondary">
+                  On fail
+                </th>
               </tr>
             </thead>
             <tbody>
               {libraryGates.map((libGate) => {
                 const enabled = enabledNames.has(libGate.name);
-                const taskGateIndex = gates.findIndex((g) => g.name === libGate.name);
+                const taskGateIndex = gates.findIndex(
+                  (g) => g.name === libGate.name,
+                );
 
                 return (
                   <tr
@@ -502,21 +673,35 @@ function GatesTable({
                         checked={enabled}
                         onChange={() => toggleGate(libGate)}
                         className="h-4 w-4 accent-status-healthy"
-                        title={enabled ? "Disable gate for this task" : "Enable gate for this task"}
+                        title={
+                          enabled
+                            ? "Disable gate for this task"
+                            : "Enable gate for this task"
+                        }
                       />
                     </td>
-                    <td className="px-4 py-2 font-mono text-xs text-text-primary">{libGate.name}</td>
-                    <td className="px-4 py-2 font-mono text-xs text-text-secondary">{libGate.command}</td>
+                    <td className="px-4 py-2 font-mono text-xs text-text-primary">
+                      {libGate.name}
+                    </td>
+                    <td className="px-4 py-2 font-mono text-xs text-text-secondary">
+                      {libGate.command}
+                    </td>
                     <td className="px-4 py-2">
                       {enabled && taskGateIndex >= 0 ? (
                         <input
                           type="checkbox"
                           checked={gates[taskGateIndex].required}
-                          onChange={(e) => updateGate(taskGateIndex, { required: e.target.checked })}
+                          onChange={(e) =>
+                            updateGate(taskGateIndex, {
+                              required: e.target.checked,
+                            })
+                          }
                           className="h-4 w-4 accent-status-healthy"
                         />
                       ) : (
-                        <span className="text-xs text-text-tertiary">{libGate.required ? "yes" : "no"}</span>
+                        <span className="text-xs text-text-tertiary">
+                          {libGate.required ? "yes" : "no"}
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-2">
@@ -525,26 +710,45 @@ function GatesTable({
                           type="number"
                           min={1}
                           value={gates[taskGateIndex].timeout_seconds}
-                          onChange={(e) => updateGate(taskGateIndex, { timeout_seconds: Number(e.target.value) })}
+                          onChange={(e) =>
+                            updateGate(taskGateIndex, {
+                              timeout_seconds: Number(e.target.value),
+                            })
+                          }
                           className="w-16 border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
                         />
                       ) : (
-                        <span className="text-xs text-text-tertiary">{libGate.timeout_seconds}s</span>
+                        <span className="text-xs text-text-tertiary">
+                          {libGate.timeout_seconds}s
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-2">
                       {enabled && taskGateIndex >= 0 ? (
-                        <select
+                        <Select
                           value={gates[taskGateIndex].on_fail}
-                          onChange={(e) => updateGate(taskGateIndex, { on_fail: e.target.value as GateConfig["on_fail"] })}
-                          className="border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
+                          onValueChange={(val) => {
+                            if (val)
+                              updateGate(taskGateIndex, {
+                                on_fail: val as GateConfig["on_fail"],
+                              });
+                          }}
                         >
-                          {ON_FAIL_OPTIONS.map((o) => (
-                            <option key={o} value={o}>{o}</option>
-                          ))}
-                        </select>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ON_FAIL_OPTIONS.map((o) => (
+                              <SelectItem key={o} value={o}>
+                                {o}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       ) : (
-                        <span className="text-xs text-text-tertiary">{libGate.on_fail}</span>
+                        <span className="text-xs text-text-tertiary">
+                          {libGate.on_fail}
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -575,7 +779,8 @@ function RetryPolicySection({
   presetPolicy: RetryPolicy;
   onChange: (policy: RetryPolicy) => void;
 }) {
-  const update = (patch: Partial<RetryPolicy>) => onChange({ ...policy, ...patch });
+  const update = (patch: Partial<RetryPolicy>) =>
+    onChange({ ...policy, ...patch });
 
   const isOverride = <K extends keyof RetryPolicy>(key: K) =>
     JSON.stringify(policy[key]) !== JSON.stringify(presetPolicy[key]);
@@ -599,7 +804,9 @@ function RetryPolicySection({
               min={1}
               max={20}
               value={policy.max_total_attempts}
-              onChange={(e) => update({ max_total_attempts: Number(e.target.value) })}
+              onChange={(e) =>
+                update({ max_total_attempts: Number(e.target.value) })
+              }
               className="w-20 border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
             />
             {isOverride("max_total_attempts") && <OverridePill />}
@@ -608,47 +815,66 @@ function RetryPolicySection({
 
         {/* On audit reject */}
         <div>
-          <label htmlFor="on-audit-reject" className="block text-xs text-text-secondary mb-1">
+          <label
+            htmlFor="on-audit-reject"
+            className="block text-xs text-text-secondary mb-1"
+          >
             On audit reject
           </label>
           <div className="flex items-center gap-2">
-            <select
-              id="on-audit-reject"
+            <Select
               value={policy.on_audit_reject}
-              onChange={(e) => update({ on_audit_reject: e.target.value as RetryStrategy })}
-              className="border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
+              onValueChange={(val) => {
+                if (val) update({ on_audit_reject: val as RetryStrategy });
+              }}
             >
-              {RETRY_STRATEGIES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RETRY_STRATEGIES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {isOverride("on_audit_reject") && <OverridePill />}
           </div>
         </div>
 
         {/* On typecheck fail */}
         <div>
-          <label htmlFor="on-typecheck-strategy" className="block text-xs text-text-secondary mb-1">
+          <label
+            htmlFor="on-typecheck-strategy"
+            className="block text-xs text-text-secondary mb-1"
+          >
             On typecheck fail
           </label>
           <div className="flex items-center gap-2">
-            <select
-              id="on-typecheck-strategy"
+            <Select
               value={policy.on_typecheck_fail.strategy}
-              onChange={(e) =>
+              onValueChange={(val) => {
+                if (!val) return;
                 update({
                   on_typecheck_fail: {
                     ...policy.on_typecheck_fail,
-                    strategy: e.target.value as RetryStrategy,
+                    strategy: val as RetryStrategy,
                   },
-                })
-              }
-              className="border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
+                });
+              }}
             >
-              {RETRY_STRATEGIES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RETRY_STRATEGIES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <input
               type="number"
               min={1}
@@ -670,27 +896,36 @@ function RetryPolicySection({
 
         {/* On test fail */}
         <div>
-          <label htmlFor="on-test-strategy" className="block text-xs text-text-secondary mb-1">
+          <label
+            htmlFor="on-test-strategy"
+            className="block text-xs text-text-secondary mb-1"
+          >
             On test fail
           </label>
           <div className="flex items-center gap-2">
-            <select
-              id="on-test-strategy"
+            <Select
               value={policy.on_test_fail.strategy}
-              onChange={(e) =>
+              onValueChange={(val) => {
+                if (!val) return;
                 update({
                   on_test_fail: {
                     ...policy.on_test_fail,
-                    strategy: e.target.value as RetryStrategy,
+                    strategy: val as RetryStrategy,
                   },
-                })
-              }
-              className="border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
+                });
+              }}
             >
-              {RETRY_STRATEGIES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RETRY_STRATEGIES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <input
               type="number"
               min={1}
@@ -712,21 +947,32 @@ function RetryPolicySection({
 
         {/* On spec pushback */}
         <div>
-          <label htmlFor="on-spec-pushback" className="block text-xs text-text-secondary mb-1">
+          <label
+            htmlFor="on-spec-pushback"
+            className="block text-xs text-text-secondary mb-1"
+          >
             On spec pushback
           </label>
           <div className="flex items-center gap-2">
-            <select
-              id="on-spec-pushback"
+            <Select
               value={policy.on_spec_pushback}
-              onChange={(e) =>
-                update({ on_spec_pushback: e.target.value as RetryPolicy["on_spec_pushback"] })
-              }
-              className="border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
+              onValueChange={(val) => {
+                if (val)
+                  update({
+                    on_spec_pushback: val as RetryPolicy["on_spec_pushback"],
+                  });
+              }}
             >
-              <option value="pause_and_notify">pause_and_notify</option>
-              <option value="auto_defer">auto_defer</option>
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pause_and_notify">
+                  pause_and_notify
+                </SelectItem>
+                <SelectItem value="auto_defer">auto_defer</SelectItem>
+              </SelectContent>
+            </Select>
             {isOverride("on_spec_pushback") && <OverridePill />}
           </div>
         </div>
@@ -770,22 +1016,32 @@ function AutoMergeSection({
             Auto-merge policy
           </label>
           <div className="flex items-center gap-2">
-            <select
-              id="auto-merge-policy"
+            <Select
               value={policy}
-              onChange={(e) => onPolicyChange(e.target.value as AutoMergePolicy)}
-              className="border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
+              onValueChange={(val) => {
+                if (val) onPolicyChange(val as AutoMergePolicy);
+              }}
             >
-              {AUTO_MERGE_POLICIES.map((p) => (
-                <option key={p} value={p}>{p.replace(/_/g, " ")}</option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {AUTO_MERGE_POLICIES.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p.replace(/_/g, " ")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {policyOverride && <OverridePill />}
           </div>
         </div>
 
         {/* Shadow mode toggle */}
-        <label className="flex items-center gap-2 cursor-pointer" htmlFor="shadow-mode">
+        <label
+          className="flex items-center gap-2 cursor-pointer"
+          htmlFor="shadow-mode"
+        >
           <input
             id="shadow-mode"
             type="checkbox"
@@ -821,10 +1077,14 @@ function SaveAsPresetModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="border border-border-default bg-bg-primary p-6 shadow-xl w-full max-w-sm">
-        <h3 className="text-base font-semibold text-text-primary mb-4">Save as preset</h3>
+        <h3 className="text-base font-semibold text-text-primary mb-4">
+          Save as preset
+        </h3>
         <div className="space-y-3">
           <div>
-            <label className="block text-xs text-text-secondary mb-1">Preset name</label>
+            <label className="block text-xs text-text-secondary mb-1">
+              Preset name
+            </label>
             <input
               type="text"
               value={name}
@@ -835,17 +1095,25 @@ function SaveAsPresetModal({
             />
           </div>
           <div>
-            <label className="block text-xs text-text-secondary mb-1">Task class</label>
-            <select
+            <label className="block text-xs text-text-secondary mb-1">
+              Task class
+            </label>
+            <Select
               value={taskClass}
-              onChange={(e) => setTaskClass(e.target.value)}
-              className="w-full border border-border-default bg-bg-secondary px-3 py-2 text-sm text-text-primary"
+              onValueChange={(val) => {
+                if (val) setTaskClass(val);
+              }}
             >
-              <option value="feature">feature</option>
-              <option value="bugfix">bugfix</option>
-              <option value="refactor">refactor</option>
-              <option value="migration">migration</option>
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="feature">feature</SelectItem>
+                <SelectItem value="bugfix">bugfix</SelectItem>
+                <SelectItem value="refactor">refactor</SelectItem>
+                <SelectItem value="migration">migration</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <div className="flex justify-end gap-2 mt-4">
@@ -878,7 +1146,9 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
   const [presets, setPresets] = useState<PresetRow[]>([]);
   const [editedConfig, setEditedConfig] = useState<TaskConfigType | null>(null);
-  const [selectedPresetId, setSelectedPresetId] = useState<string | undefined>();
+  const [selectedPresetId, setSelectedPresetId] = useState<
+    string | undefined
+  >();
   const [saving, setSaving] = useState(false);
   const [showSaveAsPreset, setShowSaveAsPreset] = useState(false);
 
@@ -909,11 +1179,16 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
       setLoadState({ status: "loaded", detail });
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [taskId]);
 
-  const selectedPreset = presets.find((p) => p.preset_id === selectedPresetId) ?? null;
-  const overrideCount = editedConfig ? countOverrides(editedConfig, selectedPreset) : 0;
+  const selectedPreset =
+    presets.find((p) => p.preset_id === selectedPresetId) ?? null;
+  const overrideCount = editedConfig
+    ? countOverrides(editedConfig, selectedPreset)
+    : 0;
 
   // ── Save ────────────────────────────────────────────────────────────────────
 
@@ -927,7 +1202,10 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
     await fetch(`/api/commands/task/${taskId}/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ config_diff: diff, reason: "User edit via config modal" }),
+      body: JSON.stringify({
+        config_diff: diff,
+        reason: "User edit via config modal",
+      }),
     });
 
     setSaving(false);
@@ -944,7 +1222,11 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
       await fetch("/api/commands/preset/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, task_class: taskClass, config: editedConfig }),
+        body: JSON.stringify({
+          name,
+          task_class: taskClass,
+          config: editedConfig,
+        }),
       });
     },
     [editedConfig],
@@ -961,11 +1243,13 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
   }, []);
 
   const updateGates = useCallback((gates: GateConfig[]) => {
-    setEditedConfig((prev) => prev ? { ...prev, gates } : prev);
+    setEditedConfig((prev) => (prev ? { ...prev, gates } : prev));
   }, []);
 
   const updateRetryPolicy = useCallback((policy: RetryPolicy) => {
-    setEditedConfig((prev) => prev ? { ...prev, retry_policy: policy } : prev);
+    setEditedConfig((prev) =>
+      prev ? { ...prev, retry_policy: policy } : prev,
+    );
   }, []);
 
   // ── Render states ──────────────────────────────────────────────────────────
@@ -1010,9 +1294,15 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
           </button>
 
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-xs font-medium text-text-secondary">Configure task</span>
-            <span className="text-xs text-text-tertiary font-mono">{detail.task_id}</span>
-            <span className="text-sm font-semibold text-text-primary truncate">{detail.title}</span>
+            <span className="text-xs font-medium text-text-secondary">
+              Configure task
+            </span>
+            <span className="text-xs text-text-tertiary font-mono">
+              {detail.task_id}
+            </span>
+            <span className="text-sm font-semibold text-text-primary truncate">
+              {detail.title}
+            </span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -1037,16 +1327,22 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
         {/* ── Preset strip ────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3 border-b border-border-muted px-4 py-2.5 bg-bg-secondary flex-shrink-0">
           <label className="text-xs text-text-secondary">Preset:</label>
-          <select
+          <Select
             value={selectedPresetId ?? ""}
-            onChange={(e) => setSelectedPresetId(e.target.value || undefined)}
-            className="border border-border-default bg-bg-primary px-2 py-1 text-sm text-text-primary"
+            onValueChange={(val) => setSelectedPresetId(val || undefined)}
           >
-            <option value="">— none —</option>
-            {presets.map((p) => (
-              <option key={p.preset_id} value={p.preset_id}>{p.name}</option>
-            ))}
-          </select>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">— none —</SelectItem>
+              {presets.map((p) => (
+                <SelectItem key={p.preset_id} value={p.preset_id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           <span className="rounded-full border border-border-default px-2.5 py-0.5 text-xs text-text-secondary">
             {overrideCount} {overrideCount === 1 ? "override" : "overrides"}
@@ -1067,19 +1363,37 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
             {/* PHASE PIPELINE — horizontal cards with arrows */}
             <section>
               <SectionHeader title="Phase pipeline" />
+              <p className="text-[11px] text-muted-foreground -mt-2 mb-6 max-w-[130ch]">
+                Each task runs through a sequence of phases from left to right.
+                A phase is a single agent invocation.
+              </p>
               <div className="flex items-stretch gap-0">
                 {editedConfig.phases.map((phase, i) => (
-                  <div key={phase.name} className="flex items-stretch flex-1 min-w-0">
+                  <div
+                    key={phase.name}
+                    className="flex items-stretch flex-1 min-w-0"
+                  >
                     <PhaseCard
                       phase={phase}
                       index={i}
-                      presetPhase={selectedPreset?.config.phases.find((p) => p.name === phase.name)}
+                      presetPhase={selectedPreset?.config.phases.find(
+                        (p) => p.name === phase.name,
+                      )}
                       gateNames={editedConfig.gates.map((g) => g.name)}
                       onChange={updatePhase}
                     />
                     {i < editedConfig.phases.length - 1 && (
                       <div className="flex items-center px-3 text-text-tertiary shrink-0">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <svg
+                          width="24"
+                          height="24"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
                           <path d="M5 12h14M13 6l6 6-6 6" />
                         </svg>
                       </div>
@@ -1103,7 +1417,10 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
             <section>
               <RetryPolicySection
                 policy={editedConfig.retry_policy}
-                presetPolicy={selectedPreset?.config.retry_policy ?? editedConfig.retry_policy}
+                presetPolicy={
+                  selectedPreset?.config.retry_policy ??
+                  editedConfig.retry_policy
+                }
                 onChange={updateRetryPolicy}
               />
             </section>
@@ -1116,10 +1433,14 @@ export function TaskConfig({ taskId, onBack }: TaskConfigProps) {
                 presetPolicy={selectedPreset?.config.auto_merge_policy ?? "off"}
                 presetShadowMode={selectedPreset?.config.shadow_mode ?? false}
                 onPolicyChange={(p) =>
-                  setEditedConfig((prev) => prev ? { ...prev, auto_merge_policy: p } : prev)
+                  setEditedConfig((prev) =>
+                    prev ? { ...prev, auto_merge_policy: p } : prev,
+                  )
                 }
                 onShadowModeChange={(v) =>
-                  setEditedConfig((prev) => prev ? { ...prev, shadow_mode: v } : prev)
+                  setEditedConfig((prev) =>
+                    prev ? { ...prev, shadow_mode: v } : prev,
+                  )
                 }
               />
             </section>

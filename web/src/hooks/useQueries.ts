@@ -9,7 +9,7 @@
  */
 
 import { useQuery, useQueries } from "@tanstack/react-query";
-import type { TaskDetailRow, PresetRow, PropositionRow } from "@shared/projections.js";
+import type { TaskDetailRow, PresetRow, PropositionRow, PromptVersionRow } from "@shared/projections.js";
 import type { GateConfig, AnyEvent, TaskStatus } from "@shared/events.js";
 
 /** Statuses where new events are expected — timeline should poll. */
@@ -181,6 +181,28 @@ export function useGraphLayoutQuery(prdId?: string) {
     queryKey: ["graph_layout", prdId ?? "all"],
     queryFn: () => fetchJson<import("@shared/projections.js").GraphLayoutResponse>(url),
     refetchInterval: 5_000,
+  });
+}
+
+// ============================================================================
+// Prompt library
+// ============================================================================
+
+export function usePromptTemplateQuery(promptVersionId: string | undefined) {
+  return useQuery({
+    queryKey: ["prompt_template", promptVersionId],
+    queryFn: () => fetchJson<{ template: string }>(`/api/projections/prompt_template/${promptVersionId}`),
+    enabled: !!promptVersionId,
+    staleTime: Infinity,
+  });
+}
+
+export function usePromptLibraryQuery(phaseClass?: string) {
+  const qs = phaseClass ? `?phase_class=${encodeURIComponent(phaseClass)}` : "";
+  return useQuery({
+    queryKey: ["prompt_library", phaseClass ?? "all"],
+    queryFn: () => fetchJson<PromptVersionRow[]>(`/api/projections/prompt_library${qs}`),
+    staleTime: 30_000,
   });
 }
 
