@@ -10,7 +10,7 @@
  * Injectable fetcher enables unit testing without real HTTP calls.
  */
 
-import { readFileSync, mkdtempSync } from "node:fs";
+import { readFileSync, mkdtempSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -148,7 +148,11 @@ const EXTRACTION_JSON_SCHEMA: object = {
 
 function loadPromptTemplate(): string {
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const promptPath = join(__dirname, "..", "prompts", "ingest-v1.md");
+  // Works in both dev (server/ → ..) and prod (dist/server/ → ../..)
+  const candidate = join(__dirname, "..", "prompts", "ingest-v1.md");
+  const promptPath = existsSync(candidate)
+    ? candidate
+    : join(__dirname, "..", "..", "prompts", "ingest-v1.md");
   return readFileSync(promptPath, "utf-8");
 }
 
@@ -180,11 +184,10 @@ async function callExtractionCli(
     // Codex ingest runs from an empty temp dir (with git init) to prevent
     // the model from reading repo files (e.g. PRD.md) instead of focusing
     // on the PRD content in the prompt.
-    let cwd = getDefaultRepoRoot();
-    if (config.transport === "codex") {
-      cwd = mkdtempSync(join(tmpdir(), "codex-ingest-"));
-      execSync("git init -q", { cwd });
-    }
+    // Run from an empty temp dir (with git init) to prevent the model from
+    // reading repo files instead of focusing on the PRD content in the prompt.
+    const cwd = mkdtempSync(join(tmpdir(), "ingest-"));
+    execSync("git init -q", { cwd });
 
     const baseOpts = {
       invocation_id: invocationId,
@@ -223,10 +226,10 @@ async function callExtractionCli(
         ...baseOpts,
         transport_options: {
           kind: "cli" as const,
-          max_turns: 1,
+          max_turns: 3,
           max_budget_usd: 2,
           permission_mode: "bypassPermissions" as const,
-          disallowed_tools: ["ToolSearch", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "Agent", "Skill", "NotebookEdit"],
+          disallowed_tools: ["ToolSearch", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "Agent", "Skill", "NotebookEdit", "WebSearch", "WebFetch"],
           schema: EXTRACTION_JSON_SCHEMA,
         },
       };
