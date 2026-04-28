@@ -104,6 +104,64 @@ export function Guide() {
       </section>
 
       <section className="mb-8">
+        <h2 className="text-lg font-medium text-text-primary mb-3">
+          Best Practices: Task Configuration
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <h3 className="text-sm font-semibold text-green-400 mb-2">Do</h3>
+            <ul className="space-y-2 text-sm text-text-secondary list-disc list-inside">
+              <li>
+                Start with a preset that matches your use case and customise
+                from there.
+              </li>
+              <li>
+                Enable the auditor phase for critical or complex changes.
+              </li>
+              <li>
+                Configure context policies to include only relevant code —
+                smaller context windows improve quality and reduce cost.
+              </li>
+              <li>
+                Set appropriate retry limits — 2-3 retries is usually
+                sufficient.
+              </li>
+              <li>
+                Use gates to enforce project-specific quality checks (linting,
+                type checking, test passes).
+              </li>
+              <li>
+                Review the dependency graph before running tasks to ensure
+                correct execution order.
+              </li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-red-400 mb-2">Don't</h3>
+            <ul className="space-y-2 text-sm text-text-secondary list-disc list-inside">
+              <li>
+                Enable all phases for trivial changes — the implementer phase
+                alone is often enough.
+              </li>
+              <li>
+                Set token budgets too high — more context does not always mean
+                better results.
+              </li>
+              <li>
+                Skip gate configuration — ungated tasks may produce code that
+                doesn't meet project standards.
+              </li>
+              <li>Use auto-merge without an auditor phase enabled.</li>
+              <li>
+                Ignore cost projections — check the measurement dashboard to
+                understand spend patterns.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section className="mb-8">
         <h2 className="text-lg font-medium text-text-primary mb-3">Glossary</h2>
         <dl className="space-y-4 text-sm">
           <div>
