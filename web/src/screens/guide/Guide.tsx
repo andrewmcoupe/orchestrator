@@ -53,6 +53,57 @@ export function Guide() {
       </section>
 
       <section className="mb-8">
+        <h2 className="text-lg font-medium text-text-primary mb-3">
+          Best Practices: Writing PRDs
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <h3 className="text-sm font-semibold text-green-400 mb-2">Do</h3>
+            <ul className="space-y-2 text-sm text-text-secondary list-disc list-inside">
+              <li>
+                Use the grill-me skill (or similar structured interview process)
+                before writing a PRD.
+              </li>
+              <li>
+                Break requirements into small, atomic statements — each
+                describing one change.
+              </li>
+              <li>Include acceptance criteria for each requirement.</li>
+              <li>
+                Reference specific files or modules when the change location is
+                known.
+              </li>
+              <li>
+                Specify what is out of scope to prevent over-engineering.
+              </li>
+              <li>
+                Include context about why a change is needed, not just what.
+              </li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-red-400 mb-2">Don't</h3>
+            <ul className="space-y-2 text-sm text-text-secondary list-disc list-inside">
+              <li>
+                Write vague, high-level requirements that leave too much to
+                interpretation.
+              </li>
+              <li>Bundle unrelated changes into a single PRD.</li>
+              <li>
+                Assume the LLM knows your project conventions — state them
+                explicitly.
+              </li>
+              <li>Skip edge cases or error handling requirements.</li>
+              <li>
+                Write PRDs longer than necessary — conciseness improves
+                extraction quality.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section className="mb-8">
         <h2 className="text-lg font-medium text-text-primary mb-3">Glossary</h2>
         <dl className="space-y-4 text-sm">
           <div>
