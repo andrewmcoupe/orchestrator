@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   ChevronLeft,
   CheckCircle2,
@@ -39,7 +40,6 @@ import { MergeDialog } from "./MergeDialog.js";
 type ReviewProps = {
   taskId: string;
   attemptId: string;
-  onBack: () => void;
 };
 
 /** Shape of the task_detail REST response used by the review screen */
@@ -434,7 +434,11 @@ function DiffPane({
 // Main component
 // ============================================================================
 
-export function Review({ taskId, attemptId, onBack }: ReviewProps) {
+export function Review({ taskId, attemptId }: ReviewProps) {
+  const navigate = useNavigate();
+  const goBack = useCallback(() => {
+    navigate({ to: "/tasks/$taskId", params: { taskId } });
+  }, [navigate, taskId]);
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   // Per-file parsed diffs, split from the full worktree diff
@@ -623,16 +627,16 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rationale: "Rejected via review UI" }),
-    }).then(onBack);
-  }, [attemptId, onBack]);
+    }).then(goBack);
+  }, [attemptId, goBack]);
 
   const handleRetryWithFeedback = useCallback(() => {
     fetch(`/api/commands/attempt/${attemptId}/retry-with-feedback`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
-    }).then(onBack);
-  }, [attemptId, onBack]);
+    }).then(goBack);
+  }, [attemptId, goBack]);
 
   const handleUnapprove = useCallback(() => {
     fetch(`/api/commands/attempt/${attemptId}/unapprove`, {
@@ -653,7 +657,7 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
   if (loadState.status === "loading") {
     return (
       <div className="flex flex-col h-screen overflow-hidden bg-bg-primary">
-        <ReviewHeader taskTitle="" taskId={taskId} attemptNumber={0} onBack={onBack} />
+        <ReviewHeader taskTitle="" taskId={taskId} attemptNumber={0} onBack={goBack} />
         <LoadingSpinner />
       </div>
     );
@@ -662,8 +666,8 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
   if (loadState.status === "not_found") {
     return (
       <div className="flex flex-col h-screen overflow-hidden bg-bg-primary">
-        <ReviewHeader taskTitle="" taskId={taskId} attemptNumber={0} onBack={onBack} />
-        <NotFound onBack={onBack} />
+        <ReviewHeader taskTitle="" taskId={taskId} attemptNumber={0} onBack={goBack} />
+        <NotFound onBack={goBack} />
       </div>
     );
   }
@@ -717,7 +721,7 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
         taskTitle={taskTitle}
         taskId={taskId}
         attemptNumber={attempt.attempt_number}
-        onBack={onBack}
+        onBack={goBack}
       />
 
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto gap-4 p-4">

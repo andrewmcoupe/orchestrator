@@ -1,5 +1,6 @@
 // @ts-check
 import { useState, useCallback } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -453,12 +454,8 @@ function DraftTaskCard({
 // Main Ingest component
 // ============================================================================
 
-type IngestProps = {
-  /** Navigate back to tasks screen */
-  onBack: () => void;
-};
-
-export function Ingest({ onBack }: IngestProps) {
+export function Ingest() {
+  const navigate = useNavigate();
   const [state, setState] = useState<IngestPhase>({ phase: "idle" });
   const [pathInput, setPathInput] = useState("");
   const [prdContent, setPrdContent] = useState("");
@@ -616,7 +613,7 @@ export function Ingest({ onBack }: IngestProps) {
         });
       }
     },
-    onSuccess: () => onBack(),
+    onSuccess: () => navigate({ to: "/tasks" }),
   });
 
   const handleAccept = useCallback(() => {
@@ -636,7 +633,7 @@ export function Ingest({ onBack }: IngestProps) {
         <div className="flex items-center gap-3 px-6 py-4 border-b border-border-muted">
           <button
             type="button"
-            onClick={onBack}
+            onClick={() => navigate({ to: "/tasks" })}
             className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
           >
             <ArrowLeft size={15} />
@@ -817,7 +814,7 @@ export function Ingest({ onBack }: IngestProps) {
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
-            onClick={onBack}
+            onClick={() => navigate({ to: "/tasks" })}
             className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors cursor-pointer shrink-0"
           >
             <ArrowLeft size={15} />
