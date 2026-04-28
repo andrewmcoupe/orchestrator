@@ -1,3 +1,4 @@
+import { BookOpen } from "lucide-react";
 import { ProviderPill } from "./ProviderPill.js";
 import { ModeToggle } from "./mode-toggle.js";
 import type { ProviderStatus } from "./ProviderPill.js";
@@ -18,6 +19,7 @@ const SECTION_LABELS: Record<Section, string> = {
   providers: "Providers",
   measurement: "Measurement",
   settings: "Settings",
+  guide: "Guide",
 };
 
 export function TopBar({ section, providers, onProviderClick }: TopBarProps) {
@@ -35,8 +37,20 @@ export function TopBar({ section, providers, onProviderClick }: TopBarProps) {
         </span>
       </div>
 
-      {/* Right: theme toggle + provider pills */}
+      {/* Right: help icon + theme toggle + provider pills */}
       <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => { window.location.hash = "#/guide"; }}
+          className={`p-1.5 rounded transition-colors cursor-pointer ${
+            section === "guide"
+              ? "text-text-primary bg-bg-tertiary"
+              : "text-text-tertiary hover:text-text-primary hover:bg-bg-secondary"
+          }`}
+          aria-label="Guide"
+        >
+          <BookOpen size={16} />
+        </button>
         <ModeToggle />
         {providers.map((p) => (
           <ProviderPill

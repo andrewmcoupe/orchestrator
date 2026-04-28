@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 
-export type Section = "tasks" | "prompts" | "providers" | "measurement" | "settings";
+export type Section = "tasks" | "prompts" | "providers" | "measurement" | "settings" | "guide";
 
-const SECTIONS: Section[] = ["tasks", "prompts", "providers", "measurement", "settings"];
+const SECTIONS: Section[] = ["tasks", "prompts", "providers", "measurement", "settings", "guide"];
 
 /** Parse section from location hash, defaulting to "tasks" */
 function parseHash(hash: string): Section {

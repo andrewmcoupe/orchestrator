@@ -5,7 +5,11 @@
  * positioned nodes and routed edges for the frontend to render.
  */
 
-import ELK, { type ElkExtendedEdge } from "elkjs/lib/elk.bundled.js";
+import ELKModule from "elkjs/lib/elk.bundled.js";
+import type { ElkExtendedEdge, ElkNode } from "elkjs/lib/elk.bundled.js";
+
+// elkjs ships a CJS bundle — handle both ESM default wrapping and direct export
+const ELKConstructor = ((ELKModule as any).default ?? ELKModule) as { new (): InstanceType<typeof import("elkjs/lib/elk.bundled.js").default> };
 
 // ============================================================================
 // Types
@@ -136,7 +140,7 @@ export function computeCriticalPath(
 // Layout computation
 // ============================================================================
 
-const elk = new ELK();
+const elk = new ELKConstructor();
 
 /**
  * Compute graph layout using ELK layered algorithm with top-to-bottom direction.
@@ -178,7 +182,7 @@ export async function computeGraphLayout(
 
   const result = await elk.layout(graph);
 
-  const nodes: GraphOutputNode[] = (result.children ?? []).map((child) => ({
+  const nodes: GraphOutputNode[] = (result.children ?? []).map((child: ElkNode) => ({
     id: child.id,
     x: child.x ?? 0,
     y: child.y ?? 0,

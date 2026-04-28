@@ -1856,6 +1856,23 @@ export function reduceAbExperiment(
       }
     }
 
+    case "phase.completed": {
+      // _variant is set by the projection's read() via phase.started lookup.
+      // Only "success" outcomes count as successes.
+      if (!current || !current._variant) return current;
+      const variant = current._variant;
+      if (event.payload.outcome !== "success") return current;
+      if (variant === "A") {
+        const a_success_n = current.a_success_n + 1;
+        const a_success_rate = current.a_n > 0 ? a_success_n / current.a_n : 0;
+        return { ...current, a_success_n, a_success_rate };
+      } else {
+        const b_success_n = current.b_success_n + 1;
+        const b_success_rate = current.b_n > 0 ? b_success_n / current.b_n : 0;
+        return { ...current, b_success_n, b_success_rate };
+      }
+    }
+
     case "auditor.judged": {
       // _variant is set by the projection's read() via prompt_version_id lookup.
       // Only "approve" verdicts count as successes.

@@ -36,6 +36,16 @@ import {
   TooltipContent,
   TooltipProvider,
 } from "@web/src/components/ui/tooltip";
+import {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@web/src/components/ui/dialog";
 
 type TaskDetailPaneProps = {
   detail: TaskDetailRow;
@@ -278,11 +288,13 @@ function ActionButtons({
   attemptId,
   status,
   onMerge,
+  onStart,
 }: {
   taskId: string;
   attemptId?: string;
   status: TaskStatus;
   onMerge?: () => void;
+  onStart?: () => void;
 }) {
   const actions = ACTIONS_BY_STATUS[status] ?? [];
 
@@ -291,6 +303,12 @@ function ActionButtons({
       // Merge opens the confirm dialog instead of firing directly
       if (action === "merge") {
         onMerge?.();
+        return;
+      }
+
+      // Start opens the confirmation dialog
+      if (action === "start") {
+        onStart?.();
         return;
       }
 
@@ -338,7 +356,7 @@ function ActionButtons({
         body: JSON.stringify(body),
       });
     },
-    [taskId, attemptId, onMerge],
+    [taskId, attemptId, onMerge, onStart],
   );
 
   if (actions.length === 0) return null;
@@ -698,6 +716,161 @@ function TaskPreviewPanel({
 }
 
 // ============================================================================
+// Start confirmation dialog
+// ============================================================================
+
+function StartConfirmDialog({
+  taskId,
+  taskTitle,
+  config,
+  propositionIds,
+  open,
+  onOpenChange,
+}: {
+  taskId: string;
+  taskTitle: string;
+  config: TaskConfig;
+  propositionIds: string[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [starting, setStarting] = useState(false);
+
+  const handleConfirm = useCallback(async () => {
+    setStarting(true);
+    await fetch(`/api/commands/task/${taskId}/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    setStarting(false);
+    onOpenChange(false);
+  }, [taskId, onOpenChange]);
+
+  const enabledPhases = config.phases.filter((p) => p.enabled);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Start task</DialogTitle>
+          <DialogDescription>
+            Review the configuration for{" "}
+            <span className="font-medium text-foreground">{taskTitle}</span>{" "}
+            <span className="font-mono text-[10px]">({taskId})</span> before
+            starting.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Phases */}
+          <div>
+            <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+              Phases ({enabledPhases.length})
+            </h4>
+            <div className="space-y-2">
+              {enabledPhases.map((phase) => (
+                <div
+                  key={phase.name}
+                  className="border border-border-muted bg-bg-secondary p-2.5"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-medium text-text-primary">
+                      {phase.name}
+                    </span>
+                    <span className="text-[10px] font-mono text-text-tertiary">
+                      {phase.transport} · {phase.model}
+                    </span>
+                  </div>
+                  {phase.transport_options.kind === "cli" && (
+                    <div className="text-[10px] text-text-tertiary">
+                      max turns: {phase.transport_options.max_turns ?? "∞"} ·
+                      budget: ${phase.transport_options.max_budget_usd ?? "∞"} ·
+                      permission: {phase.transport_options.permission_mode ?? "default"}
+                    </div>
+                  )}
+                  {phase.transport_options.kind === "api" && (
+                    <div className="text-[10px] text-text-tertiary">
+                      max tokens: {phase.transport_options.max_tokens}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Gates */}
+          {config.gates.length > 0 && (
+            <div>
+              <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+                Gates ({config.gates.length})
+              </h4>
+              <div className="space-y-1">
+                {config.gates.map((gate) => (
+                  <div
+                    key={gate.name}
+                    className="flex items-center justify-between text-[11px] px-2 py-1 bg-bg-secondary border border-border-muted"
+                  >
+                    <span className="font-mono text-text-primary">
+                      {gate.name}
+                    </span>
+                    <span className="text-text-tertiary">
+                      {gate.required ? "required" : "optional"} · {gate.timeout_seconds}s · on fail: {gate.on_fail}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Retry policy */}
+          <div>
+            <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+              Retry policy
+            </h4>
+            <div className="text-[11px] text-text-secondary px-2 py-1.5 bg-bg-secondary border border-border-muted">
+              Max attempts: {config.retry_policy.max_total_attempts}
+              {config.auto_merge_policy && config.auto_merge_policy !== "off" && (
+                <span> · auto-merge: {config.auto_merge_policy.replace(/_/g, " ")}</span>
+              )}
+              {config.shadow_mode && <span> · shadow mode</span>}
+            </div>
+          </div>
+
+          {/* Propositions */}
+          {propositionIds.length > 0 && (
+            <div>
+              <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
+                Propositions ({propositionIds.length})
+              </h4>
+              <div className="space-y-1">
+                {propositionIds.map((id) => (
+                  <div
+                    key={id}
+                    className="text-[11px] font-mono text-text-secondary px-2 py-1 bg-bg-secondary border border-border-muted truncate"
+                  >
+                    {id}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>
+            Cancel
+          </DialogClose>
+          <Button onClick={handleConfirm} disabled={starting}>
+            {starting ? "Starting…" : "Confirm & start"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
 // Main component
 // ============================================================================
 
@@ -710,6 +883,7 @@ export function TaskDetailPane({
 }: TaskDetailPaneProps) {
   const enabledPhases = detail.config.phases.filter((p) => p.enabled);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
+  const [showStartDialog, setShowStartDialog] = useState(false);
   const latestAssistantMessage = useLatestAssistantMessage(
     listRow?.current_attempt_id ?? undefined,
   );
@@ -767,6 +941,7 @@ export function TaskDetailPane({
           attemptId={detail.current_attempt_id ?? undefined}
           status={detail.status}
           onMerge={() => setShowMergeDialog(true)}
+          onStart={() => setShowStartDialog(true)}
         />
       </div>
 
@@ -814,6 +989,16 @@ export function TaskDetailPane({
           </Popover>
         </div>
       </div>
+
+      {/* Start confirmation dialog */}
+      <StartConfirmDialog
+        taskId={detail.task_id}
+        taskTitle={detail.title}
+        config={detail.config}
+        propositionIds={detail.proposition_ids}
+        open={showStartDialog}
+        onOpenChange={setShowStartDialog}
+      />
 
       {/* Merge confirmation dialog */}
       {showMergeDialog && (

@@ -18,6 +18,16 @@ import {
   Clock,
 } from "lucide-react";
 import type { PromptVersionRow, AbExperimentRow } from "@shared/projections.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "../../components/ui/dialog.js";
+import { Button } from "../../components/ui/button.js";
 
 // ============================================================================
 // Types
@@ -216,11 +226,12 @@ function TemplateViewer({ templateHash }: TemplateViewerProps) {
 
 interface NewVersionModalProps {
   parent: PromptVersionRow;
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onCreated: () => void;
 }
 
-function NewVersionModal({ parent, onClose, onCreated }: NewVersionModalProps) {
+function NewVersionModal({ parent, open, onOpenChange, onCreated }: NewVersionModalProps) {
   const [template, setTemplate] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -228,11 +239,13 @@ function NewVersionModal({ parent, onClose, onCreated }: NewVersionModalProps) {
 
   useEffect(() => {
     // Pre-fill with parent template as a starting point
-    fetch(`/api/blobs/${parent.template_hash}`)
-      .then((r) => (r.ok ? r.text() : ""))
-      .then(setTemplate)
-      .catch(() => {});
-  }, [parent.template_hash]);
+    if (open) {
+      fetch(`/api/blobs/${parent.template_hash}`)
+        .then((r) => (r.ok ? r.text() : ""))
+        .then(setTemplate)
+        .catch(() => {});
+    }
+  }, [parent.template_hash, open]);
 
   const handleSave = async () => {
     if (!template.trim()) return;
@@ -257,7 +270,7 @@ function NewVersionModal({ parent, onClose, onCreated }: NewVersionModalProps) {
         );
       }
       onCreated();
-      onClose();
+      onOpenChange(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -266,78 +279,65 @@ function NewVersionModal({ parent, onClose, onCreated }: NewVersionModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-surface-primary border border-white/10 w-[640px] max-h-[80vh] flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>New version</DialogTitle>
+          <DialogDescription>
+            Fork of <code className="font-mono">{parent.name}</code>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2">
           <div>
-            <h3 className="text-sm font-semibold text-text-primary">New version</h3>
-            <p className="text-xs text-text-tertiary mt-0.5">
-              Fork of{" "}
-              <code className="font-mono">{parent.name}</code>
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-text-tertiary hover:text-text-primary text-xs px-2 py-1 hover:bg-white/5"
-          >
-            Cancel
-          </button>
-        </div>
-        <div className="flex-1 p-4 overflow-auto space-y-3">
-          <div>
-            <label className="text-xs text-text-secondary mb-1 block">Template</label>
+            <label className="text-xs text-muted-foreground mb-1 block">Template</label>
             <textarea
-              className="w-full h-64 text-xs font-mono bg-surface-secondary border border-white/10 p-3 text-text-primary resize-none focus:outline-none focus:border-amber-500/50"
+              className="w-full h-64 text-xs font-mono bg-muted border border-border p-3 text-foreground resize-none focus:outline-none focus:border-ring"
               value={template}
               onChange={(e) => setTemplate(e.target.value)}
               placeholder="Edit the prompt template…"
             />
           </div>
           <div>
-            <label className="text-xs text-text-secondary mb-1 block">
+            <label className="text-xs text-muted-foreground mb-1 block">
               Notes (optional)
             </label>
             <input
               type="text"
-              className="w-full text-xs bg-surface-secondary border border-white/10 px-3 py-2 text-text-primary focus:outline-none focus:border-amber-500/50"
+              className="w-full text-xs bg-muted border border-border px-3 py-2 text-foreground focus:outline-none focus:border-ring"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="What changed?"
             />
           </div>
-          {error && <p className="text-xs text-danger">{error}</p>}
+          {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-white/10">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 text-xs border border-white/10 text-text-secondary hover:bg-white/5"
-          >
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </DialogClose>
+          <Button
             onClick={handleSave}
             disabled={saving || !template.trim()}
-            className="px-3 py-1.5 text-xs bg-amber-500 text-black font-medium hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? "Saving…" : "Create version"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 interface StartAbModalProps {
   promptA: PromptVersionRow;
   allPrompts: PromptVersionRow[];
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onCreated: () => void;
 }
 
-function StartAbModal({ promptA, allPrompts, onClose, onCreated }: StartAbModalProps) {
+function StartAbModal({ promptA, allPrompts, open, onOpenChange, onCreated }: StartAbModalProps) {
   const candidates = allPrompts.filter(
     (p) =>
       p.prompt_version_id !== promptA.prompt_version_id &&
@@ -373,7 +373,7 @@ function StartAbModal({ promptA, allPrompts, onClose, onCreated }: StartAbModalP
         );
       }
       onCreated();
-      onClose();
+      onOpenChange(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -382,43 +382,40 @@ function StartAbModal({ promptA, allPrompts, onClose, onCreated }: StartAbModalP
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-surface-primary border border-white/10 w-96 shadow-2xl">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-          <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             <FlaskConical size={14} /> Start A/B experiment
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-text-tertiary hover:text-text-primary text-xs px-2 py-1 hover:bg-white/5"
-          >
-            ✕
-          </button>
-        </div>
-        <div className="p-4 space-y-3">
+          </DialogTitle>
+          <DialogDescription>
+            Compare two prompt variants head-to-head with a 50/50 traffic split.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2">
           <div>
-            <label className="text-xs text-text-secondary mb-1 block">
+            <label className="text-xs text-muted-foreground mb-1 block">
               Variant A (selected)
             </label>
-            <div className="text-xs text-text-primary px-3 py-2 bg-surface-secondary border border-white/10">
+            <div className="text-xs text-foreground px-3 py-2 bg-muted border border-border">
               {promptA.name}{" "}
-              <code className="text-text-tertiary font-mono ml-1">
+              <code className="text-muted-foreground font-mono ml-1">
                 {promptA.template_hash.slice(0, 8)}
               </code>
             </div>
           </div>
           <div>
-            <label className="text-xs text-text-secondary mb-1 block">Variant B</label>
+            <label className="text-xs text-muted-foreground mb-1 block">Variant B</label>
             {candidates.length === 0 ? (
-              <p className="text-xs text-warning">
+              <p className="text-xs text-destructive">
                 No other active prompts for phase{" "}
                 <strong>{promptA.phase_class}</strong>. Create another version
                 first.
               </p>
             ) : (
               <select
-                className="w-full text-xs bg-surface-secondary border border-white/10 px-3 py-2 text-text-primary focus:outline-none focus:border-amber-500/50"
+                className="w-full text-xs bg-muted border border-border px-3 py-2 text-foreground focus:outline-none focus:border-ring"
                 value={variantBId}
                 onChange={(e) => setVariantBId(e.target.value)}
               >
@@ -430,27 +427,22 @@ function StartAbModal({ promptA, allPrompts, onClose, onCreated }: StartAbModalP
               </select>
             )}
           </div>
-          {error && <p className="text-xs text-danger">{error}</p>}
+          {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-white/10">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 text-xs border border-white/10 text-text-secondary hover:bg-white/5"
-          >
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </DialogClose>
+          <Button
             onClick={handleCreate}
             disabled={saving || !variantBId || candidates.length === 0}
-            className="px-3 py-1.5 text-xs bg-amber-500 text-black font-medium hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? "Creating…" : "Start experiment"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1085,21 +1077,23 @@ export function Prompts() {
       )}
 
       {/* Modals */}
-      {showNewVersion && selectedRow && (
+      {selectedRow && (
         <NewVersionModal
           parent={selectedRow}
-          onClose={() => setShowNewVersion(false)}
+          open={showNewVersion}
+          onOpenChange={setShowNewVersion}
           onCreated={() => {
             refetch();
             refetchExp();
           }}
         />
       )}
-      {showStartAb && selectedRow && (
+      {selectedRow && (
         <StartAbModal
           promptA={selectedRow}
           allPrompts={rows}
-          onClose={() => setShowStartAb(false)}
+          open={showStartAb}
+          onOpenChange={setShowStartAb}
           onCreated={() => {
             refetch();
             refetchExp();
