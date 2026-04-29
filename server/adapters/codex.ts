@@ -106,7 +106,7 @@ export type SpawnerContext = {
 export type Spawner = (
   cmd: string,
   args: string[],
-  opts: { cwd: string; stdinData?: string },
+  opts: { cwd: string; stdinData?: string; signal?: AbortSignal },
   context?: SpawnerContext,
 ) => AsyncIterable<string>;
 
@@ -117,7 +117,7 @@ export type Spawner = (
 async function* execaSpawner(
   cmd: string,
   args: string[],
-  opts: { cwd: string; stdinData?: string },
+  opts: { cwd: string; stdinData?: string; signal?: AbortSignal },
   context?: SpawnerContext,
 ): AsyncIterable<string> {
   const proc = execa(cmd, args, {
@@ -126,6 +126,7 @@ async function* execaSpawner(
     stdout: "pipe",
     stderr: "pipe",
     reject: false,
+    ...(opts.signal ? { cancelSignal: opts.signal, gracefulCancel: true } : {}),
   });
 
   // Pipe prompt to stdin if provided
@@ -609,6 +610,7 @@ export async function* invoke(
   opts: InvokeOptions,
   blobStore: BlobStore,
   spawner: Spawner = execaSpawner,
+  signal?: AbortSignal,
 ): AsyncIterable<AppendEventInput> {
   const startedAt = Date.now();
   const args = buildArgs(opts);
@@ -623,7 +625,7 @@ export async function* invoke(
   >();
 
   try {
-    for await (const rawLine of spawner("codex", args, { cwd: opts.cwd, stdinData: opts.prompt }, spawnerCtx)) {
+    for await (const rawLine of spawner("codex", args, { cwd: opts.cwd, stdinData: opts.prompt, signal }, spawnerCtx)) {
       let parsed: CodexLine;
       try {
         parsed = JSON.parse(rawLine) as CodexLine;

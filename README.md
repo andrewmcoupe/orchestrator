@@ -62,6 +62,63 @@ ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 ```
 
+## Writing a PRD
+
+The orchestrator ingests PRDs as markdown. Each `##` section becomes a separate task that gets implemented independently in its own git worktree.
+
+### Recommended: use the PRD generation skill
+
+Install the [generate-orchestrator-prd](https://github.com/andrewmcoupe/ai-skills/tree/main/generate-orchestrator-prd) skill for Claude Code:
+
+```bash
+npx skills@latest add andrewmcoupe/ai-skills/generate-orchestrator-prd
+```
+
+Then in Claude Code:
+
+```
+/generate-orchestrator-prd
+```
+
+This will grill you on every aspect of your plan — scope, edge cases, data model, dependencies — resolving each branch of the decision tree before generating a `PRD.md` optimised for the orchestrator's ingest system.
+
+### PRD structure
+
+If writing a PRD manually, follow this structure:
+
+```markdown
+# Feature title
+
+## Overview
+
+Brief summary of what this feature does and why.
+
+## Add rate limiter middleware
+
+- Apply to all /api/* routes
+- Use a sliding window of 100 requests per minute per IP
+- Return 429 with a Retry-After header when exceeded
+
+## Add rate limit headers to responses
+
+- X-RateLimit-Limit: max requests per window
+- X-RateLimit-Remaining: requests left
+- X-RateLimit-Reset: UTC epoch when the window resets
+
+## Implementation Touchpoints
+
+| File | Change |
+|---|---|
+| `src/middleware/rateLimit.ts` | New rate limiter middleware |
+| `src/app.ts` | Mount middleware on /api/* routes |
+
+## Out of Scope
+
+- Per-user rate limits (IP-based only for now)
+```
+
+Each `##` section should be specific, testable, and self-contained — the agent implementing it only sees that section and the codebase.
+
 ## Development
 
 ```bash

@@ -29,10 +29,10 @@ function TabsTrigger({
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
       className={cn(
-        "px-4 py-2 text-sm font-medium text-text-secondary transition-colors cursor-pointer",
+        "px-4 py-2 text-sm font-medium text-text-tertiary transition-colors cursor-pointer",
         "border-b-2 border-transparent -mb-px",
-        "hover:text-text-primary",
-        "data-[selected]:text-text-primary data-[selected]:border-text-primary",
+        "hover:text-text-secondary",
+        "data-[selected]:text-text-primary data-[selected]:border-text-primary data-[selected]:font-semibold",
         className,
       )}
       {...props}

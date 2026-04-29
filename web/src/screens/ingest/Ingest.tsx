@@ -1,7 +1,8 @@
 // @ts-check
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Folder, File } from "lucide-react";
 import {
   ArrowLeft,
   RefreshCw,
@@ -10,6 +11,8 @@ import {
   HelpCircle,
   FileText,
   Info,
+  Copy,
+  Check,
 } from "lucide-react";
 import {
   Tooltip,
@@ -123,6 +126,184 @@ function confidenceBar(confidence: number) {
 
 function fileName(path: string): string {
   return path.split("/").pop() ?? path;
+}
+
+const SKILL_COMMAND =
+  "npx skills@latest add andrewmcoupe/ai-skills/generate-orchestrator-prd";
+
+function SkillHint() {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(SKILL_COMMAND);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, []);
+
+  return (
+    <div className="mb-4 border border-border-muted bg-bg-secondary px-4 py-3">
+      <p className="text-xs text-text-secondary mb-2">
+        <span className="font-medium text-text-primary">Tip:</span> For best
+        results, use the skill below to generate an orchestrator-optimised PRD.
+      </p>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 text-[11px] font-mono text-text-secondary bg-bg-tertiary px-2.5 py-1.5 overflow-x-auto">
+          {SKILL_COMMAND}
+        </code>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="shrink-0 flex items-center justify-center h-7 w-7 border border-border-default bg-bg-primary text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+          title="Copy command"
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// PathAutocomplete — file path input with filesystem suggestions
+// ============================================================================
+
+type FsSuggestion = { name: string; path: string; isDir: boolean };
+
+function PathAutocomplete({
+  value,
+  onChange,
+  onSubmit,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const suggestQuery = useQuery({
+    queryKey: ["fs_suggest", value],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/fs/suggest?q=${encodeURIComponent(value)}`,
+      );
+      if (!res.ok) return { entries: [] as FsSuggestion[] };
+      return res.json() as Promise<{ entries: FsSuggestion[] }>;
+    },
+    enabled: value.length > 0 && open,
+    staleTime: 5_000,
+  });
+
+  const entries = suggestQuery.data?.entries ?? [];
+
+  useEffect(() => {
+    setSelectedIndex(-1);
+  }, [entries]);
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (
+        wrapperRef.current &&
+        !wrapperRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const pick = useCallback(
+    (entry: FsSuggestion) => {
+      onChange(entry.isDir ? entry.path + "/" : entry.path);
+      setOpen(entry.isDir);
+    },
+    [onChange],
+  );
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!open || entries.length === 0) {
+        if (e.key === "Enter") onSubmit();
+        return;
+      }
+
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          setSelectedIndex((i) => Math.min(i + 1, entries.length - 1));
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setSelectedIndex((i) => Math.max(i - 1, 0));
+          break;
+        case "Tab":
+        case "Enter":
+          if (selectedIndex >= 0 && selectedIndex < entries.length) {
+            e.preventDefault();
+            pick(entries[selectedIndex]);
+          } else if (e.key === "Enter") {
+            onSubmit();
+          }
+          break;
+        case "Escape":
+          setOpen(false);
+          break;
+      }
+    },
+    [open, entries, selectedIndex, pick, onSubmit],
+  );
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => value.length > 0 && setOpen(true)}
+        onKeyDown={handleKeyDown}
+        placeholder="/absolute/path/to/your-prd.md"
+        disabled={disabled}
+        className="w-full border border-border-default bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-text-secondary transition-colors font-mono disabled:opacity-50"
+      />
+      {open && entries.length > 0 && (
+        <ul className="absolute z-50 left-0 right-0 top-full mt-1 max-h-48 overflow-y-auto border border-border-default bg-bg-primary shadow-lg">
+          {entries.map((entry, i) => (
+            <li key={entry.path}>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pick(entry);
+                }}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left cursor-pointer ${
+                  i === selectedIndex
+                    ? "bg-bg-tertiary text-text-primary"
+                    : "text-text-secondary hover:bg-bg-secondary"
+                }`}
+              >
+                {entry.isDir ? (
+                  <Folder size={14} className="shrink-0 text-text-tertiary" />
+                ) : (
+                  <File size={14} className="shrink-0 text-text-tertiary" />
+                )}
+                <span className="font-mono text-xs truncate">
+                  {entry.name}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 // ============================================================================
@@ -474,7 +655,10 @@ export function Ingest() {
     queryFn: async () => {
       const res = await fetch("/api/config/ingest");
       if (!res.ok) throw new Error("Failed to load ingest config");
-      return res.json() as Promise<{ transport?: IngestTransport; model?: string }>;
+      return res.json() as Promise<{
+        transport?: IngestTransport;
+        model?: string;
+      }>;
     },
     staleTime: Infinity,
   });
@@ -497,7 +681,10 @@ export function Ingest() {
   // --------------------------------------------------------------------------
 
   const ingestMutation = useMutation({
-    mutationFn: async (input: { body: Record<string, unknown>; label: string }) => {
+    mutationFn: async (input: {
+      body: Record<string, unknown>;
+      label: string;
+    }) => {
       const ingestRes = await fetch("/api/commands/prd/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -537,7 +724,12 @@ export function Ingest() {
       return { result, pushbacks, label: input.label };
     },
     onSuccess: (data) => {
-      setState({ phase: "review", result: data.result, pushbacks: data.pushbacks, path: data.label });
+      setState({
+        phase: "review",
+        result: data.result,
+        pushbacks: data.pushbacks,
+        path: data.label,
+      });
       setResolvedPushbacks(new Set());
       setError(null);
     },
@@ -563,11 +755,32 @@ export function Ingest() {
   }, [activeTab, prdContent, pathInput, transport, model, ingestMutation]);
 
   // --------------------------------------------------------------------------
+  // Cancel ingest
+  // --------------------------------------------------------------------------
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      await fetch("/api/commands/prd/ingest/cancel", { method: "POST" });
+    },
+    onSuccess: () => {
+      setState({ phase: "idle" });
+      setError(null);
+    },
+  });
+
+  const handleCancel = useCallback(() => {
+    cancelMutation.mutate();
+  }, [cancelMutation]);
+
+  // --------------------------------------------------------------------------
   // Pushback resolution
   // --------------------------------------------------------------------------
 
   const resolvePushbackMutation = useMutation({
-    mutationFn: async (input: { pushbackId: string; body: Record<string, unknown> }) => {
+    mutationFn: async (input: {
+      pushbackId: string;
+      body: Record<string, unknown>;
+    }) => {
       await fetch(`/api/commands/pushback/${input.pushbackId}/resolve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -581,11 +794,7 @@ export function Ingest() {
   });
 
   const handleResolvePushback = useCallback(
-    (
-      pushbackId: string,
-      resolution: PushbackResolution,
-      text?: string,
-    ) => {
+    (pushbackId: string, resolution: PushbackResolution, text?: string) => {
       const body: Record<string, unknown> = { resolution };
       if (text && resolution === "amended")
         body.amended_proposition_text = text;
@@ -656,11 +865,10 @@ export function Ingest() {
                 <h2 className="text-lg font-semibold text-text-primary">
                   Ingest a PRD
                 </h2>
-                <p className="text-sm text-text-secondary">
-                  Enter the server-side path to your PRD markdown file.
-                </p>
               </div>
             </div>
+
+            <SkillHint />
 
             {error && (
               <div className="mb-4 border border-status-danger/30 bg-status-danger/5 px-4 py-3">
@@ -680,19 +888,12 @@ export function Ingest() {
               </TabsList>
 
               <TabsPanel value="path">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={pathInput}
-                    onChange={(e) => setPathInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !isLoading) void handleIngest();
-                    }}
-                    placeholder="/absolute/path/to/your-prd.md"
-                    disabled={isLoading}
-                    className="flex-1 border border-border-default bg-bg-secondary px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary outline-none focus:border-text-secondary transition-colors font-mono disabled:opacity-50"
-                  />
-                </div>
+                <PathAutocomplete
+                  value={pathInput}
+                  onChange={setPathInput}
+                  onSubmit={() => !isLoading && void handleIngest()}
+                  disabled={isLoading}
+                />
               </TabsPanel>
 
               <TabsPanel value="content">
@@ -709,7 +910,9 @@ export function Ingest() {
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-text-secondary">Transport</span>
+                <span className="text-xs font-medium text-text-secondary">
+                  Transport
+                </span>
                 <select
                   value={transport ?? ""}
                   onChange={(e) => {
@@ -726,7 +929,9 @@ export function Ingest() {
               </label>
 
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-text-secondary">Model</span>
+                <span className="text-xs font-medium text-text-secondary">
+                  Model
+                </span>
                 <select
                   value={model ?? ""}
                   onChange={(e) => setModel(e.target.value)}
@@ -746,7 +951,13 @@ export function Ingest() {
               <button
                 type="button"
                 onClick={() => void handleIngest()}
-                disabled={isLoading || !configLoaded || (activeTab === "path" ? !pathInput.trim() : !prdContent.trim())}
+                disabled={
+                  isLoading ||
+                  !configLoaded ||
+                  (activeTab === "path"
+                    ? !pathInput.trim()
+                    : !prdContent.trim())
+                }
                 className="w-full border border-transparent bg-bg-inverse px-5 py-2.5 text-sm font-medium text-text-inverse hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer disabled:cursor-default"
               >
                 {isLoading ? (
@@ -761,9 +972,20 @@ export function Ingest() {
             </div>
 
             {isLoading && (
-              <p className="mt-3 text-xs text-text-tertiary text-center">
-                Extracting propositions from {fileName(state.path)} via {transport ?? "…"}…
-              </p>
+              <div className="mt-3 text-center">
+                <p className="text-xs text-text-tertiary mb-2">
+                  Extracting propositions from {fileName(state.path)} via{" "}
+                  {transport ?? "…"}…
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleCancel()}
+                  disabled={cancelMutation.isPending}
+                  className="text-xs text-text-secondary hover:text-text-primary transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {cancelMutation.isPending ? "Cancelling…" : "Cancel"}
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -864,7 +1086,9 @@ export function Ingest() {
         <span>·</span>
         <span>
           model:{" "}
-          <span className="font-mono text-text-primary">{model ?? "unknown"}</span>
+          <span className="font-mono text-text-primary">
+            {model ?? "unknown"}
+          </span>
         </span>
         <span>·</span>
         <span>

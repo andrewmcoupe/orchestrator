@@ -127,7 +127,7 @@ export type SpawnerContext = {
 export type Spawner = (
   cmd: string,
   args: string[],
-  opts: { cwd: string },
+  opts: { cwd: string; signal?: AbortSignal },
   context?: SpawnerContext,
 ) => AsyncIterable<string>;
 
@@ -148,7 +148,7 @@ export const PERMISSION_HANG_TIMEOUT_MS = 10_000;
 async function* execaSpawner(
   cmd: string,
   args: string[],
-  opts: { cwd: string },
+  opts: { cwd: string; signal?: AbortSignal },
   context?: SpawnerContext,
 ): AsyncIterable<string> {
   const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
@@ -160,6 +160,7 @@ async function* execaSpawner(
     stdout: "pipe",
     stderr: "pipe",
     reject: false, // handle errors ourselves
+    ...(opts.signal ? { cancelSignal: opts.signal, gracefulCancel: true } : {}),
   });
 
   const stdout = proc.stdout;
@@ -708,6 +709,7 @@ export async function* invoke(
   opts: InvokeOptions,
   blobStore: BlobStore,
   spawner: Spawner = execaSpawner,
+  signal?: AbortSignal,
 ): AsyncIterable<AppendEventInput> {
   const startedAt = Date.now();
   const args = buildArgs(opts);
@@ -733,7 +735,7 @@ export async function* invoke(
   let bufferedCompleted: AppendEventInput<"invocation.completed"> | null = null;
 
   try {
-    for await (const rawLine of spawner("claude", args, { cwd: opts.cwd }, spawnerCtx)) {
+    for await (const rawLine of spawner("claude", args, { cwd: opts.cwd, signal }, spawnerCtx)) {
       // Accumulate last ~4KB of stdout
       stdoutTailBuf = (stdoutTailBuf + rawLine + "\n").slice(-4096);
 
