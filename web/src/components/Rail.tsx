@@ -42,7 +42,7 @@ export function Rail() {
 
       {/* Version tag at bottom */}
       <div className="px-4 py-3 text-xs text-text-tertiary">
-        v0.1.0 · dev
+        v{__APP_VERSION__} · dev
       </div>
     </nav>
   );
