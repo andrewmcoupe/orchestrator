@@ -4,7 +4,9 @@
  */
 import { Hono } from "hono";
 import { z } from "zod";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 import { appendAndProject, rebuildProjection } from "../projectionRunner.js";
 import { listGates, registerGate, clearGateRegistry, loadGateRegistry } from "../gates/registry.js";
@@ -13,7 +15,10 @@ import type { ProjectionName } from "@shared/projections.js";
 import { getDbPath, getCredentialsPath, getDefaultRepoRoot } from "../paths.js";
 
 const DEFAULT_ACTOR: Actor = { kind: "user", user_id: "local" };
-const VERSION = "0.1.0";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const VERSION = JSON.parse(
+  readFileSync(path.resolve(__dirname, "../../package.json"), "utf8"),
+).version as string;
 
 const DB_PATH = getDbPath();
 
