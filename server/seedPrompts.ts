@@ -14,6 +14,7 @@ import type Database from "better-sqlite3";
 import type { BlobStore } from "./blobStore.js";
 import { putBlob } from "./blobStore.js";
 import { appendAndProject } from "./projectionRunner.js";
+import { getPromptsDir } from "./paths.js";
 
 // ============================================================================
 // Filename convention: {phaseClass}-v{N}.md
@@ -67,11 +68,15 @@ export function discoverPromptFiles(promptsDir: string): PromptFileMeta[] {
 const SEED_ACTOR = { kind: "system" as const, component: "gate_runner" as const };
 
 /**
- * Returns the default prompts directory bundled with the package.
+ * Returns the prompts directory to seed from.
+ * Prefers the user-editable copy at .orchestrator/prompts/ (scaffolded on
+ * first run), falling back to the bundled prompts/ shipped with the package.
  */
 export function getPackagePromptsDir(): string {
-  // Works in both dev (server/seedPrompts.ts → ..) and
-  // prod (dist/server/seedPrompts.js → ../..)
+  const localDir = getPromptsDir();
+  if (fs.existsSync(localDir)) return localDir;
+
+  // Fallback to bundled prompts
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const candidate = path.join(__dirname, "..", "prompts");
   if (fs.existsSync(candidate)) return candidate;
