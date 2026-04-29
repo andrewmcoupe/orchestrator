@@ -64,7 +64,7 @@ describe("NoProvidersBanner", () => {
     expect(screen.queryByTestId("no-providers-banner")).toBeNull();
   });
 
-  it("renders when all providers are unavailable", () => {
+  it("renders when all providers have auth_present=false and status=down", () => {
     setStoreState(
       [
         makeRow({ provider_id: "claude-code", auth_present: false, status: "down" }),
@@ -76,6 +76,18 @@ describe("NoProvidersBanner", () => {
     expect(screen.getByTestId("no-providers-banner")).toBeTruthy();
     expect(screen.getByText("No AI providers available.")).toBeTruthy();
     expect(screen.getByText("Open provider settings")).toBeTruthy();
+  });
+
+  it("renders when all providers have auth_present=false and status=degraded", () => {
+    setStoreState(
+      [
+        makeRow({ provider_id: "claude-code", auth_present: false, status: "degraded" }),
+        makeRow({ provider_id: "anthropic-api", transport: "anthropic-api", auth_present: false, status: "degraded" }),
+      ],
+      true,
+    );
+    render(<NoProvidersBanner />);
+    expect(screen.getByTestId("no-providers-banner")).toBeTruthy();
   });
 
   it("does not render when any provider has auth_present=true", () => {
