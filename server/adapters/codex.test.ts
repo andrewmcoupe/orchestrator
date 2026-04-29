@@ -7,7 +7,7 @@
  *   3. Full invoke() pipeline via an injected fake spawner
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -18,7 +18,6 @@ import {
   type InvokeOptions,
   type CodexLine,
   type Spawner,
-  type SpawnerContext,
   type TranslateContext,
 } from "./codex.js";
 import type { BlobStore } from "../blobStore.js";
@@ -38,7 +37,10 @@ function makeBlobStore(): BlobStore & { stored: Map<string, string> } {
         ? content.toString("hex").slice(0, 8)
         : String(content).slice(0, 8);
       const hash = "a".repeat(64 - key.length) + key;
-      stored.set(hash, Buffer.isBuffer(content) ? content.toString() : String(content));
+      stored.set(
+        hash,
+        Buffer.isBuffer(content) ? content.toString() : String(content),
+      );
       return { hash };
     },
     getBlob(hash) {
@@ -80,17 +82,37 @@ function makeCtx(overrides?: Partial<TranslateContext>): TranslateContext {
 
 describe("model pricing", () => {
   it("includes the required OpenAI model entries", () => {
-    expect(MODEL_PRICING["o3"]).toMatchObject({ input_per_1m: 2.0, output_per_1m: 8.0 });
-    expect(MODEL_PRICING["o4-mini"]).toMatchObject({ input_per_1m: 1.1, output_per_1m: 4.4 });
-    expect(MODEL_PRICING["gpt-4.1"]).toMatchObject({ input_per_1m: 2.0, output_per_1m: 8.0 });
-    expect(MODEL_PRICING["gpt-4.1-mini"]).toMatchObject({ input_per_1m: 0.4, output_per_1m: 1.6 });
-    expect(MODEL_PRICING["gpt-4.1-nano"]).toMatchObject({ input_per_1m: 0.1, output_per_1m: 0.4 });
-    expect(MODEL_PRICING["o3-pro"]).toMatchObject({ input_per_1m: 20.0, output_per_1m: 80.0 });
+    expect(MODEL_PRICING["o3"]).toMatchObject({
+      input_per_1m: 2.0,
+      output_per_1m: 8.0,
+    });
+    expect(MODEL_PRICING["o4-mini"]).toMatchObject({
+      input_per_1m: 1.1,
+      output_per_1m: 4.4,
+    });
+    expect(MODEL_PRICING["gpt-4.1"]).toMatchObject({
+      input_per_1m: 2.0,
+      output_per_1m: 8.0,
+    });
+    expect(MODEL_PRICING["gpt-4.1-mini"]).toMatchObject({
+      input_per_1m: 0.4,
+      output_per_1m: 1.6,
+    });
+    expect(MODEL_PRICING["gpt-4.1-nano"]).toMatchObject({
+      input_per_1m: 0.1,
+      output_per_1m: 0.4,
+    });
+    expect(MODEL_PRICING["o3-pro"]).toMatchObject({
+      input_per_1m: 20.0,
+      output_per_1m: 80.0,
+    });
   });
 
   it("prefers the most specific prefix for versioned model IDs", () => {
     expect(computeCost("o3-pro-2025-06-10", 1_000_000, 1_000_000)).toBe(100);
-    expect(computeCost("gpt-4.1-mini-2025-04-14", 1_000_000, 1_000_000)).toBe(2);
+    expect(computeCost("gpt-4.1-mini-2025-04-14", 1_000_000, 1_000_000)).toBe(
+      2,
+    );
   });
 });
 
@@ -102,9 +124,13 @@ describe("buildArgs", () => {
   afterEach(() => {
     // Clean up any temp schema files
     const tmpDir = os.tmpdir();
-    const files = fs.readdirSync(tmpDir).filter(f => f.startsWith("codex-schema-"));
+    const files = fs
+      .readdirSync(tmpDir)
+      .filter((f) => f.startsWith("codex-schema-"));
     for (const f of files) {
-      try { fs.unlinkSync(path.join(tmpDir, f)); } catch {}
+      try {
+        fs.unlinkSync(path.join(tmpDir, f));
+      } catch {}
     }
   });
 
@@ -139,7 +165,10 @@ describe("buildArgs", () => {
   it("includes --full-auto when permission_mode is auto", () => {
     const opts: InvokeOptions = {
       ...baseOpts,
-      transport_options: { ...baseOpts.transport_options, permission_mode: "auto" },
+      transport_options: {
+        ...baseOpts.transport_options,
+        permission_mode: "auto",
+      },
     };
     const args = buildArgs(opts);
     expect(args).toContain("--full-auto");
@@ -148,7 +177,10 @@ describe("buildArgs", () => {
   it("includes --dangerously-bypass-approvals-and-sandbox when permission_mode is bypassPermissions", () => {
     const opts: InvokeOptions = {
       ...baseOpts,
-      transport_options: { ...baseOpts.transport_options, permission_mode: "bypassPermissions" },
+      transport_options: {
+        ...baseOpts.transport_options,
+        permission_mode: "bypassPermissions",
+      },
     };
     const args = buildArgs(opts);
     expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
@@ -158,7 +190,10 @@ describe("buildArgs", () => {
   it("includes --sandbox read-only --ask-for-approval untrusted when permission_mode is plan", () => {
     const opts: InvokeOptions = {
       ...baseOpts,
-      transport_options: { ...baseOpts.transport_options, permission_mode: "plan" },
+      transport_options: {
+        ...baseOpts.transport_options,
+        permission_mode: "plan",
+      },
     };
     const args = buildArgs(opts);
     expect(args).toContain("--sandbox");
@@ -170,7 +205,10 @@ describe("buildArgs", () => {
   it("includes --sandbox read-only --ask-for-approval untrusted when permission_mode is default", () => {
     const opts: InvokeOptions = {
       ...baseOpts,
-      transport_options: { ...baseOpts.transport_options, permission_mode: "default" },
+      transport_options: {
+        ...baseOpts.transport_options,
+        permission_mode: "default",
+      },
     };
     const args = buildArgs(opts);
     expect(args).toContain("--sandbox");
@@ -179,7 +217,10 @@ describe("buildArgs", () => {
   });
 
   it("appends --output-schema <path> when schema is provided", () => {
-    const schema = { type: "object", properties: { result: { type: "string" } } };
+    const schema = {
+      type: "object",
+      properties: { result: { type: "string" } },
+    };
     const opts: InvokeOptions = {
       ...baseOpts,
       transport_options: { ...baseOpts.transport_options, schema },
@@ -218,7 +259,11 @@ describe("translateLine", () => {
 
   // AC1: thread.started → invocation.started
   it("AC1: translates thread.started into invocation.started", () => {
-    const line: CodexLine = { type: "thread.started", thread_id: "t-1", model: "o3" };
+    const line: CodexLine = {
+      type: "thread.started",
+      thread_id: "t-1",
+      model: "o3",
+    };
     const inputs = translateLine(line, baseOpts, bs);
     expect(inputs).toHaveLength(1);
     expect(inputs[0].type).toBe("invocation.started");
@@ -267,7 +312,13 @@ describe("translateLine", () => {
     const ctx = makeCtx({ itemStartTimes: { "cmd-1": Date.now() - 500 } });
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "command_execution", id: "cmd-1", command: "npm test", output: "ok", exit_code: 0 },
+      item: {
+        type: "command_execution",
+        id: "cmd-1",
+        command: "npm test",
+        output: "ok",
+        exit_code: 0,
+      },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs).toHaveLength(1);
@@ -284,7 +335,13 @@ describe("translateLine", () => {
     const ctx = makeCtx();
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "command_execution", id: "cmd-2", command: "false", output: "error msg", exit_code: 1 },
+      item: {
+        type: "command_execution",
+        id: "cmd-2",
+        command: "false",
+        output: "error msg",
+        exit_code: 1,
+      },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs).toHaveLength(1);
@@ -311,7 +368,11 @@ describe("translateLine", () => {
   it("AC5: translates item.started (file_change) to invocation.tool_called", () => {
     const line: CodexLine = {
       type: "item.started",
-      item: { type: "file_change", id: "fc-1", changes: [{ path: "src/index.ts", kind: "update" }] },
+      item: {
+        type: "file_change",
+        id: "fc-1",
+        changes: [{ path: "src/index.ts", kind: "update" }],
+      },
     };
     const ctx = makeCtx();
     const inputs = translateLine(line, baseOpts, bs, ctx);
@@ -325,7 +386,9 @@ describe("translateLine", () => {
     // Args should be stored in blob store
     expect(bs.stored.size).toBe(1);
     const storedValue = [...bs.stored.values()][0];
-    expect(JSON.parse(storedValue)).toMatchObject({ changes: [{ path: "src/index.ts", kind: "update" }] });
+    expect(JSON.parse(storedValue)).toMatchObject({
+      changes: [{ path: "src/index.ts", kind: "update" }],
+    });
   });
 
   // AC6: item.completed for file_change → invocation.tool_returned + invocation.file_edited
@@ -333,7 +396,11 @@ describe("translateLine", () => {
     const ctx = makeCtx({ itemStartTimes: { "fc-1": Date.now() - 200 } });
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "file_change", id: "fc-1", changes: [{ path: "src/index.ts", kind: "update" }] },
+      item: {
+        type: "file_change",
+        id: "fc-1",
+        changes: [{ path: "src/index.ts", kind: "update" }],
+      },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs).toHaveLength(2);
@@ -358,17 +425,28 @@ describe("translateLine", () => {
     const ctx = makeCtx();
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "file_change", id: "fc-2", changes: [{ path: "new-file.ts", kind: "add" }] },
+      item: {
+        type: "file_change",
+        id: "fc-2",
+        changes: [{ path: "new-file.ts", kind: "add" }],
+      },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
-    expect(inputs[1].payload).toMatchObject({ path: "new-file.ts", operation: "create" });
+    expect(inputs[1].payload).toMatchObject({
+      path: "new-file.ts",
+      operation: "create",
+    });
   });
 
   it("AC6: file_change with kind=add emits file_edited with lines_added=0 (line counts deferred to phase diff)", () => {
     const ctx = makeCtx();
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "file_change", id: "fc-content", changes: [{ path: "new-file.ts", kind: "add" }] },
+      item: {
+        type: "file_change",
+        id: "fc-content",
+        changes: [{ path: "new-file.ts", kind: "add" }],
+      },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs[1].payload).toMatchObject({
@@ -383,10 +461,17 @@ describe("translateLine", () => {
     const ctx = makeCtx();
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "file_change", id: "fc-3", changes: [{ path: "old-file.ts", kind: "delete" }] },
+      item: {
+        type: "file_change",
+        id: "fc-3",
+        changes: [{ path: "old-file.ts", kind: "delete" }],
+      },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
-    expect(inputs[1].payload).toMatchObject({ path: "old-file.ts", operation: "delete" });
+    expect(inputs[1].payload).toMatchObject({
+      path: "old-file.ts",
+      operation: "delete",
+    });
   });
 
   it("AC6: file_change with multiple changes emits one file_edited per change", () => {
@@ -405,8 +490,14 @@ describe("translateLine", () => {
     const inputs = translateLine(line, baseOpts, bs, ctx);
     // 1 tool_returned + 2 file_edited
     expect(inputs).toHaveLength(3);
-    expect(inputs[1].payload).toMatchObject({ path: "a.ts", operation: "create" });
-    expect(inputs[2].payload).toMatchObject({ path: "b.ts", operation: "update" });
+    expect(inputs[1].payload).toMatchObject({
+      path: "a.ts",
+      operation: "create",
+    });
+    expect(inputs[2].payload).toMatchObject({
+      path: "b.ts",
+      operation: "update",
+    });
   });
 
   // AC7: item.completed for agent_message → invocation.assistant_message
@@ -414,7 +505,11 @@ describe("translateLine", () => {
     const ctx = makeCtx();
     const line: CodexLine = {
       type: "item.completed",
-      item: { type: "agent_message", id: "msg-1", text: "I've made the changes." },
+      item: {
+        type: "agent_message",
+        id: "msg-1",
+        text: "I've made the changes.",
+      },
     };
     const inputs = translateLine(line, baseOpts, bs, ctx);
     expect(inputs).toHaveLength(1);
@@ -456,7 +551,9 @@ describe("translateLine", () => {
       exit_reason: "normal",
     });
     // duration_ms should be reasonable
-    expect((inputs[0].payload as InvocationCompleted).duration_ms).toBeGreaterThan(0);
+    expect(
+      (inputs[0].payload as InvocationCompleted).duration_ms,
+    ).toBeGreaterThan(0);
   });
 
   it("computes cost_usd from model pricing instead of using cost_usd from the event", () => {
@@ -480,7 +577,12 @@ describe("translateLine", () => {
       turn_id: "turn-1",
       usage: { input_tokens: 10, output_tokens: 5 },
     };
-    const inputs = translateLine(line, { ...baseOpts, model: "unknown-model" }, bs, ctx);
+    const inputs = translateLine(
+      line,
+      { ...baseOpts, model: "unknown-model" },
+      bs,
+      ctx,
+    );
     expect((inputs[0].payload as InvocationCompleted).cost_usd).toBe(0);
   });
 
@@ -499,9 +601,19 @@ describe("translateLine", () => {
 
   it("AC8: turn count increments across multiple turn.completed events", () => {
     const ctx = makeCtx();
-    translateLine({ type: "turn.completed", turn_id: "turn-1" } as CodexLine, baseOpts, bs, ctx);
+    translateLine(
+      { type: "turn.completed", turn_id: "turn-1" } as CodexLine,
+      baseOpts,
+      bs,
+      ctx,
+    );
     expect(ctx.turnCount).toBe(1);
-    const inputs = translateLine({ type: "turn.completed", turn_id: "turn-2" } as CodexLine, baseOpts, bs, ctx);
+    const inputs = translateLine(
+      { type: "turn.completed", turn_id: "turn-2" } as CodexLine,
+      baseOpts,
+      bs,
+      ctx,
+    );
     expect(ctx.turnCount).toBe(2);
     expect((inputs[0].payload as any).turns).toBe(2);
   });
@@ -537,17 +649,27 @@ describe("invoke", () => {
     const lines: string[] = [
       JSON.stringify({ type: "thread.started", thread_id: "t-1", model: "o3" }),
       JSON.stringify({ type: "turn.started", turn_id: "turn-1" }),
-      JSON.stringify({ type: "item.completed", item: { type: "agent_message", id: "msg-1", text: "Done!" } }),
+      JSON.stringify({
+        type: "item.completed",
+        item: { type: "agent_message", id: "msg-1", text: "Done!" },
+      }),
       JSON.stringify({
         type: "turn.completed",
         turn_id: "turn-1",
-        usage: { input_tokens: 10, output_tokens: 5, cached_input_tokens: 3, reasoning_output_tokens: 2 },
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cached_input_tokens: 3,
+          reasoning_output_tokens: 2,
+        },
         cost_usd: 0.001,
       }),
     ];
 
     const fakeSpawner: Spawner = async function* (_cmd, _args, _opts) {
-      for (const line of lines) yield line;
+      for (const line of lines) {
+        yield line;
+      }
     };
 
     const events = [];
@@ -569,8 +691,12 @@ describe("invoke", () => {
   });
 
   it("yields errored + completed when spawner throws, with classified exit_reason", async () => {
+    // oxlint-disable-next-line require-yield
     const fakeSpawner: Spawner = async function* () {
-      throw Object.assign(new Error("codex crashed"), { exitCode: 137, signal: "SIGKILL" });
+      throw Object.assign(new Error("codex crashed"), {
+        exitCode: 137,
+        signal: "SIGKILL",
+      });
     };
 
     const events = [];
@@ -589,6 +715,7 @@ describe("invoke", () => {
   });
 
   it("AC6: classifies timeout from exit code 124", async () => {
+    // oxlint-disable-next-line require-yield
     const fakeSpawner: Spawner = async function* () {
       throw Object.assign(new Error("timed out"), { exitCode: 124 });
     };
@@ -603,6 +730,7 @@ describe("invoke", () => {
   });
 
   it("AC6: classifies network error from stderr", async () => {
+    // oxlint-disable-next-line require-yield
     const fakeSpawner: Spawner = async function* () {
       throw Object.assign(new Error("connection failed"), {
         exitCode: 1,
@@ -628,9 +756,19 @@ describe("invoke", () => {
       }),
       JSON.stringify({
         type: "item.completed",
-        item: { type: "command_execution", id: "cmd-fail", command: "false", output: "command failed", exit_code: 1 },
+        item: {
+          type: "command_execution",
+          id: "cmd-fail",
+          command: "false",
+          output: "command failed",
+          exit_code: 1,
+        },
       }),
-      JSON.stringify({ type: "turn.completed", turn_id: "turn-1", usage: { input_tokens: 5, output_tokens: 3 } }),
+      JSON.stringify({
+        type: "turn.completed",
+        turn_id: "turn-1",
+        usage: { input_tokens: 5, output_tokens: 3 },
+      }),
     ];
 
     const fakeSpawner: Spawner = async function* (_cmd, _args, _opts) {
@@ -643,13 +781,15 @@ describe("invoke", () => {
     }
 
     // Should have: started, tool_called, tool_returned (error), completed (success)
-    const toolReturned = events.find(e => e.type === "invocation.tool_returned");
+    const toolReturned = events.find(
+      (e) => e.type === "invocation.tool_returned",
+    );
     expect(toolReturned).toBeDefined();
     expect((toolReturned!.payload as any).success).toBe(false);
     expect((toolReturned!.payload as any).error).toBe("command failed");
 
     // The adapter should still complete successfully (not crash)
-    const completed = events.find(e => e.type === "invocation.completed");
+    const completed = events.find((e) => e.type === "invocation.completed");
     expect(completed).toBeDefined();
     expect((completed!.payload as InvocationCompleted).outcome).toBe("success");
   });
@@ -678,8 +818,19 @@ describe("invoke", () => {
   it("records item start times for duration calculation", async () => {
     const lines = [
       JSON.stringify({ type: "thread.started", thread_id: "t-1", model: "o3" }),
-      JSON.stringify({ type: "item.started", item: { type: "command_execution", id: "cmd-1", command: "ls" } }),
-      JSON.stringify({ type: "item.completed", item: { type: "command_execution", id: "cmd-1", command: "ls", exit_code: 0 } }),
+      JSON.stringify({
+        type: "item.started",
+        item: { type: "command_execution", id: "cmd-1", command: "ls" },
+      }),
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          type: "command_execution",
+          id: "cmd-1",
+          command: "ls",
+          exit_code: 0,
+        },
+      }),
       JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
 
@@ -729,8 +880,22 @@ describe("invoke", () => {
   it("file_change item.completed emits tool_returned + file_edited in invoke", async () => {
     const lines = [
       JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
-      JSON.stringify({ type: "item.started", item: { type: "file_change", id: "fc-1", changes: [{ path: "hello.ts", kind: "add" }] } }),
-      JSON.stringify({ type: "item.completed", item: { type: "file_change", id: "fc-1", changes: [{ path: "hello.ts", kind: "add" }] } }),
+      JSON.stringify({
+        type: "item.started",
+        item: {
+          type: "file_change",
+          id: "fc-1",
+          changes: [{ path: "hello.ts", kind: "add" }],
+        },
+      }),
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          type: "file_change",
+          id: "fc-1",
+          changes: [{ path: "hello.ts", kind: "add" }],
+        },
+      }),
       JSON.stringify({ type: "turn.completed", turn_id: "turn-1" }),
     ];
 

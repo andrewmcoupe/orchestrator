@@ -18,7 +18,7 @@
  * All tests use injectable no-op deps so no real CLI or API is invoked.
  */
 
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
@@ -34,10 +34,8 @@ import {
   runAttempt,
   isAttemptRunning,
   getActiveAttemptId,
-  pauseAttempt,
   killAttempt,
   type PhaseRunnerDeps,
-  type RunAttemptOptions,
 } from "./phaseRunner.js";
 import type { Actor, TaskConfig, AnyEvent } from "@shared/events.js";
 import type Database from "better-sqlite3";
@@ -172,17 +170,6 @@ function post(
   });
 }
 
-/** Wait for a condition to become true (polls every 10ms). */
-async function waitFor(
-  condition: () => boolean,
-  timeoutMs = 2000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 // ============================================================================
 // Tests

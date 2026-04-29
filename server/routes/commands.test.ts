@@ -19,7 +19,6 @@ import { ingestPrd } from "../ingest.js";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
-import { Hono } from "hono";
 import { createDb } from "../db.js";
 import { runMigrations } from "../eventStore.js";
 import {

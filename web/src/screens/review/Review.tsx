@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   ChevronLeft,
   CheckCircle2,
@@ -27,9 +28,17 @@ import {
   GitMerge,
   Undo2,
 } from "lucide-react";
-import type { AttemptRow, AuditSummary, GateRunSummary, PhaseRunSummary } from "@shared/projections.js";
+import type {
+  AttemptRow,
+  AuditSummary,
+  GateRunSummary,
+  PhaseRunSummary,
+} from "@shared/projections.js";
 import type { AuditConcern, TaskStatus } from "@shared/events.js";
-import { useTaskDetail, useLatestAssistantMessage } from "../../store/eventStore.js";
+import {
+  useTaskDetail,
+  useLatestAssistantMessage,
+} from "../../store/eventStore.js";
 import { MergeDialog } from "./MergeDialog.js";
 
 // ============================================================================
@@ -39,7 +48,6 @@ import { MergeDialog } from "./MergeDialog.js";
 type ReviewProps = {
   taskId: string;
   attemptId: string;
-  onBack: () => void;
 };
 
 /** Shape of the task_detail REST response used by the review screen */
@@ -100,7 +108,11 @@ function parseUnifiedDiff(raw: string): DiffLine[] {
     } else if (line.startsWith("+") && !line.startsWith("+++")) {
       result.push({ kind: "add", content: line.slice(1), newLine: newLine++ });
     } else if (line.startsWith("-") && !line.startsWith("---")) {
-      result.push({ kind: "remove", content: line.slice(1), oldLine: oldLine++ });
+      result.push({
+        kind: "remove",
+        content: line.slice(1),
+        oldLine: oldLine++,
+      });
     } else if (line.startsWith("\\")) {
       // "No newline at end of file" — skip
     } else if (line.length > 0) {
@@ -167,9 +179,11 @@ const VERDICT_CONFIG = {
 
 const CONCERN_CATEGORY_CLS: Record<AuditConcern["category"], string> = {
   correctness: "bg-status-danger/10 text-status-danger border-status-danger/30",
-  completeness: "bg-status-warning/10 text-status-warning border-status-warning/30",
+  completeness:
+    "bg-status-warning/10 text-status-warning border-status-warning/30",
   security: "bg-status-danger/10 text-status-danger border-status-danger/30",
-  performance: "bg-status-warning/10 text-status-warning border-status-warning/30",
+  performance:
+    "bg-status-warning/10 text-status-warning border-status-warning/30",
   style: "bg-bg-tertiary text-text-secondary border-border-muted",
   nit: "bg-bg-tertiary text-text-tertiary border-border-muted",
 };
@@ -186,7 +200,8 @@ const CONCERN_SEVERITY_CLS: Record<AuditConcern["severity"], string> = {
 const GATE_STATUS_CLS: Record<GateRunSummary["status"], string> = {
   passed: "bg-status-healthy/10 text-status-healthy border-status-healthy/30",
   failed: "bg-status-danger/10 text-status-danger border-status-danger/30",
-  timed_out: "bg-status-warning/10 text-status-warning border-status-warning/30",
+  timed_out:
+    "bg-status-warning/10 text-status-warning border-status-warning/30",
   running: "bg-status-warning/10 text-status-warning border-status-warning/30",
   pending: "bg-bg-tertiary text-text-secondary border-border-muted",
   skipped: "bg-bg-tertiary text-text-tertiary border-border-muted",
@@ -231,7 +246,11 @@ function formatTimeAgo(isoTs: string): string {
 
 function LoadingSpinner() {
   return (
-    <div className="flex flex-1 items-center justify-center" role="status" aria-label="Loading">
+    <div
+      className="flex flex-1 items-center justify-center"
+      role="status"
+      aria-label="Loading"
+    >
       <div className="h-6 w-6 rounded-full border-2 border-text-tertiary border-t-transparent animate-spin" />
     </div>
   );
@@ -259,13 +278,12 @@ function VerdictCard({ audit }: { audit: AuditSummary }) {
   const Icon = cfg.icon;
 
   return (
-    <div
-      data-testid="verdict-card"
-      className={`border p-4 ${cfg.cardCls}`}
-    >
+    <div data-testid="verdict-card" className={`border p-4 ${cfg.cardCls}`}>
       <div className="flex items-center gap-2 mb-2">
         <Icon size={18} className={cfg.textCls} />
-        <span className={`text-base font-semibold capitalize ${cfg.textCls}`}>{cfg.label}</span>
+        <span className={`text-base font-semibold capitalize ${cfg.textCls}`}>
+          {cfg.label}
+        </span>
         <span className="ml-auto text-sm text-text-secondary">
           {Math.round(audit.confidence * 100)}% confidence
         </span>
@@ -279,9 +297,14 @@ function VerdictCard({ audit }: { audit: AuditSummary }) {
         <ol className="mt-3 space-y-2">
           {audit.concerns.map((c, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: concerns are ordered and stable
-            <li key={i} className="flex flex-col gap-1 pl-2 border-l-2 border-border-muted">
+            <li
+              key={i}
+              className="flex flex-col gap-1 pl-2 border-l-2 border-border-muted"
+            >
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs text-text-tertiary font-mono">#{i + 1}</span>
+                <span className="text-xs text-text-tertiary font-mono">
+                  #{i + 1}
+                </span>
                 <span
                   className={`text-xs px-1.5 py-0.5 border ${CONCERN_CATEGORY_CLS[c.category]}`}
                 >
@@ -317,15 +340,21 @@ function PhaseStrip({ phases }: { phases: Record<string, PhaseRunSummary> }) {
   if (entries.length === 0) return null;
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-xs text-text-tertiary font-medium uppercase tracking-wider">Phases</span>
+      <span className="text-xs text-text-tertiary font-medium uppercase tracking-wider">
+        Phases
+      </span>
       {entries.map((phase) => (
         <div
           key={phase.phase_name}
           className="flex items-center gap-1.5 px-2 py-1 border border-border-muted bg-bg-secondary text-xs"
         >
-          <span className="text-text-secondary capitalize">{phase.phase_name}</span>
+          <span className="text-text-secondary capitalize">
+            {phase.phase_name}
+          </span>
           {phase.model && (
-            <span className="text-text-tertiary font-mono">{phase.model.split("/").pop()}</span>
+            <span className="text-text-tertiary font-mono">
+              {phase.model.split("/").pop()}
+            </span>
           )}
           {phase.ab_variant && (
             <span
@@ -346,7 +375,9 @@ function GatesStrip({ gates }: { gates: GateRunSummary[] }) {
   if (gates.length === 0) return null;
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-xs text-text-tertiary font-medium uppercase tracking-wider">Gates</span>
+      <span className="text-xs text-text-tertiary font-medium uppercase tracking-wider">
+        Gates
+      </span>
       {gates.map((g) => (
         <span
           key={g.gate_run_id}
@@ -392,7 +423,8 @@ function DiffPane({
         if (line.kind === "header") {
           cls += " text-text-tertiary bg-bg-secondary";
         } else if (line.kind === "hunk") {
-          cls += " text-text-secondary bg-bg-tertiary border-y border-border-muted";
+          cls +=
+            " text-text-secondary bg-bg-tertiary border-y border-border-muted";
         } else if (line.kind === "add") {
           cls += " bg-status-healthy/8 text-status-healthy";
           prefix = "+";
@@ -403,23 +435,35 @@ function DiffPane({
           cls += " text-text-secondary";
         }
 
-        const newLineNo = line.kind === "add" || line.kind === "context" ? line.newLine : undefined;
-        const inlineConcerns = newLineNo !== undefined ? (concernsByLine.get(newLineNo) ?? []) : [];
+        const newLineNo =
+          line.kind === "add" || line.kind === "context"
+            ? line.newLine
+            : undefined;
+        const inlineConcerns =
+          newLineNo !== undefined ? (concernsByLine.get(newLineNo) ?? []) : [];
 
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional
           <div key={idx}>
             <div className={cls}>
               <span className="select-none text-text-tertiary mr-2">
-                {newLineNo !== undefined ? String(newLineNo).padStart(4) : "    "}
+                {newLineNo !== undefined
+                  ? String(newLineNo).padStart(4)
+                  : "    "}
               </span>
               <span className="select-none mr-1">{prefix}</span>
               <span>{line.content}</span>
             </div>
             {inlineConcerns.map((c, ci) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: concerns per line are positional
-              <div key={ci} className="flex items-start gap-2 px-4 py-1.5 bg-status-warning/5 border-l-2 border-status-warning text-xs">
-                <MessageSquareWarning size={12} className="text-status-warning mt-0.5 shrink-0" />
+              <div
+                key={ci}
+                className="flex items-start gap-2 px-4 py-1.5 bg-status-warning/5 border-l-2 border-status-warning text-xs"
+              >
+                <MessageSquareWarning
+                  size={12}
+                  className="text-status-warning mt-0.5 shrink-0"
+                />
                 <span className="text-text-primary">{c.rationale}</span>
               </div>
             ))}
@@ -434,16 +478,24 @@ function DiffPane({
 // Main component
 // ============================================================================
 
-export function Review({ taskId, attemptId, onBack }: ReviewProps) {
+export function Review({ taskId, attemptId }: ReviewProps) {
+  const navigate = useNavigate();
+  const goBack = useCallback(() => {
+    navigate({ to: "/tasks/$taskId", params: { taskId } });
+  }, [navigate, taskId]);
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   // Per-file parsed diffs, split from the full worktree diff
   const [fileDiffs, setFileDiffs] = useState<Record<string, DiffLine[]>>({});
   const [diffLoading, setDiffLoading] = useState(false);
   // Empty-attempt fallback: the attempt number whose diff we're actually showing
-  const [effectiveAttemptNumber, setEffectiveAttemptNumber] = useState<number | null>(null);
+  const [effectiveAttemptNumber, setEffectiveAttemptNumber] = useState<
+    number | null
+  >(null);
   // null = not determined yet, "none" = no prior non-empty attempt exists
-  const [emptyBannerState, setEmptyBannerState] = useState<"none" | "fallback" | null>(null);
+  const [emptyBannerState, setEmptyBannerState] = useState<
+    "none" | "fallback" | null
+  >(null);
 
   // Current HEAD branch — polled every 3s when task is in 'approved' state
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
@@ -479,7 +531,7 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
 
       const attempt: AttemptRow = await attemptRes.json();
       const taskDetailRaw: LoadedTaskDetail | null = taskRes.ok
-        ? (await taskRes.json() as LoadedTaskDetail)
+        ? ((await taskRes.json()) as LoadedTaskDetail)
         : null;
 
       const taskTitle = taskDetailRaw?.title ?? taskId;
@@ -501,7 +553,9 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
       // Determine which attempt's diff to show.
       // Prefer the current attempt's diff_hash (which captures the full branch
       // diff from base_sha) even when the attempt itself is "empty" (no new edits).
-      const phaseEntries = Object.values(attempt.phases) as Array<{ diff_hash?: string }>;
+      const phaseEntries = Object.values(attempt.phases) as Array<{
+        diff_hash?: string;
+      }>;
       const diffHash = phaseEntries.reduce<string | undefined>(
         (acc, p) => p.diff_hash ?? acc,
         undefined,
@@ -528,13 +582,17 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
         } else if (effectiveId !== attemptId) {
           if (!cancelled) setDiffLoading(true);
           try {
-            const effRes = await fetch(`/api/projections/attempt/${effectiveId}`);
+            const effRes = await fetch(
+              `/api/projections/attempt/${effectiveId}`,
+            );
             if (effRes.ok && !cancelled) {
               const effAttempt: AttemptRow = await effRes.json();
               setEmptyBannerState("fallback");
               setEffectiveAttemptNumber(effAttempt.attempt_number);
 
-              const effPhases = Object.values(effAttempt.phases) as Array<{ diff_hash?: string }>;
+              const effPhases = Object.values(effAttempt.phases) as Array<{
+                diff_hash?: string;
+              }>;
               const effDiffHash = effPhases.reduce<string | undefined>(
                 (acc, p) => p.diff_hash ?? acc,
                 undefined,
@@ -570,9 +628,7 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
     loadState.status === "loaded" ? loadState.taskDetail : null;
 
   const taskStatus: TaskStatus =
-    storeDetail?.status ??
-    taskDetail?.status ??
-    "awaiting_review";
+    storeDetail?.status ?? taskDetail?.status ?? "awaiting_review";
 
   // ── Poll current branch every 3s when task is in 'approved' state ─────────
 
@@ -623,16 +679,16 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rationale: "Rejected via review UI" }),
-    }).then(onBack);
-  }, [attemptId, onBack]);
+    }).then(goBack);
+  }, [attemptId, goBack]);
 
   const handleRetryWithFeedback = useCallback(() => {
     fetch(`/api/commands/attempt/${attemptId}/retry-with-feedback`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
-    }).then(onBack);
-  }, [attemptId, onBack]);
+    }).then(goBack);
+  }, [attemptId, goBack]);
 
   const handleUnapprove = useCallback(() => {
     fetch(`/api/commands/attempt/${attemptId}/unapprove`, {
@@ -646,14 +702,17 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
     setShowMergeDialog(true);
   }, []);
 
-
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (loadState.status === "loading") {
     return (
       <div className="flex flex-col h-screen overflow-hidden bg-bg-primary">
-        <ReviewHeader taskTitle="" taskId={taskId} attemptNumber={0} onBack={onBack} />
+        <ReviewHeader
+          taskTitle=""
+          taskId={taskId}
+          attemptNumber={0}
+          onBack={goBack}
+        />
         <LoadingSpinner />
       </div>
     );
@@ -662,8 +721,13 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
   if (loadState.status === "not_found") {
     return (
       <div className="flex flex-col h-screen overflow-hidden bg-bg-primary">
-        <ReviewHeader taskTitle="" taskId={taskId} attemptNumber={0} onBack={onBack} />
-        <NotFound onBack={onBack} />
+        <ReviewHeader
+          taskTitle=""
+          taskId={taskId}
+          attemptNumber={0}
+          onBack={goBack}
+        />
+        <NotFound onBack={goBack} />
       </div>
     );
   }
@@ -686,14 +750,15 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
   // since invocation.file_edited events may have 0/0 counts (e.g. Codex
   // stages changes internally so git diff HEAD returns nothing).
   const diffFiles = Object.keys(fileDiffs);
-  const fileTabs = diffFiles.length > 0
-    ? diffFiles.map((path) => {
-        const lines = fileDiffs[path];
-        const added = lines.filter((l) => l.kind === "add").length;
-        const removed = lines.filter((l) => l.kind === "remove").length;
-        return { path, lines_added: added, lines_removed: removed };
-      })
-    : attempt.files_changed;
+  const fileTabs =
+    diffFiles.length > 0
+      ? diffFiles.map((path) => {
+          const lines = fileDiffs[path];
+          const added = lines.filter((l) => l.kind === "add").length;
+          const removed = lines.filter((l) => l.kind === "remove").length;
+          return { path, lines_added: added, lines_removed: removed };
+        })
+      : attempt.files_changed;
 
   // Main phases summary
   const phaseEntries = Object.values(attempt.phases) as PhaseRunSummary[];
@@ -717,14 +782,16 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
         taskTitle={taskTitle}
         taskId={taskId}
         attemptNumber={attempt.attempt_number}
-        onBack={onBack}
+        onBack={goBack}
       />
 
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto gap-4 p-4">
         {/* ── Meta strip ────────────────────────────────────────────────── */}
         <div className="flex items-center gap-4 text-xs text-text-secondary flex-wrap bg-bg-secondary border border-border-muted px-3 py-2">
           {phaseEntries.length > 0 && (
-            <span className="font-mono">{phaseEntries[0].model?.split("/").pop()}</span>
+            <span className="font-mono">
+              {phaseEntries[0].model?.split("/").pop()}
+            </span>
           )}
           {attempt.duration_ms && (
             <span className="flex items-center gap-1">
@@ -749,27 +816,33 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
         {attempt.config_snapshot?.shadow_mode &&
           attempt.config_snapshot?.auto_merge_policy &&
           attempt.config_snapshot.auto_merge_policy !== "off" && (
-          <div
-            data-testid="would-auto-merge-note"
-            className="border border-purple-500/25 bg-purple-500/5 px-4 py-2.5 text-sm text-purple-300 flex items-center gap-2"
-          >
-            <span className="shrink-0 text-purple-400">~</span>
-            This task <strong>would have auto-merged</strong> under policy{" "}
-            <code className="font-mono text-xs text-purple-400">
-              {attempt.config_snapshot.auto_merge_policy}
-            </code>{" "}
-            — shadow mode is active.
-          </div>
-        )}
+            <div
+              data-testid="would-auto-merge-note"
+              className="border border-purple-500/25 bg-purple-500/5 px-4 py-2.5 text-sm text-purple-300 flex items-center gap-2"
+            >
+              <span className="shrink-0 text-purple-400">~</span>
+              This task <strong>would have auto-merged</strong> under policy{" "}
+              <code className="font-mono text-xs text-purple-400">
+                {attempt.config_snapshot.auto_merge_policy}
+              </code>{" "}
+              — shadow mode is active.
+            </div>
+          )}
 
         {/* ── No-changes explanation banner ─────────────────────────────── */}
         {(attempt.empty || attempt.outcome === "no_changes") && !audit && (
           <div className="border border-status-muted/30 bg-status-muted/5 px-4 py-3 flex items-start gap-3">
-            <AlertTriangle size={16} className="text-status-muted shrink-0 mt-0.5" />
+            <AlertTriangle
+              size={16}
+              className="text-status-muted shrink-0 mt-0.5"
+            />
             <div className="text-sm space-y-1.5">
-              <p className="font-medium text-text-primary">No changes were made</p>
+              <p className="font-medium text-text-primary">
+                No changes were made
+              </p>
               <p className="text-text-secondary leading-relaxed">
-                The implementer completed without producing file changes. The auditor was skipped because there was nothing to review.
+                The implementer completed without producing file changes. The
+                auditor was skipped because there was nothing to review.
               </p>
             </div>
           </div>
@@ -793,7 +866,8 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
             data-testid="empty-attempt-banner"
             className="border border-status-warning/25 bg-status-warning/5 px-4 py-2.5 text-sm text-status-warning"
           >
-            This attempt made no changes. Showing diff from attempt #{effectiveAttemptNumber}.
+            This attempt made no changes. Showing diff from attempt #
+            {effectiveAttemptNumber}.
           </div>
         )}
         {emptyBannerState === "none" && (
@@ -808,8 +882,12 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
         {/* ── Implementer's last message ──────────────────────────────────── */}
         {lastAssistantMessage && (
           <div className="border border-border-muted bg-bg-secondary px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wider text-text-tertiary mb-1.5">Implementer</p>
-            <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">{lastAssistantMessage}</p>
+            <p className="text-[11px] uppercase tracking-wider text-text-tertiary mb-1.5">
+              Implementer
+            </p>
+            <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
+              {lastAssistantMessage}
+            </p>
           </div>
         )}
 
@@ -838,10 +916,13 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
             </div>
 
             {/* Diff pane */}
-            {selectedFile && (
-              diffLoading ? (
+            {selectedFile &&
+              (diffLoading ? (
                 <div className="flex items-center justify-center h-24">
-                  <div className="h-4 w-4 rounded-full border border-text-tertiary border-t-transparent animate-spin" role="status" />
+                  <div
+                    className="h-4 w-4 rounded-full border border-text-tertiary border-t-transparent animate-spin"
+                    role="status"
+                  />
                 </div>
               ) : fileDiffs[selectedFile] ? (
                 <DiffPane
@@ -853,8 +934,7 @@ export function Review({ taskId, attemptId, onBack }: ReviewProps) {
                 <div className="text-xs text-text-tertiary p-3 bg-bg-secondary border border-border-muted">
                   Diff not available for this file.
                 </div>
-              )
-            )}
+              ))}
           </div>
         )}
       </div>
@@ -919,9 +999,13 @@ function ReviewHeader({
       <div className="h-4 w-px bg-border-muted" />
 
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-xs font-mono text-text-tertiary shrink-0">{taskId}</span>
+        <span className="text-xs font-mono text-text-tertiary shrink-0">
+          {taskId}
+        </span>
         {taskTitle && (
-          <span className="text-sm text-text-primary font-medium truncate">{taskTitle}</span>
+          <span className="text-sm text-text-primary font-medium truncate">
+            {taskTitle}
+          </span>
         )}
       </div>
 
@@ -944,7 +1028,7 @@ function ReviewHeader({
 function AwaitingReviewFooter({
   verdict,
   confidence,
-  verdictConfig,
+  verdictConfig: _verdictConfig,
   onApprove,
   onReject,
   onRetryWithFeedback,
@@ -986,16 +1070,18 @@ function AwaitingReviewFooter({
         Reject task
       </button>
 
-{verdict && (verdict !== "approve" || (confidence != null && confidence < 0.95)) && (
-        <button
-          type="button"
-          onClick={onRetryWithFeedback}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${retryAccent}`}
-        >
-          <RefreshCcw size={14} />
-          Retry with feedback
-        </button>
-      )}
+      {verdict &&
+        (verdict !== "approve" ||
+          (confidence != null && confidence < 0.95)) && (
+          <button
+            type="button"
+            onClick={onRetryWithFeedback}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${retryAccent}`}
+          >
+            <RefreshCcw size={14} />
+            Retry with feedback
+          </button>
+        )}
 
       <button
         type="button"
@@ -1014,7 +1100,6 @@ function AwaitingReviewFooter({
 // ============================================================================
 
 function ApprovedFooter({
-  taskId,
   currentBranch,
   approvedAt,
   onMerge,
@@ -1041,7 +1126,9 @@ function ApprovedFooter({
         <CheckCircle2 size={13} className="text-purple-400 shrink-0" />
         <span className="text-purple-300 font-medium">Approved</span>
         {approvedAt && (
-          <span className="text-text-tertiary">{formatTimeAgo(approvedAt)}</span>
+          <span className="text-text-tertiary">
+            {formatTimeAgo(approvedAt)}
+          </span>
         )}
       </div>
 
@@ -1094,13 +1181,24 @@ function MergedFooter({
       <span className="text-sm text-text-secondary">
         Merged
         {mergedIntoBranch && (
-          <> into <span className="font-mono text-text-primary">{mergedIntoBranch}</span></>
+          <>
+            {" "}
+            into{" "}
+            <span className="font-mono text-text-primary">
+              {mergedIntoBranch}
+            </span>
+          </>
         )}
         {shortSha && (
-          <> as <span className="font-mono text-text-primary">{shortSha}</span></>
+          <>
+            {" "}
+            as <span className="font-mono text-text-primary">{shortSha}</span>
+          </>
         )}
         {mergedAt && (
-          <span className="text-text-tertiary ml-1">· {formatTimeAgo(mergedAt)}</span>
+          <span className="text-text-tertiary ml-1">
+            · {formatTimeAgo(mergedAt)}
+          </span>
         )}
       </span>
     </footer>

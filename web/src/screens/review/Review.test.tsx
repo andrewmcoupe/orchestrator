@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * Tests for the Review — Diff Review Screen
- * Route: #/tasks/:taskId/review/:attemptId
+ * Route: /tasks/:taskId/review/:attemptId
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -9,6 +9,11 @@ import { cleanup } from "@testing-library/react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Review } from "./Review.js";
 import type { AttemptRow } from "@shared/projections.js";
+
+const mockNavigate = vi.fn();
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mockNavigate,
+}));
 
 // ============================================================================
 // Fixtures
@@ -205,7 +210,7 @@ describe("Review — loading state", () => {
   });
 
   it("renders loading spinner while fetching attempt", () => {
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     expect(screen.getByRole("status")).toBeTruthy();
   });
 });
@@ -225,7 +230,7 @@ describe("Review — not found", () => {
   });
 
   it("renders error state when attempt does not exist", async () => {
-    render(<Review taskId="T-001" attemptId="MISSING" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="MISSING" />);
     await waitFor(() => screen.getByText(/not found/i));
     expect(screen.getByText(/not found/i)).toBeTruthy();
   });
@@ -238,7 +243,7 @@ describe("Review — not found", () => {
 describe("Review — verdict cards", () => {
   it("renders approve verdict with success styling", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("verdict-card"));
     const verdictCard = screen.getByTestId("verdict-card");
     expect(verdictCard.className).toMatch(/healthy|success|green/i);
@@ -246,7 +251,7 @@ describe("Review — verdict cards", () => {
 
   it("renders revise verdict with warning styling", async () => {
     mockFetchAttempt(REVISE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-002" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-002" />);
     await waitFor(() => screen.getByTestId("verdict-card"));
     const verdictCard = screen.getByTestId("verdict-card");
     expect(verdictCard.className).toMatch(/warning|amber|yellow/i);
@@ -254,7 +259,7 @@ describe("Review — verdict cards", () => {
 
   it("renders reject verdict with danger styling", async () => {
     mockFetchAttempt(REJECT_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-003" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-003" />);
     await waitFor(() => screen.getByTestId("verdict-card"));
     const verdictCard = screen.getByTestId("verdict-card");
     expect(verdictCard.className).toMatch(/danger|red/i);
@@ -262,7 +267,7 @@ describe("Review — verdict cards", () => {
 
   it("renders confidence percentage", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByText(/92%/));
     expect(screen.getByText(/92%/)).toBeTruthy();
   });
@@ -275,7 +280,7 @@ describe("Review — verdict cards", () => {
 describe("Review — concerns", () => {
   it("renders concern with category pill and severity pill", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByText(/style/i));
     expect(screen.getByText(/advisory/i)).toBeTruthy();
     expect(screen.getByText(/Variable name could be more descriptive/)).toBeTruthy();
@@ -283,14 +288,14 @@ describe("Review — concerns", () => {
 
   it("renders concern anchor as a path:line link", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByText(/src\/foo\.ts:42/));
     expect(screen.getByText(/src\/foo\.ts:42/)).toBeTruthy();
   });
 
   it("renders blocking concern with danger styling", async () => {
     mockFetchAttempt(REVISE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-002" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-002" />);
     await waitFor(() => screen.getByText(/blocking/i));
     expect(screen.getByText(/Off-by-one error/)).toBeTruthy();
     expect(screen.getByText(/correctness/i)).toBeTruthy();
@@ -304,7 +309,7 @@ describe("Review — concerns", () => {
 describe("Review — gates strip", () => {
   it("renders gate pills with status and duration", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("gate-tsc"));
     expect(screen.getByTestId("gate-tsc")).toBeTruthy();
     expect(screen.getByTestId("gate-eslint")).toBeTruthy();
@@ -312,7 +317,7 @@ describe("Review — gates strip", () => {
 
   it("renders passed gates with success styling", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("gate-tsc"));
     const tscPill = screen.getByTestId("gate-tsc");
     expect(tscPill.className).toMatch(/healthy|success|green/i);
@@ -320,7 +325,7 @@ describe("Review — gates strip", () => {
 
   it("renders failed gates with danger styling", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("gate-eslint"));
     const eslintPill = screen.getByTestId("gate-eslint");
     expect(eslintPill.className).toMatch(/danger|red/i);
@@ -334,7 +339,7 @@ describe("Review — gates strip", () => {
 describe("Review — file tabs", () => {
   it("renders a tab per changed file with +N/-M counts", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByText("src/foo.ts"));
     expect(screen.getByText("src/foo.ts")).toBeTruthy();
     expect(screen.getByText("src/bar.ts")).toBeTruthy();
@@ -354,7 +359,7 @@ describe("Review — file tabs", () => {
       },
     };
     mockFetchAttempt(attemptWithDiff);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByText("src/foo.ts"));
     fireEvent.click(screen.getByText("src/foo.ts"));
     await waitFor(() => screen.getByText("another added line"));
@@ -369,14 +374,14 @@ describe("Review — file tabs", () => {
 describe("Review — meta strip", () => {
   it("renders attempt number pill", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("attempt-pill"));
     expect(screen.getByTestId("attempt-pill").textContent).toBe("#1");
   });
 
   it("renders token counts", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     // toLocaleString may format as 1,500 or 1500 depending on locale
     await waitFor(() => screen.getByText(/1[,.]?500/));
     expect(screen.getByText(/1[,.]?500/)).toBeTruthy();
@@ -384,7 +389,7 @@ describe("Review — meta strip", () => {
 
   it("renders cost", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByText(/\$0\.025/));
     expect(screen.getByText(/\$0\.025/)).toBeTruthy();
   });
@@ -410,7 +415,7 @@ describe("Review — action buttons", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByText(/approve as-is/i));
     fireEvent.click(screen.getByText(/approve as-is/i));
 
@@ -437,7 +442,7 @@ describe("Review — action buttons", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByText(/reject task/i));
     fireEvent.click(screen.getByText(/reject task/i));
 
@@ -464,7 +469,7 @@ describe("Review — action buttons", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Review taskId="T-001" attemptId="ATT-002" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-002" />);
     await waitFor(() => screen.getByText(/retry with feedback/i));
     fireEvent.click(screen.getByText(/retry with feedback/i));
 
@@ -476,13 +481,13 @@ describe("Review — action buttons", () => {
     );
   });
 
-  it("back button calls onBack", async () => {
+  it("back button navigates to task detail", async () => {
+    mockNavigate.mockClear();
     mockFetchAttempt(BASE_ATTEMPT);
-    const onBack = vi.fn();
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={onBack} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("back-btn"));
     fireEvent.click(screen.getByTestId("back-btn"));
-    expect(onBack).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalled();
   });
 });
 
@@ -525,7 +530,7 @@ describe("Review — approved task footer", () => {
 
   it("shows Merge button with target branch when task is approved", async () => {
     mockApproved();
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("footer-approved"));
     expect(screen.getByTestId("footer-approved")).toBeTruthy();
     // Branch label is fetched async — wait for it to populate in the Merge button
@@ -537,7 +542,7 @@ describe("Review — approved task footer", () => {
 
   it("shows Unapprove button when task is approved", async () => {
     mockApproved();
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("footer-approved"));
     expect(screen.getByText(/Unapprove/i)).toBeTruthy();
   });
@@ -559,7 +564,7 @@ describe("Review — approved task footer", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByText(/Unapprove/i));
     fireEvent.click(screen.getByText(/Unapprove/i));
 
@@ -588,7 +593,7 @@ describe("Review — approved task footer", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByText(/Merge into/i));
     fireEvent.click(screen.getAllByText(/Merge into/i)[0]);
 
@@ -602,7 +607,7 @@ describe("Review — approved task footer", () => {
 
   it("shows approved summary strip with time ago", async () => {
     mockApproved();
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("footer-approved"));
     // Should show some indication of approval time
     expect(screen.getByTestId("approved-summary-strip")).toBeTruthy();
@@ -646,21 +651,21 @@ describe("Review — merged task footer", () => {
 
   it("shows read-only merged footer when task is merged", async () => {
     mockMerged();
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("footer-merged"));
     expect(screen.getByTestId("footer-merged")).toBeTruthy();
   });
 
   it("shows merged branch name in footer", async () => {
     mockMerged();
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("footer-merged"));
     expect(screen.getByText(/main/)).toBeTruthy();
   });
 
   it("shows short commit sha in merged footer", async () => {
     mockMerged();
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("footer-merged"));
     // First 7 chars of merge_commit_sha
     expect(screen.getByText(/abc1234/)).toBeTruthy();
@@ -668,7 +673,7 @@ describe("Review — merged task footer", () => {
 
   it("does not show Merge or Unapprove buttons when task is merged", async () => {
     mockMerged();
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("footer-merged"));
     expect(screen.queryByText(/Merge into/i)).toBeNull();
     expect(screen.queryByText(/Unapprove/i)).toBeNull();
@@ -704,7 +709,7 @@ describe("Review — phase strip A/B variant", () => {
       }),
     );
 
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("ab-variant-implementer"));
     const badge = screen.getByTestId("ab-variant-implementer");
     expect(badge.textContent).toBe("A");
@@ -733,7 +738,7 @@ describe("Review — phase strip A/B variant", () => {
       }),
     );
 
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("ab-variant-implementer"));
     const badge = screen.getByTestId("ab-variant-implementer");
     expect(badge.textContent).toBe("B");
@@ -741,7 +746,7 @@ describe("Review — phase strip A/B variant", () => {
 
   it("does not render variant badge when ab_variant is not set", async () => {
     mockFetchAttempt(BASE_ATTEMPT); // BASE_ATTEMPT has no ab_variant
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("verdict-card"));
     expect(screen.queryByTestId("ab-variant-implementer")).toBeNull();
   });
@@ -782,7 +787,7 @@ describe("Review — shadow mode auto-merge note", () => {
       }),
     );
 
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("verdict-card"));
     expect(screen.getByTestId("would-auto-merge-note")).toBeDefined();
     expect(screen.getByTestId("would-auto-merge-note").textContent).toContain("would have auto-merged");
@@ -790,7 +795,7 @@ describe("Review — shadow mode auto-merge note", () => {
 
   it("does not show note when shadow_mode is false", async () => {
     mockFetchAttempt(BASE_ATTEMPT);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("verdict-card"));
     expect(screen.queryByTestId("would-auto-merge-note")).toBeNull();
   });
@@ -854,7 +859,7 @@ describe("Review — empty-attempt banner", () => {
       }),
     );
 
-    render(<Review taskId="T-001" attemptId="ATT-002" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-002" />);
     await waitFor(() => screen.getByTestId("empty-attempt-banner"));
     expect(screen.getByTestId("empty-attempt-banner").textContent).toContain(
       "This attempt made no changes. Showing diff from attempt #1.",
@@ -890,7 +895,7 @@ describe("Review — empty-attempt banner", () => {
       }),
     );
 
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("empty-attempt-banner"));
     expect(screen.getByTestId("empty-attempt-banner").textContent).toContain(
       "No attempts have produced changes yet.",
@@ -911,7 +916,7 @@ describe("Review — empty-attempt banner", () => {
       },
     };
     mockFetchAttempt(nonEmptyAttempt);
-    render(<Review taskId="T-001" attemptId="ATT-001" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-001" />);
     await waitFor(() => screen.getByTestId("verdict-card"));
     expect(screen.queryByTestId("empty-attempt-banner")).toBeNull();
   });
@@ -967,7 +972,7 @@ describe("Review — empty-attempt banner", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<Review taskId="T-001" attemptId="ATT-003" onBack={() => {}} />);
+    render(<Review taskId="T-001" attemptId="ATT-003" />);
     await waitFor(() => screen.getByTestId("empty-attempt-banner"));
 
     // Verify it fetched the effective attempt

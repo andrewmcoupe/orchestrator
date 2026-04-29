@@ -1,17 +1,11 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {useNavigate, useParams} from "@tanstack/react-router";
 import {useEventStore, useTaskDetail, useTaskList,} from "../../store/eventStore.js";
-import {useSelectedTaskId} from "../../hooks/useSelectedTaskId.js";
 import {TaskListSidebar} from "./TaskListSidebar.js";
 import {TaskDetailPane} from "./TaskDetailPane.js";
 import {DependencyGraph} from "./DependencyGraph.js";
 import {MergeDialog} from "../review/MergeDialog.js";
 import type {TaskStatus} from "@shared/events.js";
-
-type TasksProps = {
-  onIngest?: () => void;
-  onEditConfig?: (taskId: string) => void;
-  onReview?: (taskId: string, attemptId: string) => void;
-};
 
 /** Statuses that are approved-but-not-merged */
 const APPROVED_STATUSES = new Set(["approved", "awaiting_merge"]);
@@ -27,9 +21,21 @@ const BLOCKED_STATUSES = new Set<TaskStatus>(["blocked", "rejected"]);
  * Cockpit screen — the default Tasks view.
  * Supports list mode (sidebar + detail pane) and graph mode (full-width dependency graph).
  */
-export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
+export function Tasks() {
   const tasks = useTaskList();
-  const [selectedId, selectTask] = useSelectedTaskId();
+  const navigate = useNavigate();
+  const params = useParams({ strict: false }) as { taskId?: string };
+  const selectedId = params.taskId ?? null;
+  const selectTask = useCallback(
+    (id: string | null) => {
+      if (id) {
+        navigate({ to: "/tasks/$taskId", params: { taskId: id } });
+      } else {
+        navigate({ to: "/tasks" });
+      }
+    },
+    [navigate],
+  );
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [selectedPrdId, setSelectedPrdId] = useState<string>("all");
 
@@ -157,14 +163,6 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [selectedId, tasks, showToast]);
 
-  /** Navigate to the review screen for an approved task's merge action */
-  const handleMergeIconClick = useCallback(
-    (taskId: string, attemptId: string) => {
-      onReview?.(taskId, attemptId);
-    },
-    [onReview],
-  );
-
   /** Switch to list view and select a task (used by graph's "View details" link) */
   const handleViewDetails = useCallback(
     (taskId: string) => {
@@ -248,10 +246,7 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
           <TaskListSidebar
             tasks={tasks}
             selectedId={selectedId}
-            onSelect={selectTask}
-            onIngest={onIngest}
             currentBranch={currentBranch}
-            onMergeIconClick={onReview ? handleMergeIconClick : undefined}
           />
 
           {selectedId && taskDetail ? (
@@ -259,10 +254,6 @@ export function Tasks({ onIngest, onEditConfig, onReview }: TasksProps) {
               detail={taskDetail}
               listRow={selectedListRow}
               allTasks={tasks}
-              onEditConfig={
-                onEditConfig ? () => onEditConfig(selectedId) : undefined
-              }
-              onReview={onReview}
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center gap-3">

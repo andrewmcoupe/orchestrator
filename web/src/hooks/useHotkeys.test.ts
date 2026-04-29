@@ -4,23 +4,23 @@ import { renderHook } from "@testing-library/react";
 import { useHotkeys } from "./useHotkeys.js";
 
 describe("useHotkeys", () => {
-  it("calls navigate with the correct section on ⌘1-5", () => {
+  it("calls navigate with the correct path on ⌘1-5", () => {
     const navigate = vi.fn();
     renderHook(() => useHotkeys(navigate));
 
     const cases: Array<[string, string]> = [
-      ["1", "tasks"],
-      ["2", "prompts"],
-      ["3", "providers"],
-      ["4", "measurement"],
-      ["5", "settings"],
+      ["1", "/tasks"],
+      ["2", "/prompts"],
+      ["3", "/providers"],
+      ["4", "/measurement"],
+      ["5", "/settings"],
     ];
 
     for (const [key, expected] of cases) {
       navigate.mockClear();
       const event = new KeyboardEvent("keydown", { key, metaKey: true, bubbles: true });
       window.dispatchEvent(event);
-      expect(navigate).toHaveBeenCalledWith(expected);
+      expect(navigate).toHaveBeenCalledWith({ to: expected });
     }
   });
 
@@ -45,6 +45,6 @@ describe("useHotkeys", () => {
     renderHook(() => useHotkeys(navigate));
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "3", ctrlKey: true, bubbles: true }));
-    expect(navigate).toHaveBeenCalledWith("providers");
+    expect(navigate).toHaveBeenCalledWith({ to: "/providers" });
   });
 });

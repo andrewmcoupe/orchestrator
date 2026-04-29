@@ -2,7 +2,7 @@
  * Tests for unified prompt seeding from bundled prompts/*.md files.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";

@@ -166,7 +166,7 @@ function getPropositionDetails(
   });
 }
 
-function getPropositionTexts(
+function _getPropositionTexts(
   db: Database.Database,
   ids: string[],
 ): string[] {

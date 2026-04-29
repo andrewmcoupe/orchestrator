@@ -1,15 +1,16 @@
 import { BookOpen } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { ProviderPill } from "./ProviderPill.js";
 import { ModeToggle } from "./mode-toggle.js";
 import type { ProviderStatus } from "./ProviderPill.js";
-import type { Section } from "../hooks/useSection.js";
+
+type Section = "tasks" | "prompts" | "providers" | "measurement" | "settings" | "guide" | "ingest";
 
 type ProviderInfo = { name: string; status: ProviderStatus };
 
 type TopBarProps = {
   section: Section;
   providers: ProviderInfo[];
-  onProviderClick?: (name: string) => void;
 };
 
 /* Section labels with initial caps */
@@ -20,9 +21,10 @@ const SECTION_LABELS: Record<Section, string> = {
   measurement: "Measurement",
   settings: "Settings",
   guide: "Guide",
+  ingest: "Ingest",
 };
 
-export function TopBar({ section, providers, onProviderClick }: TopBarProps) {
+export function TopBar({ section, providers }: TopBarProps) {
   return (
     <header className="flex items-center justify-between border-b border-border-default px-4 h-12 bg-bg-primary shrink-0">
       {/* Left: logo + breadcrumb */}
@@ -39,9 +41,8 @@ export function TopBar({ section, providers, onProviderClick }: TopBarProps) {
 
       {/* Right: help icon + theme toggle + provider pills */}
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => { window.location.hash = "#/guide"; }}
+        <Link
+          to="/guide"
           className={`p-1.5 rounded transition-colors cursor-pointer ${
             section === "guide"
               ? "text-text-primary bg-bg-tertiary"
@@ -50,15 +51,19 @@ export function TopBar({ section, providers, onProviderClick }: TopBarProps) {
           aria-label="Guide"
         >
           <BookOpen size={16} />
-        </button>
+        </Link>
         <ModeToggle />
         {providers.map((p) => (
-          <ProviderPill
+          <Link
             key={p.name}
-            name={p.name}
-            status={p.status}
-            onClick={() => onProviderClick?.(p.name)}
-          />
+            to="/providers"
+            search={{ focus: p.name }}
+          >
+            <ProviderPill
+              name={p.name}
+              status={p.status}
+            />
+          </Link>
         ))}
       </div>
     </header>

@@ -73,7 +73,8 @@ export type Actor =
         | "watcher"
         | "classifier"
         | "gate_runner"
-        | "dependency_reactor";
+        | "dependency_reactor"
+        | "seed";
     }
   | { kind: "cli"; transport: Transport; invocation_id: string };
 

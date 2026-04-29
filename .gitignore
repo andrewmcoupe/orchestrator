@@ -7,3 +7,4 @@ dist/
 .orchestrator-worktrees/
 design/
 .idea/
+routeTree.gen.ts

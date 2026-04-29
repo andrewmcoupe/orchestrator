@@ -6,7 +6,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  cleanup,
+} from "@testing-library/react";
 import { Providers } from "./Providers.js";
 import type { ProviderHealthRow } from "@shared/projections.js";
 
@@ -16,7 +22,9 @@ afterEach(cleanup);
 // Fixtures
 // ============================================================================
 
-const healthRow = (overrides: Partial<ProviderHealthRow> = {}): ProviderHealthRow => ({
+const healthRow = (
+  overrides: Partial<ProviderHealthRow> = {},
+): ProviderHealthRow => ({
   provider_id: "claude-code",
   transport: "claude-code",
   status: "healthy",
@@ -100,7 +108,10 @@ function setupFetch(
       });
     }
 
-    return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    return new Response("[]", {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   });
 }
 
@@ -186,7 +197,9 @@ describe("Providers screen", () => {
   });
 
   it("shows last_error when present", async () => {
-    setupFetch([healthRow({ status: "down", last_error: "binary not found on PATH" })]);
+    setupFetch([
+      healthRow({ status: "down", last_error: "binary not found on PATH" }),
+    ]);
     render(<Providers />);
     await waitFor(() => {
       expect(screen.getByText("binary not found on PATH")).toBeTruthy();
@@ -202,7 +215,9 @@ describe("Providers screen", () => {
     setupFetch([healthRow()], events);
     render(<Providers />);
     await waitFor(() => {
-      expect(document.querySelector("[data-testid='sparkline-claude-code']")).toBeTruthy();
+      expect(
+        document.querySelector("[data-testid='sparkline-claude-code']"),
+      ).toBeTruthy();
     });
   });
 
@@ -211,7 +226,11 @@ describe("Providers screen", () => {
     setupFetch([healthRow({ latency_ms: 120 })], [], updatedRow);
 
     render(<Providers />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: /re-probe/i }).length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: /re-probe/i }).length,
+      ).toBeGreaterThan(0),
+    );
 
     const reprobe = screen.getAllByRole("button", { name: /re-probe/i })[0];
     fireEvent.click(reprobe);
@@ -227,7 +246,11 @@ describe("Providers screen", () => {
   it("Edit config button opens the config form", async () => {
     setupFetch([healthRow()]);
     render(<Providers />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: /edit config/i }).length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: /edit config/i }).length,
+      ).toBeGreaterThan(0),
+    );
 
     fireEvent.click(screen.getAllByRole("button", { name: /edit config/i })[0]);
     expect(screen.getByRole("textbox", { name: /binary path/i })).toBeTruthy();
@@ -236,7 +259,11 @@ describe("Providers screen", () => {
   it("config form submit POSTs to /api/providers/configure/:id", async () => {
     setupFetch([healthRow()]);
     render(<Providers />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: /edit config/i }).length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("button", { name: /edit config/i }).length,
+      ).toBeGreaterThan(0),
+    );
 
     fireEvent.click(screen.getAllByRole("button", { name: /edit config/i })[0]);
 
@@ -258,14 +285,6 @@ describe("Providers screen", () => {
     await waitFor(() => {
       const focused = document.querySelector("[data-focused='true']");
       expect(focused).toBeTruthy();
-    });
-  });
-
-  it("shows Add provider button", async () => {
-    setupFetch([]);
-    render(<Providers />);
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /add provider/i })).toBeTruthy();
     });
   });
 

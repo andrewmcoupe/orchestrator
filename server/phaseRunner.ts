@@ -66,7 +66,6 @@ import type {
   InvocationAssistantMessage,
   InvocationToolCalled,
   TaskStatus,
-  ContextManifest,
   AuditConcern,
   AnyEvent,
   ExitReason,
@@ -477,7 +476,7 @@ export async function runAttempt(
     let totalCostUsd = 0;
     let finalOutcome: "approved" | "rejected" | "revised" | "escalated" | "failed" | "no_changes" =
       "approved";
-    let anyPhaseProducedDiff = false;
+    let _anyPhaseProducedDiff = false;
 
     // Auto-merge tracking — accumulated across all phases
     let auditorVerdict: "approve" | "revise" | "reject" | undefined;
@@ -824,7 +823,7 @@ export async function runAttempt(
           const diffOutput = await doDiffCapture(worktree_path, diffBaseSha);
           if (diffOutput.trim()) {
             diff_hash = bs.putBlob(diffOutput).hash;
-            anyPhaseProducedDiff = true;
+            _anyPhaseProducedDiff = true;
 
             // Emit phase.diff_snapshotted with the diff hash and base SHA
             appendAndProject(db, {

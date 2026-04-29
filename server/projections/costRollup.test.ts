@@ -47,7 +47,7 @@ function appendInvocation(
     tokensIn = 1000,
     tokensOut = 500,
     costUsd = 0.005,
-    ts = "2026-04-21T12:00:00.000Z",
+    ts: _ts = "2026-04-21T12:00:00.000Z",
   } = opts;
 
   // invocation.started provides the metadata (transport, model, phase_name)
@@ -90,23 +90,6 @@ function getRows(db: Database.Database): CostRollupRow[] {
   return db
     .prepare("SELECT * FROM proj_cost_rollup ORDER BY date, provider_id, model")
     .all() as CostRollupRow[];
-}
-
-function getRow(
-  db: Database.Database,
-  date: string,
-  providerId: string,
-  model: string,
-  phaseClass: string,
-): CostRollupRow | null {
-  return (
-    (db
-      .prepare(
-        `SELECT * FROM proj_cost_rollup
-         WHERE date = ? AND provider_id = ? AND model = ? AND phase_class = ?`,
-      )
-      .get(date, providerId, model, phaseClass) as CostRollupRow | undefined) ?? null
-  );
 }
 
 // ============================================================================

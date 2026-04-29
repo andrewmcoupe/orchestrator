@@ -1,12 +1,6 @@
 import { Fragment, useCallback, useState, useMemo, useEffect } from "react";
-import {
-  SlidersHorizontal,
-  ClipboardList,
-  Plus,
-  X,
-  Info,
-  ChevronRight,
-} from "lucide-react";
+import { SlidersHorizontal, ClipboardList, Plus, X, Info } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
 import type {
   TaskStatus,
@@ -24,7 +18,7 @@ import {
 } from "../../hooks/useQueries.js";
 import { useLatestAssistantMessage } from "../../store/eventStore.js";
 import { MergeDialog } from "../review/MergeDialog.js";
-import { Button } from "@web/src/components/ui/button";
+import { Button, buttonVariants } from "@web/src/components/ui/button";
 import {
   Popover,
   PopoverTrigger,
@@ -38,7 +32,6 @@ import {
 } from "@web/src/components/ui/tooltip";
 import {
   Dialog,
-  DialogTrigger,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -46,14 +39,13 @@ import {
   DialogFooter,
   DialogClose,
 } from "@web/src/components/ui/dialog";
+import { ArrowRightIcon } from "@phosphor-icons/react/dist/ssr";
 
 type TaskDetailPaneProps = {
   detail: TaskDetailRow;
   listRow?: TaskListRow;
   /** All tasks in the project — needed for the dependency picker. */
   allTasks?: TaskListRow[];
-  onEditConfig?: () => void;
-  onReview?: (taskId: string, attemptId: string) => void;
 };
 
 // ============================================================================
@@ -67,11 +59,9 @@ const STATUS_PILL: Record<TaskStatus, string> = {
   paused: "bg-status-muted/15 text-status-muted",
   awaiting_review: "bg-status-warning/15 text-status-warning",
   revising: "bg-status-warning/15 text-status-warning",
-  // approved = human has signed off, awaiting merge action
-  approved: "bg-purple-500/15 text-purple-400",
-  // awaiting_merge = merge process in flight (gates running, squashing, etc.)
-  awaiting_merge: "bg-purple-500/15 text-purple-400",
-  merged: "bg-status-healthy/15 text-status-healthy",
+  approved: "bg-blue-400/15 text-blue-400",
+  awaiting_merge: "bg-blue-400/15 text-blue-400",
+  merged: "bg-blue-400/15 text-blue-400",
   rejected: "bg-status-danger/15 text-status-danger",
   archived: "bg-bg-tertiary text-text-tertiary",
   blocked: "bg-status-danger/15 text-status-danger",
@@ -212,9 +202,11 @@ function PhaseBox({
           Auditing the implementers changes against the acceptance criteria...
         </p>
       )}
-      {status === "running" && phase.name !== "auditor" && latestAssistantMessage && (
-        <AssistantMessagePreview text={latestAssistantMessage} />
-      )}
+      {status === "running" &&
+        phase.name !== "auditor" &&
+        latestAssistantMessage && (
+          <AssistantMessagePreview text={latestAssistantMessage} />
+        )}
       {status === "done" && (
         <span className="text-xs text-text-tertiary mt-1">Finished</span>
       )}
@@ -786,7 +778,8 @@ function StartConfirmDialog({
                     <div className="text-[10px] text-text-tertiary">
                       max turns: {phase.transport_options.max_turns ?? "∞"} ·
                       budget: ${phase.transport_options.max_budget_usd ?? "∞"} ·
-                      permission: {phase.transport_options.permission_mode ?? "default"}
+                      permission:{" "}
+                      {phase.transport_options.permission_mode ?? "default"}
                     </div>
                   )}
                   {phase.transport_options.kind === "api" && (
@@ -815,7 +808,8 @@ function StartConfirmDialog({
                       {gate.name}
                     </span>
                     <span className="text-text-tertiary">
-                      {gate.required ? "required" : "optional"} · {gate.timeout_seconds}s · on fail: {gate.on_fail}
+                      {gate.required ? "required" : "optional"} ·{" "}
+                      {gate.timeout_seconds}s · on fail: {gate.on_fail}
                     </span>
                   </div>
                 ))}
@@ -830,9 +824,13 @@ function StartConfirmDialog({
             </h4>
             <div className="text-[11px] text-text-secondary px-2 py-1.5 bg-bg-secondary border border-border-muted">
               Max attempts: {config.retry_policy.max_total_attempts}
-              {config.auto_merge_policy && config.auto_merge_policy !== "off" && (
-                <span> · auto-merge: {config.auto_merge_policy.replace(/_/g, " ")}</span>
-              )}
+              {config.auto_merge_policy &&
+                config.auto_merge_policy !== "off" && (
+                  <span>
+                    {" "}
+                    · auto-merge: {config.auto_merge_policy.replace(/_/g, " ")}
+                  </span>
+                )}
               {config.shadow_mode && <span> · shadow mode</span>}
             </div>
           </div>
@@ -878,8 +876,6 @@ export function TaskDetailPane({
   detail,
   listRow,
   allTasks,
-  onEditConfig,
-  onReview,
 }: TaskDetailPaneProps) {
   const enabledPhases = detail.config.phases.filter((p) => p.enabled);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
@@ -893,47 +889,56 @@ export function TaskDetailPane({
       {/* Action toolbar */}
       <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-6 py-2.5 border-b border-border-muted bg-bg-secondary shrink-0">
         <div className="flex items-center gap-2">
-          {onEditConfig &&
-            detail.status !== "merged" &&
+          {detail.status !== "merged" &&
             detail.status !== "archived" && (
-              <Button type="button" onClick={onEditConfig} variant={"outline"}>
+              <Link
+                to="/tasks/$taskId/config"
+                params={{ taskId: detail.task_id }}
+                className={buttonVariants({ variant: "outline" })}
+              >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Config
-              </Button>
+              </Link>
             )}
-          {onReview &&
-            detail.current_attempt_id &&
+          {detail.current_attempt_id &&
             (detail.status === "awaiting_review" ? (
-              <Button
-                onClick={() =>
-                  onReview(detail.task_id, detail.current_attempt_id!)
-                }
+              <Link
+                to="/tasks/$taskId/review/$attemptId"
+                params={{
+                  taskId: detail.task_id,
+                  attemptId: detail.current_attempt_id!,
+                }}
+                className={buttonVariants()}
               >
                 <ClipboardList className="h-3.5 w-3.5" />
                 Review
-              </Button>
+              </Link>
             ) : detail.status === "approved" ? (
-              <Button
-                type="button"
-                onClick={() =>
-                  onReview(detail.task_id, detail.current_attempt_id!)
-                }
+              <Link
+                to="/tasks/$taskId/review/$attemptId"
+                params={{
+                  taskId: detail.task_id,
+                  attemptId: detail.current_attempt_id!,
+                }}
                 title="Review changes from last attempt"
+                className={buttonVariants()}
               >
                 <ClipboardList className="h-3.5 w-3.5" />
                 Review changes
-              </Button>
+              </Link>
             ) : detail.status === "merged" || detail.status === "rejected" ? (
-              <Button
-                type="button"
-                onClick={() =>
-                  onReview(detail.task_id, detail.current_attempt_id!)
-                }
+              <Link
+                to="/tasks/$taskId/review/$attemptId"
+                params={{
+                  taskId: detail.task_id,
+                  attemptId: detail.current_attempt_id!,
+                }}
                 title="View diff from last attempt"
+                className={buttonVariants()}
               >
                 <ClipboardList className="h-3.5 w-3.5" />
                 View diff
-              </Button>
+              </Link>
             ) : null)}
         </div>
         <ActionButtons
@@ -1047,7 +1052,7 @@ export function TaskDetailPane({
             {enabledPhases.map((phase, i) => (
               <Fragment key={phase.name}>
                 {i > 0 && (
-                  <ChevronRight
+                  <ArrowRightIcon
                     size={14}
                     className="text-text-tertiary self-center"
                   />

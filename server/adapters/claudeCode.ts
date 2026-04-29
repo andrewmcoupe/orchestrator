@@ -18,7 +18,7 @@
 import { execa } from "execa";
 import type { BlobStore } from "../blobStore.js";
 import type { AppendEventInput } from "../eventStore.js";
-import type { EventType, ExitReason, PhaseName, TransportOptions } from "@shared/events.js";
+import type { ExitReason, PhaseName, TransportOptions } from "@shared/events.js";
 
 // ============================================================================
 // Public types

@@ -14,7 +14,7 @@ import {
   type AutoMergeInput,
   type HandleAutoMergeInput,
 } from "./autoMerge.js";
-import type { Actor, TaskConfig, TaskStatus } from "@shared/events.js";
+import type { Actor } from "@shared/events.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,18 +41,19 @@ function createTestDb(): Database.Database {
   return db;
 }
 
-function getEventTypes(db: Database.Database): string[] {
-  return (
-    db.prepare("SELECT type FROM events ORDER BY ts, id").all() as Array<{
-      type: string;
-    }>
-  ).map((r) => r.type);
-}
-
-function getEventsOfType(db: Database.Database, type: string): Array<{ type: string; payload_json: string; actor_json: string }> {
+function getEventsOfType(
+  db: Database.Database,
+  type: string,
+): Array<{ type: string; payload_json: string; actor_json: string }> {
   return db
-    .prepare("SELECT type, payload_json, actor_json FROM events WHERE type = ? ORDER BY ts, id")
-    .all(type) as Array<{ type: string; payload_json: string; actor_json: string }>;
+    .prepare(
+      "SELECT type, payload_json, actor_json FROM events WHERE type = ? ORDER BY ts, id",
+    )
+    .all(type) as Array<{
+    type: string;
+    payload_json: string;
+    actor_json: string;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,13 +77,17 @@ describe("evaluateAutoMerge", () => {
   });
 
   it("on_full_pass: does not auto-merge when a required gate failed", () => {
-    const result = evaluateAutoMerge(baseInput({ all_required_gates_passed: false }));
+    const result = evaluateAutoMerge(
+      baseInput({ all_required_gates_passed: false }),
+    );
     expect(result.should_auto_merge).toBe(false);
     expect(result.unmet_conditions).toContain("required gate(s) failed");
   });
 
   it("on_full_pass: does not auto-merge when blocking concerns exist", () => {
-    const result = evaluateAutoMerge(baseInput({ has_blocking_concerns: true }));
+    const result = evaluateAutoMerge(
+      baseInput({ has_blocking_concerns: true }),
+    );
     expect(result.should_auto_merge).toBe(false);
     expect(result.unmet_conditions).toContain("blocking concerns present");
   });
@@ -101,7 +106,10 @@ describe("evaluateAutoMerge", () => {
 
   it("on_auditor_approve: auto-merges when auditor approves even if gate failed", () => {
     const result = evaluateAutoMerge(
-      baseInput({ policy: "on_auditor_approve", all_required_gates_passed: false }),
+      baseInput({
+        policy: "on_auditor_approve",
+        all_required_gates_passed: false,
+      }),
     );
     expect(result.should_auto_merge).toBe(true);
     expect(result.matched_conditions).toContain("auditor_verdict=approve");
@@ -116,7 +124,9 @@ describe("evaluateAutoMerge", () => {
   });
 
   it("does not auto-merge when attempt outcome is not approved", () => {
-    const result = evaluateAutoMerge(baseInput({ attempt_outcome: "rejected" }));
+    const result = evaluateAutoMerge(
+      baseInput({ attempt_outcome: "rejected" }),
+    );
     expect(result.should_auto_merge).toBe(false);
     expect(result.unmet_conditions).toContain("attempt_outcome!=approved");
   });
@@ -136,7 +146,10 @@ describe("evaluateAutoMerge", () => {
 
   it("on_full_pass: reports both matched and unmet conditions when partially met", () => {
     const result = evaluateAutoMerge(
-      baseInput({ all_required_gates_passed: false, has_blocking_concerns: true }),
+      baseInput({
+        all_required_gates_passed: false,
+        has_blocking_concerns: true,
+      }),
     );
     expect(result.should_auto_merge).toBe(false);
     expect(result.matched_conditions).toContain("auditor_verdict=approve");
@@ -152,8 +165,12 @@ describe("evaluateAutoMerge", () => {
 describe("getAutoMergeEnabled", () => {
   let db: Database.Database;
 
-  beforeEach(() => { db = createTestDb(); });
-  afterEach(() => { db.close(); });
+  beforeEach(() => {
+    db = createTestDb();
+  });
+  afterEach(() => {
+    db.close();
+  });
 
   it("returns false on a fresh DB (no settings event)", () => {
     expect(getAutoMergeEnabled(db)).toBe(false);
@@ -198,7 +215,9 @@ describe("handleAutoMerge", () => {
   const taskId = "T-auto-test";
   const attemptId = "A-auto-test";
 
-  function baseHandle(overrides: Partial<HandleAutoMergeInput> = {}): HandleAutoMergeInput {
+  function baseHandle(
+    overrides: Partial<HandleAutoMergeInput> = {},
+  ): HandleAutoMergeInput {
     return {
       db,
       task_id: taskId,
@@ -242,7 +261,9 @@ describe("handleAutoMerge", () => {
     });
   });
 
-  afterEach(() => { db.close(); });
+  afterEach(() => {
+    db.close();
+  });
 
   it("skips entirely when global kill switch is off (no auto-merge events)", async () => {
     // kill switch defaults to false on fresh DB
@@ -261,9 +282,11 @@ describe("handleAutoMerge", () => {
       actor: testActor,
       payload: { enabled: true },
     });
-    const result = await handleAutoMerge(baseHandle({
-      config: { ...baseHandle().config, auto_merge_policy: "off" },
-    }));
+    const result = await handleAutoMerge(
+      baseHandle({
+        config: { ...baseHandle().config, auto_merge_policy: "off" },
+      }),
+    );
     expect(result.action).toBe("skip");
   });
 
@@ -277,9 +300,11 @@ describe("handleAutoMerge", () => {
       payload: { enabled: true },
     });
 
-    const result = await handleAutoMerge(baseHandle({
-      config: { ...baseHandle().config, shadow_mode: true },
-    }));
+    const result = await handleAutoMerge(
+      baseHandle({
+        config: { ...baseHandle().config, shadow_mode: true },
+      }),
+    );
 
     expect(result.action).toBe("shadow");
     // Should have emitted the advisory event
@@ -379,7 +404,9 @@ describe("handleAutoMerge", () => {
       payload: { enabled: true },
     });
 
-    const result = await handleAutoMerge(baseHandle({ all_required_gates_passed: false }));
+    const result = await handleAutoMerge(
+      baseHandle({ all_required_gates_passed: false }),
+    );
     expect(result.action).toBe("skip");
     expect(getEventsOfType(db, "task.auto_approved")).toHaveLength(0);
   });

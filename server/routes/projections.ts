@@ -353,6 +353,15 @@ export function createProjectionRoutes(db: Database.Database): Hono {
     return c.json(rows.map(parseTaskListRow));
   });
 
+  // -- archived tasks: task_detail rows with status = 'archived'
+  routes.get("/api/projections/archived_tasks", (c) => {
+    const rows = safeAll<RawTaskDetailRow>(
+      db,
+      "SELECT * FROM proj_task_detail WHERE status = 'archived' ORDER BY updated_at DESC",
+    );
+    return c.json(rows.map(parseTaskDetailRow));
+  });
+
   // -- task_detail/:task_id
   routes.get("/api/projections/task_detail/:task_id", (c) => {
     const taskId = c.req.param("task_id");

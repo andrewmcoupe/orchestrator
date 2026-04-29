@@ -21,7 +21,11 @@ import Database from "better-sqlite3";
 import { runMigrations } from "./eventStore.js";
 import { initProjections, eventBus } from "./projectionRunner.js";
 import "./projections/register.js";
-import { ingestPrd, seedIngestPromptVersion, INGEST_PROMPT_VERSION_ID } from "./ingest.js";
+import {
+  ingestPrd,
+  seedIngestPromptVersion,
+  INGEST_PROMPT_VERSION_ID,
+} from "./ingest.js";
 import type { Extractor } from "./ingest.js";
 
 // ============================================================================
@@ -30,17 +34,6 @@ import type { Extractor } from "./ingest.js";
 
 function makeFakeExtractor(response: object): Extractor {
   return async () => response as Awaited<ReturnType<Extractor>>;
-}
-
-function makeFlakyExtractor(failCount: number, goodResponse: object): Extractor {
-  let calls = 0;
-  return async () => {
-    calls++;
-    if (calls <= failCount) {
-      throw new Error("Validation failed");
-    }
-    return goodResponse as Awaited<ReturnType<Extractor>>;
-  };
 }
 
 // ============================================================================
@@ -69,8 +62,18 @@ const SAMPLE_EXTRACTION = {
     },
   ],
   draft_tasks: [
-    { id: "DT-001", title: "Implement authentication", proposition_ids: ["P-001", "P-002"], depends_on: [] },
-    { id: "DT-002", title: "API error handling", proposition_ids: ["P-003"], depends_on: ["DT-001"] },
+    {
+      id: "DT-001",
+      title: "Implement authentication",
+      proposition_ids: ["P-001", "P-002"],
+      depends_on: [],
+    },
+    {
+      id: "DT-002",
+      title: "API error handling",
+      proposition_ids: ["P-003"],
+      depends_on: ["DT-001"],
+    },
   ],
   pushbacks: [
     {
@@ -119,14 +122,21 @@ describe("ingestPrd", () => {
   });
 
   it("emits prd.ingested event with correct metadata", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(
+      db,
+      { path: prdPath },
+      makeFakeExtractor(SAMPLE_EXTRACTION),
+    );
 
     const prdEvent = db
       .prepare("SELECT * FROM events WHERE type = 'prd.ingested' LIMIT 1")
       .get() as { payload_json: string; aggregate_id: string } | undefined;
 
     expect(prdEvent).toBeDefined();
-    const payload = JSON.parse(prdEvent!.payload_json) as Record<string, unknown>;
+    const payload = JSON.parse(prdEvent!.payload_json) as Record<
+      string,
+      unknown
+    >;
     expect(payload.path).toBe(prdPath);
     expect(payload.extractor_model).toBe("claude-sonnet-4-6");
     expect(payload.extractor_prompt_version_id).toBe(INGEST_PROMPT_VERSION_ID);
@@ -136,18 +146,22 @@ describe("ingestPrd", () => {
   });
 
   it("emits proposition.extracted events and populates proj_proposition", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(
+      db,
+      { path: prdPath },
+      makeFakeExtractor(SAMPLE_EXTRACTION),
+    );
 
     expect(result.propositions).toHaveLength(3);
 
     const rows = db
       .prepare("SELECT * FROM proj_proposition WHERE prd_id = ?")
       .all(result.prd_id) as Array<{
-        proposition_id: string;
-        text: string;
-        confidence: number;
-        active_pushback_ids_json: string;
-      }>;
+      proposition_id: string;
+      text: string;
+      confidence: number;
+      active_pushback_ids_json: string;
+    }>;
 
     expect(rows).toHaveLength(3);
 
@@ -164,7 +178,11 @@ describe("ingestPrd", () => {
   });
 
   it("emits task.drafted events and creates draft rows in task_list", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(
+      db,
+      { path: prdPath },
+      makeFakeExtractor(SAMPLE_EXTRACTION),
+    );
 
     expect(result.draft_tasks).toHaveLength(2);
 
@@ -180,14 +198,16 @@ describe("ingestPrd", () => {
   });
 
   it("emits pushback.raised events and adds pushback_id to proposition", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(
+      db,
+      { path: prdPath },
+      makeFakeExtractor(SAMPLE_EXTRACTION),
+    );
 
     expect(result.pushback_count).toBe(1);
 
     // Find the proposition for "Passwords must be hashed..."
-    const prop = result.propositions.find((p) =>
-      p.text.includes("bcrypt"),
-    );
+    const prop = result.propositions.find((p) => p.text.includes("bcrypt"));
     expect(prop).toBeDefined();
 
     // Check it has an active pushback in the projection
@@ -206,7 +226,11 @@ describe("ingestPrd", () => {
   });
 
   it("resolves proposition IDs from P-001 style to ULIDs in draft tasks", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(
+      db,
+      { path: prdPath },
+      makeFakeExtractor(SAMPLE_EXTRACTION),
+    );
 
     const authTask = result.draft_tasks.find(
       (t) => t.title === "Implement authentication",
@@ -231,31 +255,52 @@ describe("ingestPrd", () => {
 
   it("throws when the PRD file does not exist", async () => {
     await expect(
-      ingestPrd(db, { path: "/nonexistent/path.md" }, makeFakeExtractor(SAMPLE_EXTRACTION)),
+      ingestPrd(
+        db,
+        { path: "/nonexistent/path.md" },
+        makeFakeExtractor(SAMPLE_EXTRACTION),
+      ),
     ).rejects.toThrow();
   });
 
   it("remaps DT-* IDs to T-{ULID} task IDs in depends_on", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(
+      db,
+      { path: prdPath },
+      makeFakeExtractor(SAMPLE_EXTRACTION),
+    );
 
     // DT-002 depends on DT-001, which should be remapped to the ULID of the auth task
-    const apiTask = result.draft_tasks.find(t => t.title === "API error handling");
-    const authTask = result.draft_tasks.find(t => t.title === "Implement authentication");
+    const apiTask = result.draft_tasks.find(
+      (t) => t.title === "API error handling",
+    );
+    const authTask = result.draft_tasks.find(
+      (t) => t.title === "Implement authentication",
+    );
     expect(apiTask).toBeDefined();
     expect(authTask).toBeDefined();
     expect(apiTask!.depends_on).toEqual([authTask!.task_id]);
   });
 
   it("emits task.dependency.set events for tasks with non-empty depends_on", async () => {
-    await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
+    await ingestPrd(
+      db,
+      { path: prdPath },
+      makeFakeExtractor(SAMPLE_EXTRACTION),
+    );
 
     const depEvents = db
-      .prepare("SELECT payload_json FROM events WHERE type = 'task.dependency.set'")
+      .prepare(
+        "SELECT payload_json FROM events WHERE type = 'task.dependency.set'",
+      )
       .all() as Array<{ payload_json: string }>;
 
     // Only DT-002 has depends_on, so exactly one event
     expect(depEvents).toHaveLength(1);
-    const payload = JSON.parse(depEvents[0].payload_json) as { task_id: string; depends_on: string[] };
+    const payload = JSON.parse(depEvents[0].payload_json) as {
+      task_id: string;
+      depends_on: string[];
+    };
     expect(payload.task_id).toMatch(/^T-/);
     expect(payload.depends_on).toHaveLength(1);
     expect(payload.depends_on[0]).toMatch(/^T-/);
@@ -265,7 +310,12 @@ describe("ingestPrd", () => {
     const noDepsExtraction = {
       ...SAMPLE_EXTRACTION,
       draft_tasks: [
-        { id: "DT-001", title: "Standalone task", proposition_ids: ["P-001"], depends_on: [] },
+        {
+          id: "DT-001",
+          title: "Standalone task",
+          proposition_ids: ["P-001"],
+          depends_on: [],
+        },
       ],
     };
     await ingestPrd(db, { path: prdPath }, makeFakeExtractor(noDepsExtraction));
@@ -277,7 +327,11 @@ describe("ingestPrd", () => {
   });
 
   it("all events share the same correlation_id (prd_id)", async () => {
-    const result = await ingestPrd(db, { path: prdPath }, makeFakeExtractor(SAMPLE_EXTRACTION));
+    const result = await ingestPrd(
+      db,
+      { path: prdPath },
+      makeFakeExtractor(SAMPLE_EXTRACTION),
+    );
 
     const events = db
       .prepare(
@@ -297,7 +351,8 @@ describe("ingestPrd", () => {
   });
 });
 
-const PRD_CONTENT = "# Test PRD\n\n## Authentication\n\nUsers must be able to log in.\n";
+const PRD_CONTENT =
+  "# Test PRD\n\n## Authentication\n\nUsers must be able to log in.\n";
 
 describe("ingestPrd — content mode", () => {
   let db: Database.Database;
@@ -334,11 +389,16 @@ describe("ingestPrd — content mode", () => {
     );
 
     const prdEvent = db
-      .prepare("SELECT payload_json FROM events WHERE type = 'prd.ingested' LIMIT 1")
+      .prepare(
+        "SELECT payload_json FROM events WHERE type = 'prd.ingested' LIMIT 1",
+      )
       .get() as { payload_json: string } | undefined;
 
     expect(prdEvent).toBeDefined();
-    const payload = JSON.parse(prdEvent!.payload_json) as Record<string, unknown>;
+    const payload = JSON.parse(prdEvent!.payload_json) as Record<
+      string,
+      unknown
+    >;
     expect(payload.path).toBeNull();
     expect(payload.content).toBe(PRD_CONTENT);
   });
@@ -351,10 +411,15 @@ describe("ingestPrd — content mode", () => {
     );
 
     const prdEvent = db
-      .prepare("SELECT payload_json FROM events WHERE type = 'prd.ingested' LIMIT 1")
+      .prepare(
+        "SELECT payload_json FROM events WHERE type = 'prd.ingested' LIMIT 1",
+      )
       .get() as { payload_json: string } | undefined;
 
-    const payload = JSON.parse(prdEvent!.payload_json) as Record<string, unknown>;
+    const payload = JSON.parse(prdEvent!.payload_json) as Record<
+      string,
+      unknown
+    >;
     expect(payload.size_bytes).toBe(Buffer.byteLength(PRD_CONTENT));
     expect(payload.lines).toBe(PRD_CONTENT.split("\n").length);
     expect(typeof payload.content_hash).toBe("string");
@@ -373,17 +438,26 @@ describe("ingestPrd — content mode", () => {
       );
 
       const prdEvent = db
-        .prepare("SELECT payload_json FROM events WHERE type = 'prd.ingested' LIMIT 1")
+        .prepare(
+          "SELECT payload_json FROM events WHERE type = 'prd.ingested' LIMIT 1",
+        )
         .get() as { payload_json: string } | undefined;
 
-      const payload = JSON.parse(prdEvent!.payload_json) as Record<string, unknown>;
+      const payload = JSON.parse(prdEvent!.payload_json) as Record<
+        string,
+        unknown
+      >;
       expect(payload.path).toBe(prdPath);
       expect(payload.content).toBe(PRD_CONTENT);
       expect(payload.size_bytes).toBe(Buffer.byteLength(PRD_CONTENT));
       expect(payload.lines).toBe(PRD_CONTENT.split("\n").length);
       expect((payload.content_hash as string).length).toBe(64);
     } finally {
-      try { unlinkSync(prdPath); } catch { /* ignore */ }
+      try {
+        unlinkSync(prdPath);
+      } catch {
+        /* ignore */
+      }
     }
   });
 });
@@ -407,20 +481,39 @@ describe("ingestPrd — cycle detection", () => {
   it("strips cycle-causing edges from depends_on in draft tasks", async () => {
     const cyclicExtraction = {
       propositions: [
-        { id: "P-001", text: "Feature A", source_span: { section: "A", line_start: 1, line_end: 2 }, confidence: 0.9 },
+        {
+          id: "P-001",
+          text: "Feature A",
+          source_span: { section: "A", line_start: 1, line_end: 2 },
+          confidence: 0.9,
+        },
       ],
       draft_tasks: [
-        { id: "DT-001", title: "Task A", proposition_ids: ["P-001"], depends_on: ["DT-002"] },
-        { id: "DT-002", title: "Task B", proposition_ids: ["P-001"], depends_on: ["DT-001"] },
+        {
+          id: "DT-001",
+          title: "Task A",
+          proposition_ids: ["P-001"],
+          depends_on: ["DT-002"],
+        },
+        {
+          id: "DT-002",
+          title: "Task B",
+          proposition_ids: ["P-001"],
+          depends_on: ["DT-001"],
+        },
       ],
       pushbacks: [],
     };
 
-    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeExtractor(cyclicExtraction));
+    const result = await ingestPrd(
+      db,
+      { content: "# PRD" },
+      makeFakeExtractor(cyclicExtraction),
+    );
 
     // At least one task should have had its depends_on stripped
-    const taskA = result.draft_tasks.find(t => t.title === "Task A")!;
-    const taskB = result.draft_tasks.find(t => t.title === "Task B")!;
+    const taskA = result.draft_tasks.find((t) => t.title === "Task A")!;
+    const taskB = result.draft_tasks.find((t) => t.title === "Task B")!;
 
     // One of the two cycle edges must have been removed
     const totalDeps = taskA.depends_on.length + taskB.depends_on.length;
@@ -430,16 +523,35 @@ describe("ingestPrd — cycle detection", () => {
   it("emits advisory pushback when cycle edges are stripped", async () => {
     const cyclicExtraction = {
       propositions: [
-        { id: "P-001", text: "Feature A", source_span: { section: "A", line_start: 1, line_end: 2 }, confidence: 0.9 },
+        {
+          id: "P-001",
+          text: "Feature A",
+          source_span: { section: "A", line_start: 1, line_end: 2 },
+          confidence: 0.9,
+        },
       ],
       draft_tasks: [
-        { id: "DT-001", title: "Task A", proposition_ids: ["P-001"], depends_on: ["DT-002"] },
-        { id: "DT-002", title: "Task B", proposition_ids: ["P-001"], depends_on: ["DT-001"] },
+        {
+          id: "DT-001",
+          title: "Task A",
+          proposition_ids: ["P-001"],
+          depends_on: ["DT-002"],
+        },
+        {
+          id: "DT-002",
+          title: "Task B",
+          proposition_ids: ["P-001"],
+          depends_on: ["DT-001"],
+        },
       ],
       pushbacks: [],
     };
 
-    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeExtractor(cyclicExtraction));
+    const result = await ingestPrd(
+      db,
+      { content: "# PRD" },
+      makeFakeExtractor(cyclicExtraction),
+    );
 
     // Should have emitted an advisory pushback for the stripped cycle
     expect(result.pushback_count).toBeGreaterThanOrEqual(1);
@@ -449,8 +561,11 @@ describe("ingestPrd — cycle detection", () => {
       .all() as Array<{ payload_json: string }>;
 
     const cyclePushback = pushbackEvents
-      .map(e => JSON.parse(e.payload_json) as { kind: string; rationale: string })
-      .find(p => p.kind === "advisory" && p.rationale.includes("cycle"));
+      .map(
+        (e) =>
+          JSON.parse(e.payload_json) as { kind: string; rationale: string },
+      )
+      .find((p) => p.kind === "advisory" && p.rationale.includes("cycle"));
 
     expect(cyclePushback).toBeDefined();
   });
@@ -458,21 +573,45 @@ describe("ingestPrd — cycle detection", () => {
   it("passes valid dependency graphs through unchanged", async () => {
     const validExtraction = {
       propositions: [
-        { id: "P-001", text: "Feature A", source_span: { section: "A", line_start: 1, line_end: 2 }, confidence: 0.9 },
+        {
+          id: "P-001",
+          text: "Feature A",
+          source_span: { section: "A", line_start: 1, line_end: 2 },
+          confidence: 0.9,
+        },
       ],
       draft_tasks: [
-        { id: "DT-001", title: "Task A", proposition_ids: ["P-001"], depends_on: [] },
-        { id: "DT-002", title: "Task B", proposition_ids: ["P-001"], depends_on: ["DT-001"] },
-        { id: "DT-003", title: "Task C", proposition_ids: ["P-001"], depends_on: ["DT-001", "DT-002"] },
+        {
+          id: "DT-001",
+          title: "Task A",
+          proposition_ids: ["P-001"],
+          depends_on: [],
+        },
+        {
+          id: "DT-002",
+          title: "Task B",
+          proposition_ids: ["P-001"],
+          depends_on: ["DT-001"],
+        },
+        {
+          id: "DT-003",
+          title: "Task C",
+          proposition_ids: ["P-001"],
+          depends_on: ["DT-001", "DT-002"],
+        },
       ],
       pushbacks: [],
     };
 
-    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeExtractor(validExtraction));
+    const result = await ingestPrd(
+      db,
+      { content: "# PRD" },
+      makeFakeExtractor(validExtraction),
+    );
 
-    const taskA = result.draft_tasks.find(t => t.title === "Task A")!;
-    const taskB = result.draft_tasks.find(t => t.title === "Task B")!;
-    const taskC = result.draft_tasks.find(t => t.title === "Task C")!;
+    const taskA = result.draft_tasks.find((t) => t.title === "Task A")!;
+    const taskB = result.draft_tasks.find((t) => t.title === "Task B")!;
+    const taskC = result.draft_tasks.find((t) => t.title === "Task C")!;
 
     expect(taskA.depends_on).toHaveLength(0);
     expect(taskB.depends_on).toHaveLength(1);
@@ -484,23 +623,50 @@ describe("ingestPrd — cycle detection", () => {
   it("handles 3-node cycle by stripping minimum edges", async () => {
     const cyclicExtraction = {
       propositions: [
-        { id: "P-001", text: "Feature A", source_span: { section: "A", line_start: 1, line_end: 2 }, confidence: 0.9 },
+        {
+          id: "P-001",
+          text: "Feature A",
+          source_span: { section: "A", line_start: 1, line_end: 2 },
+          confidence: 0.9,
+        },
       ],
       draft_tasks: [
-        { id: "DT-001", title: "Task A", proposition_ids: ["P-001"], depends_on: ["DT-003"] },
-        { id: "DT-002", title: "Task B", proposition_ids: ["P-001"], depends_on: ["DT-001"] },
-        { id: "DT-003", title: "Task C", proposition_ids: ["P-001"], depends_on: ["DT-002"] },
+        {
+          id: "DT-001",
+          title: "Task A",
+          proposition_ids: ["P-001"],
+          depends_on: ["DT-003"],
+        },
+        {
+          id: "DT-002",
+          title: "Task B",
+          proposition_ids: ["P-001"],
+          depends_on: ["DT-001"],
+        },
+        {
+          id: "DT-003",
+          title: "Task C",
+          proposition_ids: ["P-001"],
+          depends_on: ["DT-002"],
+        },
       ],
       pushbacks: [],
     };
 
-    const result = await ingestPrd(db, { content: "# PRD" }, makeFakeExtractor(cyclicExtraction));
+    const result = await ingestPrd(
+      db,
+      { content: "# PRD" },
+      makeFakeExtractor(cyclicExtraction),
+    );
 
     // All 3 tasks should still exist
     expect(result.draft_tasks).toHaveLength(3);
 
     // Total deps should be reduced by exactly 1 (one edge stripped)
-    const totalDeps = result.draft_tasks.reduce((sum, t) => sum + t.depends_on.length, 0);
+    const totalDeps = result.draft_tasks.reduce(
+      (sum, t) => sum + t.depends_on.length,
+      0,
+    );
     expect(totalDeps).toBe(2); // was 3, one stripped
 
     // Advisory pushback should mention the cycle

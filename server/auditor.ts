@@ -16,7 +16,7 @@ import { z } from "zod";
 import { ulid } from "ulid";
 import type Database from "better-sqlite3";
 import { appendAndProject } from "./projectionRunner.js";
-import type { Actor, AuditConcern } from "@shared/events.js";
+import type { Actor } from "@shared/events.js";
 
 // ============================================================================
 // Constants

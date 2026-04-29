@@ -1,51 +1,43 @@
 import { List, FileText, Server, BarChart3, SlidersHorizontal } from "lucide-react";
-import type { Section } from "../hooks/useSection.js";
+import { Link } from "@tanstack/react-router";
 import type { ComponentType } from "react";
 
 type RailItem = {
-  section: Section;
+  path: string;
   label: string;
   icon: ComponentType<{ size?: number; className?: string }>;
   shortcut: string;
 };
 
 const ITEMS: RailItem[] = [
-  { section: "tasks", label: "Tasks", icon: List, shortcut: "⌘1" },
-  { section: "prompts", label: "Prompts", icon: FileText, shortcut: "⌘2" },
-  { section: "providers", label: "Providers", icon: Server, shortcut: "⌘3" },
-  { section: "measurement", label: "Measurement", icon: BarChart3, shortcut: "⌘4" },
-  { section: "settings", label: "Settings", icon: SlidersHorizontal, shortcut: "⌘5" },
+  { path: "/tasks", label: "Tasks", icon: List, shortcut: "⌘1" },
+  { path: "/prompts", label: "Prompts", icon: FileText, shortcut: "⌘2" },
+  { path: "/providers", label: "Providers", icon: Server, shortcut: "⌘3" },
+  { path: "/measurement", label: "Measurement", icon: BarChart3, shortcut: "⌘4" },
+  { path: "/settings", label: "Settings", icon: SlidersHorizontal, shortcut: "⌘5" },
 ];
 
-type RailProps = {
-  active: Section;
-  onNavigate: (s: Section) => void;
-};
-
-export function Rail({ active, onNavigate }: RailProps) {
+export function Rail() {
   return (
     <nav className="flex flex-col justify-between w-52 border-r border-border-default bg-rail-bg shrink-0">
       <ul className="flex flex-col gap-0.5 p-2">
-        {ITEMS.map(({ section, label, icon: Icon, shortcut }) => {
-          const isActive = active === section;
-          return (
-            <li key={section}>
-              <button
-                type="button"
-                onClick={() => onNavigate(section)}
-                className={`flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer ${
-                  isActive
-                    ? "bg-bg-tertiary text-rail-active font-medium"
-                    : "text-text-secondary hover:bg-rail-hover hover:text-text-primary"
-                }`}
-              >
-                <Icon size={16} className="shrink-0" />
-                <span className="flex-1 text-left">{label}</span>
-                <kbd className="text-xs text-text-tertiary font-sans">{shortcut}</kbd>
-              </button>
-            </li>
-          );
-        })}
+        {ITEMS.map(({ path, label, icon: Icon, shortcut }) => (
+          <li key={path}>
+            <Link
+              to={path as any}
+              activeOptions={{ includeSearch: false }}
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer text-text-secondary hover:bg-rail-hover hover:text-text-primary"
+              activeProps={{
+                className:
+                  "flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer bg-bg-tertiary text-rail-active font-medium",
+              }}
+            >
+              <Icon size={16} className="shrink-0" />
+              <span className="flex-1 text-left">{label}</span>
+              <kbd className="text-xs text-text-tertiary font-sans">{shortcut}</kbd>
+            </Link>
+          </li>
+        ))}
       </ul>
 
       {/* Version tag at bottom */}
@@ -55,5 +47,3 @@ export function Rail({ active, onNavigate }: RailProps) {
     </nav>
   );
 }
-
-export type { RailProps };

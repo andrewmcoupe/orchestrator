@@ -17,7 +17,6 @@ import {
 } from "./paths.js";
 
 describe("paths", () => {
-  const originalCwd = process.cwd();
   const fakeCwd = "/tmp/my-project";
 
   beforeEach(() => {

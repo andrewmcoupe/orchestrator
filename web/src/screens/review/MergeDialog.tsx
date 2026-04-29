@@ -519,7 +519,7 @@ function GateFailedView({ failures }: { failures: GateFailureItem[] }) {
 
 function ConflictedView({
   paths,
-  taskId,
+  taskId: _taskId,
   onOpenEditor,
 }: {
   paths: string[];

@@ -7,7 +7,6 @@ import type { TaskListRow } from "@shared/projections.js";
 import {
   appendAndProject,
   rebuildProjection,
-  getRegisteredProjections,
   initProjections,
   eventBus,
 } from "../projectionRunner.js";

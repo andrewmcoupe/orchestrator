@@ -27,7 +27,7 @@ import type { InvokeOptions as ClaudeCodeInvokeOptions } from "./adapters/claude
 import { invoke as codexInvoke } from "./adapters/codex.js";
 import type { InvokeOptions as CodexInvokeOptions } from "./adapters/codex.js";
 import { createBlobStore } from "./blobStore.js";
-import { getDefaultRepoRoot, getBlobsDir } from "./paths.js";
+import { getBlobsDir } from "./paths.js";
 import { topoSort } from "@shared/dependency.js";
 import { DEFAULT_INGEST_CONFIG, type IngestConfig } from "./config.js";
 
@@ -109,10 +109,17 @@ const EXTRACTION_JSON_SCHEMA: object = {
       items: {
         type: "object",
         properties: {
-          id: { type: "string", description: "Temporary draft task ID using DT-001, DT-002, etc." },
+          id: {
+            type: "string",
+            description: "Temporary draft task ID using DT-001, DT-002, etc.",
+          },
           title: { type: "string" },
           proposition_ids: { type: "array", items: { type: "string" } },
-          depends_on: { type: "array", items: { type: "string" }, description: "Array of DT-* IDs that this task depends on" },
+          depends_on: {
+            type: "array",
+            items: { type: "string" },
+            description: "Array of DT-* IDs that this task depends on",
+          },
         },
         required: ["id", "title", "proposition_ids", "depends_on"],
       },
@@ -175,7 +182,9 @@ async function callExtractionCli(
     let assistantMessageText = "";
     let cliErrored = false;
 
-    console.log(`[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${config.model}, transport: ${config.transport})`);
+    console.log(
+      `[ingest] attempt ${attempt + 1}/${MAX_RETRIES + 1} for ${prd_id} (model: ${config.model}, transport: ${config.transport})`,
+    );
     console.log(`[ingest] content length: ${content.length} chars`);
 
     const prompt = `${systemPrompt}\n\n---\n\n${content}`;
@@ -229,7 +238,20 @@ async function callExtractionCli(
           max_turns: 3,
           max_budget_usd: 2,
           permission_mode: "bypassPermissions" as const,
-          disallowed_tools: ["ToolSearch", "Read", "Write", "Edit", "Glob", "Grep", "Bash", "Agent", "Skill", "NotebookEdit", "WebSearch", "WebFetch"],
+          disallowed_tools: [
+            "ToolSearch",
+            "Read",
+            "Write",
+            "Edit",
+            "Glob",
+            "Grep",
+            "Bash",
+            "Agent",
+            "Skill",
+            "NotebookEdit",
+            "WebSearch",
+            "WebFetch",
+          ],
           schema: EXTRACTION_JSON_SCHEMA,
         },
       };
@@ -237,7 +259,9 @@ async function callExtractionCli(
     }
 
     for await (const event of eventStream) {
-      console.log(`[ingest] received event: ${event.type} (+${Date.now() - startTime}ms)`);
+      console.log(
+        `[ingest] received event: ${event.type} (+${Date.now() - startTime}ms)`,
+      );
       // Codex path: structured output arrives as the final assistant message.
       // Retain only the latest message (not concatenated) since the contract
       // specifies the *final* assistant message carries the structured output.
@@ -246,13 +270,18 @@ async function callExtractionCli(
       }
       // Claude Code path: structured output arrives as a StructuredOutput tool call.
       if (event.type === "invocation.tool_called") {
-        const payload = event.payload as { tool_name: string; args_hash: string };
+        const payload = event.payload as {
+          tool_name: string;
+          args_hash: string;
+        };
         console.log(`[ingest] tool_called: ${payload.tool_name}`);
         if (payload.tool_name === "StructuredOutput") {
           const blob = blobStore.getBlob(payload.args_hash);
           if (blob) {
             structuredOutputText = blob.toString("utf-8");
-            console.log(`[ingest] captured structured_output args (${structuredOutputText.length} chars)`);
+            console.log(
+              `[ingest] captured structured_output args (${structuredOutputText.length} chars)`,
+            );
           }
         } else {
           console.log(`[ingest] ignoring tool call: ${payload.tool_name}`);
@@ -269,20 +298,32 @@ async function callExtractionCli(
 
     // Prefer StructuredOutput tool call (Claude Code) over assistant_message (Codex).
     const capturedText = structuredOutputText || assistantMessageText;
-    console.log(`[ingest] CLI call completed in ${Date.now() - startTime}ms (errored: ${cliErrored}, textLen: ${capturedText.length})`);
+    console.log(
+      `[ingest] CLI call completed in ${Date.now() - startTime}ms (errored: ${cliErrored}, textLen: ${capturedText.length})`,
+    );
 
     if (!cliErrored && capturedText) {
       try {
         const parsed: unknown = JSON.parse(capturedText);
-        console.log(`[ingest] raw LLM response:`, JSON.stringify(parsed, null, 2));
+        console.log(
+          `[ingest] raw LLM response:`,
+          JSON.stringify(parsed, null, 2),
+        );
         const result = extractionSchema.parse(parsed);
-        console.log(`[ingest] extraction succeeded: ${result.propositions.length} propositions, ${result.draft_tasks.length} tasks, ${result.pushbacks.length} pushbacks`);
+        console.log(
+          `[ingest] extraction succeeded: ${result.propositions.length} propositions, ${result.draft_tasks.length} tasks, ${result.pushbacks.length} pushbacks`,
+        );
         return result;
       } catch (err) {
-        console.error(`[ingest] parse/validation failed:`, err instanceof Error ? err.message : err);
-        console.error(`[ingest] raw capturedText:`, capturedText.slice(0, 2000));
-        lastError =
-          err instanceof Error ? err : new Error("Validation failed");
+        console.error(
+          `[ingest] parse/validation failed:`,
+          err instanceof Error ? err.message : err,
+        );
+        console.error(
+          `[ingest] raw capturedText:`,
+          capturedText.slice(0, 2000),
+        );
+        lastError = err instanceof Error ? err : new Error("Validation failed");
         // continue to next retry
       }
     } else if (cliErrored && attempt === MAX_RETRIES) {
@@ -341,7 +382,8 @@ export async function ingestPrd(
 
   // Resolve content from either input mode
   const resolvedPath: string | null = "path" in input ? input.path : null;
-  const content = "content" in input ? input.content : readFileSync(input.path, "utf-8");
+  const content =
+    "content" in input ? input.content : readFileSync(input.path, "utf-8");
   const lines = content.split("\n").length;
   const size_bytes = Buffer.byteLength(content);
   const content_hash = createHash("sha256").update(content).digest("hex");
@@ -373,7 +415,10 @@ export async function ingestPrd(
 
   // Run topological sort to detect and strip cycle-causing edges
   const topoResult = topoSort(
-    extracted.draft_tasks.map((t) => ({ id: t.id, depends_on: [...t.depends_on] })),
+    extracted.draft_tasks.map((t) => ({
+      id: t.id,
+      depends_on: [...t.depends_on],
+    })),
   );
 
   // Apply stripped edges back to the extracted draft tasks
@@ -438,7 +483,9 @@ export async function ingestPrd(
   for (const draft of extracted.draft_tasks) {
     // Skip if a task with the same title already exists
     const existing = db
-      .prepare("SELECT task_id FROM proj_task_list WHERE LOWER(title) = LOWER(?)")
+      .prepare(
+        "SELECT task_id FROM proj_task_list WHERE LOWER(title) = LOWER(?)",
+      )
       .get(draft.title) as { task_id: string } | undefined;
     if (existing) {
       // Remap the draft ID to the existing task so dependency resolution still works
@@ -486,7 +533,12 @@ export async function ingestPrd(
       });
     }
 
-    draft_tasks.push({ task_id, title: draft.title, proposition_ids: resolvedIds, depends_on: resolvedDeps });
+    draft_tasks.push({
+      task_id,
+      title: draft.title,
+      proposition_ids: resolvedIds,
+      depends_on: resolvedDeps,
+    });
   }
 
   // Emit pushback.raised for each flagged proposition
@@ -523,7 +575,7 @@ export async function ingestPrd(
     const pushback_id = `PUSHBACK-${ulid()}`;
     // Use the first proposition ID as a reference anchor (cycle is cross-task)
     const anchorPropId = extracted.propositions[0]
-      ? idMap.get(extracted.propositions[0].id) ?? ""
+      ? (idMap.get(extracted.propositions[0].id) ?? "")
       : "";
 
     appendAndProject(db, {
