@@ -1,45 +1,39 @@
-import { Fragment, useCallback, useState, useMemo, useEffect } from "react";
-import { SlidersHorizontal, ClipboardList, Plus, X, Info } from "lucide-react";
-import { Link } from "@tanstack/react-router";
-import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
+import { ArrowRightIcon } from "@phosphor-icons/react/dist/ssr";
+import { canAddDependency, topoSort } from "@shared/dependency.js";
 import type {
-  TaskStatus,
-  TaskConfig,
-  PhaseConfig,
-  GateConfig,
   AnyEvent,
+  GateConfig,
   GateFailed,
+  PhaseConfig,
+  TaskConfig,
+  TaskStatus,
 } from "@shared/events.js";
-import { canAddDependency } from "@shared/dependency.js";
-import { topoSort } from "@shared/dependency.js";
+import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
+import { Link } from "@tanstack/react-router";
+import { Button, buttonVariants } from "@web/src/components/ui/button";
 import {
-  useTaskTimelineQuery,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@web/src/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@web/src/components/ui/tooltip";
+import { ClipboardList, Plus, SlidersHorizontal, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import {
   usePropositionsQuery,
+  useTaskTimelineQuery,
 } from "../../hooks/useQueries.js";
 import { useLatestAssistantMessage } from "../../store/eventStore.js";
 import { MergeDialog } from "../review/MergeDialog.js";
-import { Button, buttonVariants } from "@web/src/components/ui/button";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@web/src/components/ui/popover";
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  TooltipProvider,
-} from "@web/src/components/ui/tooltip";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
-} from "@web/src/components/ui/dialog";
-import { ArrowRightIcon } from "@phosphor-icons/react/dist/ssr";
 
 type TaskDetailPaneProps = {
   detail: TaskDetailRow;
@@ -888,17 +882,16 @@ export function TaskDetailPane({
       {/* Action toolbar */}
       <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-6 py-2.5 border-b border-border-muted bg-bg-secondary shrink-0">
         <div className="flex items-center gap-2">
-          {detail.status !== "merged" &&
-            detail.status !== "archived" && (
-              <Link
-                to="/tasks/$taskId/config"
-                params={{ taskId: detail.task_id }}
-                className={buttonVariants({ variant: "outline" })}
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                Config
-              </Link>
-            )}
+          {detail.status !== "merged" && detail.status !== "archived" && (
+            <Link
+              to="/tasks/$taskId/config"
+              params={{ taskId: detail.task_id }}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Config
+            </Link>
+          )}
           {detail.current_attempt_id &&
             (detail.status === "awaiting_review" ? (
               <Link
@@ -970,27 +963,6 @@ export function TaskDetailPane({
           <h2 className="text-xl font-semibold text-text-primary">
             {detail.title}
           </h2>
-          <Popover>
-            <PopoverTrigger
-              aria-label="Show task configuration preview"
-              className="p-1 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
-            >
-              <Info size={16} />
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-96 max-h-[70vh] overflow-y-auto"
-              side="bottom"
-              align="start"
-            >
-              <TaskPreviewPanel
-                config={{
-                  phases: detail.config.phases,
-                  gates: detail.config.gates,
-                }}
-                propositionIds={detail.proposition_ids}
-              />
-            </PopoverContent>
-          </Popover>
         </div>
       </div>
 

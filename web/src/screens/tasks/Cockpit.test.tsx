@@ -352,7 +352,11 @@ describe("TaskListSidebar", () => {
       current_attempt_id: "ATT-007",
     });
     await withQuery(
-      <TaskListSidebar tasks={[...tasks, approvedTask]} selectedId={null} statusFilter="done" />,
+      <TaskListSidebar
+        tasks={[...tasks, approvedTask]}
+        selectedId={null}
+        statusFilter="done"
+      />,
     );
     // "done" filter includes approved/awaiting_merge/merged
     expect(screen.getByText("T-007")).toBeDefined();
@@ -654,26 +658,6 @@ describe("TaskDetailPane", () => {
     expect(screen.getByText("eslint")).toBeDefined();
     expect(screen.getByText("jest")).toBeDefined();
     expect(screen.getByText("integration")).toBeDefined();
-  });
-
-  it("does not render retry policy summary in the detail pane", async () => {
-    await withQuery(
-      <TaskDetailPane detail={makeDetailRow()} listRow={makeListRow()} />,
-    );
-    expect(screen.queryByText("Retry Policy")).toBeNull();
-    expect(screen.queryByText("retry:")).toBeNull();
-    expect(
-      screen.queryByText(
-        "2\u00d7 on typecheck \u00b7 escalate on audit reject",
-      ),
-    ).toBeNull();
-    expect(screen.queryByText("attempt 1/3")).toBeNull();
-
-    fireEvent.click(screen.getByLabelText("Show task configuration preview"));
-    expect(await screen.findByText("Propositions (1)")).toBeDefined();
-    expect(screen.queryByText("Retry Policy")).toBeNull();
-    expect(screen.queryByText("max_total_attempts")).toBeNull();
-    expect(screen.queryByText("on_typecheck_fail")).toBeNull();
   });
 
   it("shows Pause/Retry/Kill for running status", async () => {
