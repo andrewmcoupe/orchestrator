@@ -293,6 +293,7 @@ export function TaskListSidebar({
                   key={task.task_id}
                   to="/tasks/$taskId"
                   params={{ taskId: task.task_id }}
+                  search={{ status: statusFilter }}
                   className={`block w-full text-left px-3 py-2.5 border-l-2 transition-colors cursor-pointer group ${
                     task.task_id === selectedId
                       ? "border-l-status-warning bg-bg-secondary"
