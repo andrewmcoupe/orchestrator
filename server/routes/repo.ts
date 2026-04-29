@@ -7,7 +7,8 @@
  * GET /api/worktree/:task_id/open     — open the task worktree in $EDITOR / $VISUAL
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { resolve, dirname, basename } from "node:path";
 import { Hono } from "hono";
 import { execa } from "execa";
 import { parse as parseYaml } from "yaml";
@@ -114,6 +115,51 @@ export function createRepoRoutes(db: Database.Database) {
       return c.json({ opened: true, path: row.worktree_path, editor });
     } catch (err) {
       return c.json({ opened: false, error: String(err) }, 500);
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // GET /api/fs/suggest?q=<partial-path>
+  //
+  // Returns directory entries matching a partial filesystem path, used by the
+  // ingest form to autocomplete PRD file paths.
+  // --------------------------------------------------------------------------
+  app.get("/api/fs/suggest", (c) => {
+    const q = c.req.query("q")?.trim() ?? "";
+    if (!q) return c.json({ entries: [] });
+
+    try {
+      const resolved = resolve(q);
+      let dir: string;
+      let prefix: string;
+
+      try {
+        const stat = statSync(resolved);
+        if (stat.isDirectory()) {
+          dir = resolved;
+          prefix = "";
+        } else {
+          dir = dirname(resolved);
+          prefix = basename(resolved);
+        }
+      } catch {
+        dir = dirname(resolved);
+        prefix = basename(resolved);
+      }
+
+      const raw = readdirSync(dir, { withFileTypes: true });
+      const entries = raw
+        .filter((e) => !e.name.startsWith(".") && e.name.toLowerCase().startsWith(prefix.toLowerCase()))
+        .slice(0, 20)
+        .map((e) => ({
+          name: e.name,
+          path: resolve(dir, e.name),
+          isDir: e.isDirectory(),
+        }));
+
+      return c.json({ entries });
+    } catch {
+      return c.json({ entries: [] });
     }
   });
 

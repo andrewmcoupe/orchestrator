@@ -171,12 +171,15 @@ async function callExtractionCli(
   prd_id: string,
   content: string,
   config: IngestConfig = DEFAULT_INGEST_CONFIG,
+  signal?: AbortSignal,
 ): Promise<ExtractionResult> {
   const systemPrompt = loadPromptTemplate();
   const blobStore = createBlobStore(getBlobsDir());
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (signal?.aborted) throw new Error("Ingest cancelled");
+
     const invocationId = `INV-${ulid()}`;
     let structuredOutputText = "";
     let assistantMessageText = "";
@@ -227,7 +230,7 @@ async function callExtractionCli(
           schema: EXTRACTION_JSON_SCHEMA,
         },
       };
-      eventStream = codexInvoke(codexOpts, blobStore);
+      eventStream = codexInvoke(codexOpts, blobStore, undefined, signal);
     } else {
       // Claude Code: bypass permissions, all tools disabled, schema for
       // --json-schema structured output.
@@ -255,7 +258,7 @@ async function callExtractionCli(
           schema: EXTRACTION_JSON_SCHEMA,
         },
       };
-      eventStream = claudeCodeInvoke(claudeCodeOpts, blobStore);
+      eventStream = claudeCodeInvoke(claudeCodeOpts, blobStore, undefined, signal);
     }
 
     for await (const event of eventStream) {
@@ -295,6 +298,8 @@ async function callExtractionCli(
         break;
       }
     }
+
+    if (signal?.aborted) throw new Error("Ingest cancelled");
 
     // Prefer StructuredOutput tool call (Claude Code) over assistant_message (Codex).
     const capturedText = structuredOutputText || assistantMessageText;
@@ -368,12 +373,14 @@ export type Extractor = (
   prd_id: string,
   content: string,
   config: IngestConfig,
+  signal?: AbortSignal,
 ) => Promise<ExtractionResult>;
 
 export async function ingestPrd(
   db: Database.Database,
   input: IngestInput,
   extractor?: Extractor,
+  signal?: AbortSignal,
 ): Promise<IngestResult> {
   const ingestConfig: IngestConfig = {
     transport: input.transport ?? DEFAULT_INGEST_CONFIG.transport,
@@ -411,7 +418,7 @@ export async function ingestPrd(
 
   // Call extraction (injectable for tests, defaults to real CLI)
   const extract = extractor ?? callExtractionCli;
-  const extracted = await extract(prd_id, content, ingestConfig);
+  const extracted = await extract(prd_id, content, ingestConfig, signal);
 
   // Run topological sort to detect and strip cycle-causing edges
   const topoResult = topoSort(

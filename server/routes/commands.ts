@@ -42,6 +42,9 @@ import { canAddDependency, topoSort } from "@shared/dependency.js";
 
 const DEFAULT_ACTOR: Actor = { kind: "user", user_id: "local" };
 
+// Track active ingest processes so they can be cancelled
+const activeIngests = new Map<string, AbortController>();
+
 // Default config re-exported from shared — single source of truth
 const DEFAULT_CONFIG = DEFAULT_TASK_CONFIG;
 
@@ -1029,18 +1032,43 @@ export function createCommandRoutes(db: Database.Database) {
     const parsed = prdIngestBody.safeParse(await c.req.json());
     if (!parsed.success) return badRequest(parsed.error);
 
+    const ac = new AbortController();
+    const ingestId = ulid();
+    activeIngests.set(ingestId, ac);
+
     try {
       const defaults = getIngestConfig();
-      const result = await ingestPrd(db, {
-        ...parsed.data,
-        transport: parsed.data.transport ?? defaults.transport,
-        model: parsed.data.model ?? defaults.model,
-      });
+      const result = await ingestPrd(
+        db,
+        {
+          ...parsed.data,
+          transport: parsed.data.transport ?? defaults.transport,
+          model: parsed.data.model ?? defaults.model,
+        },
+        undefined,
+        ac.signal,
+      );
       return c.json(result);
     } catch (err) {
+      if (ac.signal.aborted) {
+        return c.json({ error: "Ingest cancelled" }, 500);
+      }
       const error = err as Error;
       return c.json({ error: error.message }, 500);
+    } finally {
+      activeIngests.delete(ingestId);
     }
+  });
+
+  // --------------------------------------------------------------------------
+  // POST /api/commands/prd/ingest/cancel
+  // --------------------------------------------------------------------------
+  app.post("/api/commands/prd/ingest/cancel", (c) => {
+    for (const [id, ac] of activeIngests) {
+      ac.abort();
+      activeIngests.delete(id);
+    }
+    return c.json({ cancelled: true });
   });
 
   // --------------------------------------------------------------------------
