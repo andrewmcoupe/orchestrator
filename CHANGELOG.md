@@ -1,5 +1,11 @@
 # @andycoupe/orchestrator
 
+## 0.4.0
+
+### Minor Changes
+
+- 8f192fa: Remove info popover
+
 ## 0.3.1
 
 ### Patch Changes
