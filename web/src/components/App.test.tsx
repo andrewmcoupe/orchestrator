@@ -2,9 +2,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createRouter, createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { useEventStore } from "../store/eventStore.js";
-import { routeTree } from "../routeTree.gen.js";
+import {
+  createRouter,
+  createMemoryHistory,
+  RouterProvider,
+} from "@tanstack/react-router";
+import { useEventStore } from "../store/eventStore";
+import { routeTree } from "../routeTree.gen";
 
 // Mock fetch so hydrate() doesn't fail on relative URLs in jsdom
 const mockFetch = vi.fn(() =>
