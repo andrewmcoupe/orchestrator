@@ -259,7 +259,7 @@ function PhaseCard({
                 <SelectTrigger className="flex-1">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="w-auto min-w-[var(--anchor-width)]">
                   {TRANSPORTS.map((t) => {
                     const health = healthByTransport[t];
                     const isDown = health?.status === "down";
