@@ -82,6 +82,10 @@ function appendInvocation(
       cost_usd: costUsd,
       duration_ms: 1500,
       turns: 3,
+      exit_reason: "normal",
+      stdout_tail_hash: null,
+      stderr_tail_hash: null,
+      permission_blocked_on: null,
     },
   });
 }
@@ -217,6 +221,10 @@ describe("cost_rollup projection", () => {
         cost_usd: 0.001,
         duration_ms: 500,
         turns: 1,
+        exit_reason: "normal",
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
       },
     });
 

@@ -50,6 +50,7 @@ const BASE_ATTEMPT: AttemptRow = {
   audit: {
     verdict: "approve",
     confidence: 0.92,
+    summary: "Code looks good overall",
     concern_count: 1,
     blocking_count: 0,
     concerns: [
@@ -98,6 +99,7 @@ const REVISE_ATTEMPT: AttemptRow = {
   audit: {
     verdict: "revise",
     confidence: 0.75,
+    summary: "Changes need further work",
     concern_count: 2,
     blocking_count: 1,
     concerns: [
@@ -125,6 +127,7 @@ const REJECT_ATTEMPT: AttemptRow = {
   audit: {
     verdict: "reject",
     confidence: 0.95,
+    summary: "Implementation does not meet requirements",
     concern_count: 3,
     blocking_count: 3,
     concerns: [],

@@ -185,7 +185,7 @@ describe("attempt projection", () => {
       aggregate_id: attempt_id,
       actor,
       correlation_id: attempt_id,
-      payload: { attempt_id, phase_name: "implementer", outcome: "success", tokens_in: 100, tokens_out: 200, cost_usd: 0.01, duration_ms: 5000 },
+      payload: { attempt_id, phase_name: "implementer", outcome: "success", tokens_in: 100, tokens_out: 200, cost_usd: 0.01, duration_ms: 5000, exit_reason: "normal", stdout_tail_hash: null, stderr_tail_hash: null, permission_blocked_on: null },
     });
 
     const row = getAttemptRow(db, attempt_id);
@@ -212,7 +212,7 @@ describe("attempt projection", () => {
       aggregate_id: attempt_id,
       actor,
       correlation_id: attempt_id,
-      payload: { invocation_id, outcome: "success", tokens_in: 500, tokens_out: 300, cost_usd: 0.05, duration_ms: 2000, turns: 3 },
+      payload: { invocation_id, outcome: "success", tokens_in: 500, tokens_out: 300, cost_usd: 0.05, duration_ms: 2000, turns: 3, exit_reason: "normal", stdout_tail_hash: null, stderr_tail_hash: null, permission_blocked_on: null },
     });
 
     const row = getAttemptRow(db, attempt_id);
@@ -531,6 +531,8 @@ describe("attempt projection", () => {
         duration_ms: 500,
         exit_reason: "permission_blocked",
         permission_blocked_on: "Write",
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
       },
     });
 
@@ -562,6 +564,9 @@ describe("attempt projection", () => {
         cost_usd: 0.001,
         duration_ms: 1000,
         exit_reason: "normal",
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
       },
     });
 
@@ -592,6 +597,10 @@ describe("attempt projection", () => {
         tokens_out: 50,
         cost_usd: 0.001,
         duration_ms: 1000,
+        exit_reason: "normal",
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
       },
     });
 
@@ -624,6 +633,9 @@ describe("attempt projection", () => {
         cost_usd: 10,
         duration_ms: 60000,
         exit_reason: "budget_exceeded",
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
       },
     });
     // Second phase: timeout (overwrites)
@@ -642,6 +654,9 @@ describe("attempt projection", () => {
         cost_usd: 0,
         duration_ms: 120000,
         exit_reason: "timeout",
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
       },
     });
 

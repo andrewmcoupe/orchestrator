@@ -247,6 +247,10 @@ describe("TaskDetail projection", () => {
         tokens_out: 500,
         cost_usd: 0.05,
         duration_ms: 30000,
+        exit_reason: "normal",
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
       },
     });
 
