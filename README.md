@@ -68,13 +68,13 @@ The orchestrator ingests PRDs as markdown. Each `##` section becomes a separate 
 
 ### Recommended: use the PRD generation skill
 
-Install the [generate-orchestrator-prd](https://github.com/andrewmcoupe/ai-skills/tree/main/generate-orchestrator-prd) skill for Claude Code:
+Install the [generate-orchestrator-prd](https://github.com/andrewmcoupe/ai-skills/tree/main/generate-orchestrator-prd) skill:
 
 ```bash
 npx skills@latest add andrewmcoupe/ai-skills/generate-orchestrator-prd
 ```
 
-Then in Claude Code:
+Then use it:
 
 ```
 /generate-orchestrator-prd
