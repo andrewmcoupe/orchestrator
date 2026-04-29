@@ -17,7 +17,10 @@ import "./register.js";
 // ============================================================================
 
 // Raw DB row shape — _variant is transient and never written, split_a is persisted
-type RawRow = Omit<AbExperimentRow, "significance_p" | "winner" | "_variant"> & {
+type RawRow = Omit<
+  AbExperimentRow,
+  "significance_p" | "winner" | "_variant"
+> & {
   significance_p: number | null;
   winner: string | null;
 };
@@ -35,7 +38,10 @@ function makeDb(): Database.Database {
   return db;
 }
 
-function getRow(db: Database.Database, experimentId: string): AbExperimentRow | null {
+function getRow(
+  db: Database.Database,
+  experimentId: string,
+): AbExperimentRow | null {
   const raw = db
     .prepare("SELECT * FROM proj_ab_experiment WHERE experiment_id = ?")
     .get(experimentId) as RawRow | undefined;
@@ -308,6 +314,10 @@ describe("ab_experiment projection", () => {
         cost_usd: costUsd,
         duration_ms: 1000,
         turns: 1,
+        stdout_tail_hash: "",
+        exit_reason: "unknown",
+        permission_blocked_on: "",
+        stderr_tail_hash: "",
       },
     });
   }

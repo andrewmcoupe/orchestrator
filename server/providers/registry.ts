@@ -42,13 +42,6 @@ export const PROVIDERS: ProviderConfig[] = [
     auth_method: "cli_login",
   },
   {
-    provider_id: "aider",
-    transport: "aider",
-    kind: "cli",
-    binary: "aider",
-    auth_method: "cli_login",
-  },
-  {
     provider_id: "gemini-cli",
     transport: "gemini-cli",
     kind: "cli",

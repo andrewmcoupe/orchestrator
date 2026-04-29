@@ -286,7 +286,6 @@ function getTaskDetailRow(
 const CLI_TRANSPORTS = new Set<Transport>([
   "claude-code",
   "codex",
-  "aider",
   "gemini-cli",
 ]);
 

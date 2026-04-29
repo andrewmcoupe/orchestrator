@@ -205,6 +205,10 @@ describe("prompt_library projection", () => {
         cost_usd: 0.005,
         duration_ms: 1000,
         turns: 3,
+        exit_reason: "normal",
+        stdout_tail_hash: null,
+        stderr_tail_hash: null,
+        permission_blocked_on: null,
       },
     });
 

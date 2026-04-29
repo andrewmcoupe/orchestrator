@@ -487,10 +487,8 @@ function PushbackBlock({ pushback, onResolve }: PushbackBlockProps) {
           <>
             <TooltipProvider>
               <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex items-center cursor-help">
-                    <Info size={12} className="text-text-tertiary" />
-                  </span>
+                <TooltipTrigger className="inline-flex items-center cursor-help">
+                  <Info size={12} className="text-text-tertiary" />
                 </TooltipTrigger>
                 <TooltipContent
                   side="top"
@@ -794,7 +792,7 @@ export function Ingest() {
   });
 
   const handleResolvePushback = useCallback(
-    (pushbackId: string, resolution: PushbackResolution, text?: string) => {
+    async (pushbackId: string, resolution: PushbackResolution, text?: string) => {
       const body: Record<string, unknown> = { resolution };
       if (text && resolution === "amended")
         body.amended_proposition_text = text;

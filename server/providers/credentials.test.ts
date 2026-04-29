@@ -66,7 +66,6 @@ describe("credentials", () => {
     const store = createCredentialStore(envLocalPath);
     expect(store.getCredential("claude-code")).toBeNull();
     expect(store.getCredential("codex")).toBeNull();
-    expect(store.getCredential("aider")).toBeNull();
     expect(store.getCredential("gemini-cli")).toBeNull();
   });
 

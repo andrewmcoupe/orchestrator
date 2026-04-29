@@ -300,7 +300,7 @@ export function Guide() {
           <div>
             <dt className="font-bold text-text-primary">Transport</dt>
             <dd className="text-text-secondary mt-1">
-              The specific CLI tool or API used to execute a phase (claude-code, codex, anthropic-api, aider, gemini-cli). The transport determines how Orchestrator communicates with the underlying model or tool.
+              The specific CLI tool or API used to execute a phase (claude-code, codex, anthropic-api, gemini-cli). The transport determines how Orchestrator communicates with the underlying model or tool.
             </dd>
           </div>
         </dl>

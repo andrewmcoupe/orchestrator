@@ -97,7 +97,6 @@ export type AggregateType =
 export type Transport =
   | "claude-code"
   | "codex"
-  | "aider"
   | "gemini-cli"
   | "anthropic-api"
   | "openai-api";

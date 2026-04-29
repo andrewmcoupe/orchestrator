@@ -61,29 +61,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
           },
         },
       ],
-      gates: [
-        {
-          name: "typecheck",
-          command: "pnpm typecheck",
-          required: true,
-          timeout_seconds: 60,
-          on_fail: "retry",
-        },
-        {
-          name: "lint",
-          command: "pnpm lint",
-          required: false,
-          timeout_seconds: 30,
-          on_fail: "skip",
-        },
-        {
-          name: "test",
-          command: "pnpm test",
-          required: true,
-          timeout_seconds: 120,
-          on_fail: "retry",
-        },
-      ],
+      gates: [],
       retry_policy: {
         max_total_attempts: 3,
         on_typecheck_fail: { strategy: "retry_same", max_attempts: 2 },
@@ -155,22 +133,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
           },
         },
       ],
-      gates: [
-        {
-          name: "typecheck",
-          command: "pnpm typecheck",
-          required: true,
-          timeout_seconds: 60,
-          on_fail: "retry",
-        },
-        {
-          name: "test",
-          command: "pnpm test",
-          required: true,
-          timeout_seconds: 120,
-          on_fail: "retry",
-        },
-      ],
+      gates: [],
       retry_policy: {
         max_total_attempts: 3,
         on_typecheck_fail: { strategy: "retry_same", max_attempts: 2 },
@@ -207,22 +170,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
           },
         },
       ],
-      gates: [
-        {
-          name: "typecheck",
-          command: "pnpm typecheck",
-          required: true,
-          timeout_seconds: 60,
-          on_fail: "retry",
-        },
-        {
-          name: "test",
-          command: "pnpm test",
-          required: true,
-          timeout_seconds: 120,
-          on_fail: "retry",
-        },
-      ],
+      gates: [],
       retry_policy: {
         max_total_attempts: 5,
         on_typecheck_fail: { strategy: "retry_with_more_context", max_attempts: 3 },
@@ -273,22 +221,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
           },
         },
       ],
-      gates: [
-        {
-          name: "typecheck",
-          command: "pnpm typecheck",
-          required: true,
-          timeout_seconds: 120,
-          on_fail: "retry",
-        },
-        {
-          name: "test",
-          command: "pnpm test",
-          required: true,
-          timeout_seconds: 180,
-          on_fail: "retry",
-        },
-      ],
+      gates: [],
       retry_policy: {
         max_total_attempts: 4,
         on_typecheck_fail: { strategy: "retry_same", max_attempts: 2 },

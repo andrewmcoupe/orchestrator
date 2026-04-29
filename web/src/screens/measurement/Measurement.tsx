@@ -138,7 +138,6 @@ const PROVIDER_COLORS: Record<string, string> = {
   "claude-code": "#10b981",
   "openai-api": "#3b82f6",
   "codex": "#6366f1",
-  "aider": "#ec4899",
   "gemini-cli": "#8b5cf6",
 };
 
