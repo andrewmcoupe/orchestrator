@@ -39,13 +39,17 @@ function extractProviderId(event: AnyEvent): string | null {
 }
 
 /** Derive auth_present from whether the configured env-var is set. */
-function deriveAuthPresent(event: AnyEvent): boolean {
+function deriveAuthPresent(
+  event: AnyEvent,
+  current: ProviderHealthRow | null,
+): boolean {
   // For provider.configured events we can check env vars
   if (event.type !== "provider.configured") return false;
   const p = event.payload;
   if (p.auth_method === "cli_login") {
-    // CLI providers manage their own auth — we can't tell from here
-    return false;
+    // CLI providers get auth_present from probe results — preserve existing
+    // DB value, defaulting to false only when the row is new.
+    return current?.auth_present ?? false;
   }
   // For env_var auth, derive the var name from the transport
   const envVarMap: Record<string, string> = {
@@ -94,18 +98,19 @@ export const providerHealthProjection: Projection<ProviderHealthRow> = {
     current: ProviderHealthRow | null,
     event: AnyEvent,
   ): ProviderHealthRow | null {
-    // Augment provider.configured with current auth_present status
     if (event.type === "provider.configured") {
       const next = reduceProviderHealth(current, event);
       if (!next) return null;
-      // For CLI providers, the shared reducer already preserves auth_present
-      // from the DB (or defaults to false). For env_var auth, derive from env.
-      if (event.payload.auth_method !== "cli_login") {
-        const authPresent = deriveAuthPresent(event);
-        return { ...next, auth_present: authPresent };
-      }
+      const authPresent = deriveAuthPresent(event, current);
+      return { ...next, auth_present: authPresent };
+    }
+
+    if (event.type === "provider.probed") {
+      // Persist auth_present from the probe result via the shared reducer
+      const next = reduceProviderHealth(current, event);
       return next;
     }
+
     return reduceProviderHealth(current, event);
   },
 
