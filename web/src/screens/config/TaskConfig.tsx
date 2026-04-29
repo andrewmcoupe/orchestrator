@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, Eye } from "lucide-react";
-import type { TaskDetailRow, PresetRow } from "@shared/projections.js";
+import type { TaskDetailRow, PresetRow, ProviderHealthRow } from "@shared/projections.js";
 import type {
   TaskConfig as TaskConfigType,
   PhaseConfig,
@@ -23,6 +23,7 @@ import {
   usePromptLibraryQuery,
   usePromptTemplateQuery,
 } from "../../hooks/useQueries.js";
+import { useProviderHealth } from "../../store/eventStore.js";
 import type { LibraryGate } from "../../hooks/useQueries.js";
 import {
   Select,
@@ -181,11 +182,13 @@ function PhaseCard({
   index,
   gateNames,
   onChange,
+  healthByTransport,
 }: {
   phase: PhaseConfig;
   index: number;
   gateNames: string[];
   onChange: (index: number, updated: PhaseConfig) => void;
+  healthByTransport: Record<string, ProviderHealthRow>;
 }) {
   const update = (patch: Partial<PhaseConfig>) =>
     onChange(index, { ...phase, ...patch });
@@ -256,12 +259,23 @@ function PhaseCard({
                 <SelectTrigger className="flex-1">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  {TRANSPORTS.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
+                <SelectContent className="w-auto min-w-[var(--anchor-width)]">
+                  {TRANSPORTS.map((t) => {
+                    const health = healthByTransport[t];
+                    const isDown = health?.status === "down";
+                    return (
+                      <SelectItem key={t} value={t} disabled={isDown}>
+                        <span className="flex items-center gap-2">
+                          {t}
+                          {isDown && (
+                            <span className="text-[10px] text-text-secondary">
+                              — {health.last_error ?? "unavailable"}
+                            </span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -907,6 +921,12 @@ export function TaskConfig({ taskId }: TaskConfigProps) {
   const [saving, setSaving] = useState(false);
   const [showSaveAsPreset, setShowSaveAsPreset] = useState(false);
 
+  // Provider health — used to disable unavailable transports
+  const providerHealthRows = useProviderHealth();
+  const healthByTransport = Object.fromEntries(
+    providerHealthRows.map((r) => [r.transport, r]),
+  );
+
   // Fetch gate library via TanStack Query
   const gateLibraryQuery = useGateLibraryQuery();
   const libraryGates = gateLibraryQuery.data?.all_gates ?? [];
@@ -1148,6 +1168,7 @@ export function TaskConfig({ taskId }: TaskConfigProps) {
                       index={i}
                       gateNames={editedConfig.gates.map((g) => g.name)}
                       onChange={updatePhase}
+                      healthByTransport={healthByTransport}
                     />
                     {i < editedConfig.phases.length - 1 && (
                       <div className="flex items-center px-3 text-text-tertiary shrink-0">

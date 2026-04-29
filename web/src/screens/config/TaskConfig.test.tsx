@@ -11,6 +11,16 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
+vi.mock("../../store/eventStore.js", () => ({
+  useProviderHealth: () => [
+    { provider_id: "claude-code", transport: "claude-code", status: "healthy", auth_present: false },
+    { provider_id: "anthropic-api", transport: "anthropic-api", status: "healthy", auth_present: true },
+    { provider_id: "openai-api", transport: "openai-api", status: "healthy", auth_present: true },
+    { provider_id: "codex", transport: "codex", status: "healthy", auth_present: false },
+    { provider_id: "gemini-cli", transport: "gemini-cli", status: "healthy", auth_present: false },
+  ],
+}));
+
 afterEach(cleanup);
 
 /** Wrap component in a fresh QueryClientProvider per test. */
