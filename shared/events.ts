@@ -780,6 +780,8 @@ export interface ProviderProbed {
   latency_ms?: number;
   error?: string;
   models_listed?: string[];
+  /** Whether the provider's auth credentials are present and valid. */
+  auth_present?: boolean;
 }
 
 export interface ProviderAuthChanged {

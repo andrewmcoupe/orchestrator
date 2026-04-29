@@ -10,7 +10,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type Database from "better-sqlite3";
 import type { ProbeScheduler } from "../providers/probeScheduler.js";
-import { getProviderConfig } from "../providers/registry.js";
+import { getProviderConfig, PROVIDERS } from "../providers/registry.js";
 import { appendAndProject } from "../projectionRunner.js";
 import type { ProviderHealthRow } from "@shared/projections.js";
 
@@ -33,6 +33,21 @@ export function createProviderRoutes(
   scheduler: ProbeScheduler,
 ): Hono {
   const app = new Hono();
+
+  /**
+   * GET /api/providers
+   * Returns the static provider registry (including setup_hint) for each provider.
+   */
+  app.get("/api/providers", (c) => {
+    return c.json(
+      PROVIDERS.map((p) => ({
+        provider_id: p.provider_id,
+        transport: p.transport,
+        kind: p.kind,
+        setup_hint: p.setup_hint,
+      })),
+    );
+  });
 
   /**
    * POST /api/providers/probe/:id

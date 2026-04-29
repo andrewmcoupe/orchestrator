@@ -53,6 +53,14 @@ const apiRow = (): ProviderHealthRow => ({
   auth_present: true,
 });
 
+const registryEntries = [
+  { provider_id: "claude-code", transport: "claude-code", kind: "cli", setup_hint: "Run `claude login` in your terminal" },
+  { provider_id: "codex", transport: "codex", kind: "cli", setup_hint: "Run `codex login` in your terminal" },
+  { provider_id: "gemini-cli", transport: "gemini-cli", kind: "cli", setup_hint: "Run `gemini` in your terminal and follow the login prompt" },
+  { provider_id: "anthropic-api", transport: "anthropic-api", kind: "api", setup_hint: "Add `ANTHROPIC_API_KEY=...` to `.orchestrator/.env.local`" },
+  { provider_id: "openai-api", transport: "openai-api", kind: "api", setup_hint: "Add `OPENAI_API_KEY=...` to `.orchestrator/.env.local`" },
+];
+
 const probeEvent = (latency: number, ts: string) => ({
   id: `evt-${ts}`,
   type: "provider.probed",
@@ -79,6 +87,13 @@ function setupFetch(
 ) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = input.toString();
+
+    if (url === "/api/providers" || url.endsWith("/api/providers")) {
+      return new Response(JSON.stringify(registryEntries), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     if (url.includes("/api/projections/provider_health")) {
       return new Response(JSON.stringify(healthRows), {
@@ -285,6 +300,33 @@ describe("Providers screen", () => {
     await waitFor(() => {
       const focused = document.querySelector("[data-focused='true']");
       expect(focused).toBeTruthy();
+    });
+  });
+
+  it("renders setup_hint for each provider card", async () => {
+    setupFetch([
+      healthRow(),
+      healthRow({ provider_id: "codex", transport: "codex" }),
+      healthRow({ provider_id: "gemini-cli", transport: "gemini-cli" }),
+      apiRow(),
+      {
+        ...apiRow(),
+        provider_id: "openai-api",
+        transport: "openai-api",
+        endpoint: "https://api.openai.com",
+        auth_method: "env_var",
+        auth_present: true,
+      } as ProviderHealthRow,
+    ]);
+    render(<Providers />);
+    await waitFor(() => {
+      // CLI hints
+      expect(screen.getByText(/claude login/)).toBeTruthy();
+      expect(screen.getByText(/codex login/)).toBeTruthy();
+      expect(screen.getByText(/follow the login prompt/)).toBeTruthy();
+      // API hints
+      expect(screen.getByText(/ANTHROPIC_API_KEY/)).toBeTruthy();
+      expect(screen.getByText(/OPENAI_API_KEY/)).toBeTruthy();
     });
   });
 

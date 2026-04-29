@@ -35,6 +35,13 @@ type ProvidersProps = {
   focusedProvider?: string;
 };
 
+type ProviderRegistryEntry = {
+  provider_id: string;
+  transport: string;
+  kind: string;
+  setup_hint: string;
+};
+
 type ProbeEvent = {
   id: string;
   ts: string;
@@ -78,6 +85,21 @@ const STATUS_ICONS: Record<ProviderStatus, React.ElementType> = {
 function statusLabel(status: ProviderStatus, isCli: boolean): string {
   if (status === "down" && isCli) return "not found";
   return status;
+}
+
+/** Renders a string with backtick-delimited spans as <code> elements. */
+function renderHintText(text: string): React.ReactNode {
+  const parts = text.split(/(`[^`]+`)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code key={i} className="font-mono">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
 }
 
 function formatLatency(ms?: number): string {
@@ -287,6 +309,7 @@ type ProviderCardProps = {
   row: ProviderHealthRow;
   probeEvents: ProbeEvent[];
   focused: boolean;
+  setupHint?: string;
   onReprobe: () => Promise<void>;
   onConfigure: (values: Partial<EditState>) => Promise<void>;
 };
@@ -295,6 +318,7 @@ function ProviderCard({
   row,
   probeEvents,
   focused,
+  setupHint,
   onReprobe,
   onConfigure,
 }: ProviderCardProps) {
@@ -475,6 +499,23 @@ function ProviderCard({
         </div>
       )}
 
+      {/* Setup hint */}
+      {setupHint && (() => {
+        const isWarning = !row.auth_present && (isCli ? row.status !== "healthy" : true);
+        return (
+          <div
+            data-testid="setup-hint"
+            className={
+              isWarning
+                ? "text-xs bg-status-danger border border-status-danger/20 px-2.5 py-1.5"
+                : "text-xs text-fg-muted px-2.5 py-1.5"
+            }
+          >
+            {renderHintText(setupHint)}
+          </div>
+        );
+      })()}
+
       {/* Error */}
       {row.last_error && (
         <div className="text-xs text-status-danger bg-bg-primary border border-status-danger/20 px-2.5 py-1.5">
@@ -497,6 +538,21 @@ function ProviderCard({
 // ============================================================================
 // Hook — fetches provider health rows and per-provider probe events
 // ============================================================================
+
+function useProviderRegistry() {
+  const [registry, setRegistry] = useState<Record<string, ProviderRegistryEntry>>({});
+
+  useEffect(() => {
+    fetch("/api/providers")
+      .then((r) => r.json())
+      .then((data: ProviderRegistryEntry[]) => {
+        setRegistry(Object.fromEntries(data.map((p) => [p.provider_id, p])));
+      })
+      .catch(() => {/* silent */});
+  }, []);
+
+  return registry;
+}
 
 function useProviderHealth() {
   const [rows, setRows] = useState<ProviderHealthRow[]>([]);
@@ -553,6 +609,7 @@ function useProbeHistory(providerId: string): ProbeEvent[] {
 type ProviderCardWithHistoryProps = {
   row: ProviderHealthRow;
   focused: boolean;
+  setupHint?: string;
   onReprobe: (id: string) => Promise<ProviderHealthRow>;
   onConfigure: (id: string, values: Partial<EditState>) => Promise<void>;
 };
@@ -560,6 +617,7 @@ type ProviderCardWithHistoryProps = {
 function ProviderCardWithHistory({
   row,
   focused,
+  setupHint,
   onReprobe,
   onConfigure,
 }: ProviderCardWithHistoryProps) {
@@ -570,6 +628,7 @@ function ProviderCardWithHistory({
       row={row}
       probeEvents={probeEvents}
       focused={focused}
+      setupHint={setupHint}
       onReprobe={() => onReprobe(row.provider_id).then(() => undefined)}
       onConfigure={(values) => onConfigure(row.provider_id, values)}
     />
@@ -582,6 +641,7 @@ function ProviderCardWithHistory({
 
 export function Providers({ focusedProvider }: ProvidersProps = {}) {
   const { rows, loading, reload, setRows } = useProviderHealth();
+  const registry = useProviderRegistry();
 
   const handleReprobe = useCallback(
     async (providerId: string): Promise<ProviderHealthRow> => {
@@ -664,6 +724,7 @@ export function Providers({ focusedProvider }: ProvidersProps = {}) {
               key={row.provider_id}
               row={row}
               focused={row.provider_id === focusedProvider}
+              setupHint={registry[row.provider_id]?.setup_hint}
               onReprobe={handleReprobe}
               onConfigure={handleConfigure}
             />

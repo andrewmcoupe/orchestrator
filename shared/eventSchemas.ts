@@ -644,6 +644,7 @@ const providerProbedSchema = z.object({
   latency_ms: z.number().optional(),
   error: z.string().optional(),
   models_listed: z.array(z.string()).optional(),
+  auth_present: z.boolean().optional(),
 });
 
 const providerAuthChangedSchema = z.object({

@@ -7,6 +7,7 @@ import { ThemeProvider } from "../components/theme-provider.js";
 import { TopBar } from "../components/TopBar.js";
 import { Rail } from "../components/Rail.js";
 import { EventStreamStrip } from "../components/EventStreamStrip.js";
+import { NoProvidersBanner } from "../components/NoProvidersBanner.js";
 import { useEventStore, useProviderHealth, useRecentEvents } from "../store/eventStore.js";
 import { createSSEClient } from "../lib/sse.js";
 import type { SSEClient } from "../lib/sse.js";
@@ -92,6 +93,8 @@ function RootLayout() {
               section={activeSection}
               providers={providers}
             />
+
+            <NoProvidersBanner />
 
             <div className="flex flex-1 min-h-0">
               <Rail />
