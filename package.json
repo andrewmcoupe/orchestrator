@@ -2,6 +2,9 @@
   "name": "@andycoupe/orchestrator",
   "version": "0.0.3-canary",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "orchestrator": "dist/server/cli.js"
   },

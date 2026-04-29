@@ -16,7 +16,7 @@ import net from "node:net";
 // Constants
 // ---------------------------------------------------------------------------
 
-const MIN_NODE_MAJOR = 18;
+const MIN_NODE_MAJOR = 20;
 
 // ANSI helpers
 const bold = (s: string) => `\x1b[1m${s}\x1b[22m`;
