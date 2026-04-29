@@ -949,6 +949,8 @@ describe("POST /api/commands/prd/ingest", () => {
         transport: "codex",
         model: "gpt-5.5",
       },
+      undefined,
+      expect.any(AbortSignal),
     );
   });
 
