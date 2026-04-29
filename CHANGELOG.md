@@ -1,5 +1,11 @@
 # @andycoupe/orchestrator
 
+## 0.5.0
+
+### Minor Changes
+
+- 3cda926: Allow customising default prompts
+
 ## 0.4.0
 
 ### Minor Changes
