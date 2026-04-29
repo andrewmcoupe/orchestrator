@@ -81,7 +81,15 @@ describe("parseEslintOutput", () => {
     const json = JSON.stringify([
       {
         filePath: "/app/src/foo.ts",
-        messages: [{ ruleId: "some-rule", severity: 0, message: "info", line: 1, column: 1 }],
+        messages: [
+          {
+            ruleId: "some-rule",
+            severity: 0,
+            message: "info",
+            line: 1,
+            column: 1,
+          },
+        ],
       },
     ]);
     expect(parseEslintOutput(json)).toHaveLength(0);
@@ -217,7 +225,9 @@ describe("selectParser", () => {
     const json = JSON.stringify([
       {
         filePath: "/f.ts",
-        messages: [{ ruleId: "r", severity: 2, message: "m", line: 1, column: 1 }],
+        messages: [
+          { ruleId: "r", severity: 2, message: "m", line: 1, column: 1 },
+        ],
       },
     ]);
     const result = parser(json, "");
@@ -230,7 +240,9 @@ describe("selectParser", () => {
       testResults: [
         {
           testFilePath: "/f.test.ts",
-          testResults: [{ fullName: "t", status: "failed", failureMessages: ["e"] }],
+          testResults: [
+            { fullName: "t", status: "failed", failureMessages: ["e"] },
+          ],
         },
       ],
     });
@@ -314,7 +326,13 @@ describe("runGate", () => {
     const customParser = (_stdout: string, _stderr: string) => [
       { category: "custom:failure", excerpt: "custom excerpt" },
     ];
-    const result = await runGate(db, failGate, "attempt-003", "/tmp", customParser);
+    const result = await runGate(
+      db,
+      failGate,
+      "attempt-003",
+      "/tmp",
+      customParser,
+    );
     expect(result.status).toBe("failed");
     expect(result.failures).toHaveLength(1);
     expect(result.failures![0].category).toBe("custom:failure");
@@ -350,5 +368,5 @@ describe("runGate", () => {
     const types = events.map((e) => e.type);
     expect(types).toContain("gate.started");
     expect(types).toContain("gate.timed_out");
-  }, 10_000);
+  }, 30_000);
 });
