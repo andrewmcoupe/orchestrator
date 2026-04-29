@@ -1,45 +1,39 @@
-import { Fragment, useCallback, useState, useMemo, useEffect } from "react";
-import { SlidersHorizontal, ClipboardList, Plus, X, Info } from "lucide-react";
-import { Link } from "@tanstack/react-router";
-import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
+import { ArrowRightIcon } from "@phosphor-icons/react/dist/ssr";
+import { canAddDependency, topoSort } from "@shared/dependency.js";
 import type {
-  TaskStatus,
-  TaskConfig,
-  PhaseConfig,
-  GateConfig,
   AnyEvent,
+  GateConfig,
   GateFailed,
+  PhaseConfig,
+  TaskConfig,
+  TaskStatus,
 } from "@shared/events.js";
-import { canAddDependency } from "@shared/dependency.js";
-import { topoSort } from "@shared/dependency.js";
+import type { TaskDetailRow, TaskListRow } from "@shared/projections.js";
+import { Link } from "@tanstack/react-router";
+import { Button, buttonVariants } from "@web/src/components/ui/button";
 import {
-  useTaskTimelineQuery,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@web/src/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@web/src/components/ui/tooltip";
+import { ClipboardList, Plus, SlidersHorizontal, X } from "lucide-react";
+import { Fragment, useCallback, useMemo, useState } from "react";
+import {
   usePropositionsQuery,
+  useTaskTimelineQuery,
 } from "../../hooks/useQueries.js";
 import { useLatestAssistantMessage } from "../../store/eventStore.js";
 import { MergeDialog } from "../review/MergeDialog.js";
-import { Button, buttonVariants } from "@web/src/components/ui/button";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@web/src/components/ui/popover";
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  TooltipProvider,
-} from "@web/src/components/ui/tooltip";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogClose,
-} from "@web/src/components/ui/dialog";
-import { ArrowRightIcon } from "@phosphor-icons/react/dist/ssr";
 
 type TaskDetailPaneProps = {
   detail: TaskDetailRow;
@@ -556,157 +550,6 @@ function AcceptanceCriteriaSection({
 // ============================================================================
 
 // ============================================================================
-// Task preview popover — shows what the task will have before implementation
-// ============================================================================
-
-function PromptPreview({ promptVersionId }: { promptVersionId: string }) {
-  const [template, setTemplate] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    fetch(
-      `/api/projections/prompt_template/${encodeURIComponent(promptVersionId)}`,
-    )
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { template: string } | null) => {
-        setTemplate(data?.template ?? null);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [promptVersionId]);
-
-  if (loading) {
-    return <span className="text-[10px] text-text-tertiary">loading…</span>;
-  }
-  if (!template) {
-    return (
-      <span className="text-[10px] text-text-tertiary">template not found</span>
-    );
-  }
-
-  const preview = template.slice(0, 200);
-  const truncated = template.length > 200;
-
-  return (
-    <div className="mt-1.5">
-      <pre className="text-[10px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words bg-bg-primary border border-border-muted p-2 max-h-48 overflow-y-auto">
-        {expanded ? template : preview}
-        {truncated && !expanded && "…"}
-      </pre>
-      {truncated && (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="text-[10px] text-text-tertiary hover:text-text-secondary mt-1 cursor-pointer"
-        >
-          {expanded
-            ? "show less"
-            : `show all (${template.length.toLocaleString()} chars)`}
-        </button>
-      )}
-    </div>
-  );
-}
-
-type TaskPreviewConfig = Pick<TaskConfig, "phases" | "gates">;
-
-function TaskPreviewPanel({
-  config,
-  propositionIds,
-}: {
-  config: TaskPreviewConfig;
-  propositionIds: string[];
-}) {
-  const enabledPhases = config.phases.filter((p) => p.enabled);
-
-  return (
-    <div className="space-y-4">
-      {/* Phases overview */}
-      <div>
-        <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
-          Phases
-        </h4>
-        <div className="space-y-3">
-          {enabledPhases.map((phase) => (
-            <div
-              key={phase.name}
-              className="border border-border-muted bg-bg-secondary p-2.5"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-medium text-text-primary">
-                  {phase.name}
-                </span>
-                <span className="text-[10px] font-mono text-text-tertiary">
-                  {phase.transport} · {phase.model}
-                </span>
-              </div>
-
-              {/* Prompt template */}
-              {phase.prompt_version_id && (
-                <div>
-                  <span className="text-[10px] text-text-tertiary">
-                    prompt: {phase.prompt_version_id}
-                  </span>
-                  <PromptPreview promptVersionId={phase.prompt_version_id} />
-                </div>
-              )}
-
-              {/* Context policy */}
-              <div className="mt-1.5 pt-1.5 border-t border-border-muted text-[11px] text-text-tertiary">
-                <span className="text-text-secondary">context:</span> depth{" "}
-                {phase.context_policy.symbol_graph_depth},{" "}
-                {phase.context_policy.token_budget.toLocaleString()} tokens
-                {phase.context_policy.include_tests && ", +tests"}
-                {phase.context_policy.include_similar_patterns && ", +patterns"}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Gates */}
-      {config.gates.length > 0 && (
-        <div>
-          <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
-            Gates
-          </h4>
-          <div className="space-y-1">
-            {config.gates.map((gate) => (
-              <div
-                key={gate.name}
-                className="text-[11px] px-2 py-1 bg-bg-secondary border border-border-muted"
-              >
-                <span className="font-mono text-text-primary">{gate.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Propositions */}
-      {propositionIds.length > 0 && (
-        <div>
-          <h4 className="text-xs uppercase tracking-wider text-text-tertiary mb-2">
-            Propositions ({propositionIds.length})
-          </h4>
-          <div className="space-y-1">
-            {propositionIds.map((id) => (
-              <div
-                key={id}
-                className="text-[11px] font-mono text-text-secondary px-2 py-1 bg-bg-secondary border border-border-muted truncate"
-              >
-                {id}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================================================
 // Start confirmation dialog
 // ============================================================================
 
@@ -888,17 +731,16 @@ export function TaskDetailPane({
       {/* Action toolbar */}
       <div className="sticky top-0 bg-background z-10 flex items-center justify-between px-6 py-2.5 border-b border-border-muted bg-bg-secondary shrink-0">
         <div className="flex items-center gap-2">
-          {detail.status !== "merged" &&
-            detail.status !== "archived" && (
-              <Link
-                to="/tasks/$taskId/config"
-                params={{ taskId: detail.task_id }}
-                className={buttonVariants({ variant: "outline" })}
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                Config
-              </Link>
-            )}
+          {detail.status !== "merged" && detail.status !== "archived" && (
+            <Link
+              to="/tasks/$taskId/config"
+              params={{ taskId: detail.task_id }}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Config
+            </Link>
+          )}
           {detail.current_attempt_id &&
             (detail.status === "awaiting_review" ? (
               <Link
@@ -970,27 +812,6 @@ export function TaskDetailPane({
           <h2 className="text-xl font-semibold text-text-primary">
             {detail.title}
           </h2>
-          <Popover>
-            <PopoverTrigger
-              aria-label="Show task configuration preview"
-              className="p-1 text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
-            >
-              <Info size={16} />
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-96 max-h-[70vh] overflow-y-auto"
-              side="bottom"
-              align="start"
-            >
-              <TaskPreviewPanel
-                config={{
-                  phases: detail.config.phases,
-                  gates: detail.config.gates,
-                }}
-                propositionIds={detail.proposition_ids}
-              />
-            </PopoverContent>
-          </Popover>
         </div>
       </div>
 
