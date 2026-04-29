@@ -96,10 +96,15 @@ export const providerHealthProjection: Projection<ProviderHealthRow> = {
   ): ProviderHealthRow | null {
     // Augment provider.configured with current auth_present status
     if (event.type === "provider.configured") {
-      const authPresent = deriveAuthPresent(event);
       const next = reduceProviderHealth(current, event);
       if (!next) return null;
-      return { ...next, auth_present: authPresent };
+      // For CLI providers, the shared reducer already preserves auth_present
+      // from the DB (or defaults to false). For env_var auth, derive from env.
+      if (event.payload.auth_method !== "cli_login") {
+        const authPresent = deriveAuthPresent(event);
+        return { ...next, auth_present: authPresent };
+      }
+      return next;
     }
     return reduceProviderHealth(current, event);
   },

@@ -55,7 +55,7 @@ async function probeCliAuth(provider_id: string, binary: string): Promise<boolea
     }
     if (provider_id === "codex") {
       const result = await execa(binary, ["login", "status"], { timeout: 3000 });
-      return result.exitCode === 0;
+      return result.exitCode === 0 && result.stdout.includes("Logged in");
     }
   } catch {
     return false;
