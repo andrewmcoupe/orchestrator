@@ -330,6 +330,79 @@ describe("Providers screen", () => {
     });
   });
 
+  it("renders setup_hint with warning styling when auth_present is false and CLI status is not healthy", async () => {
+    setupFetch([
+      healthRow({ auth_present: false, status: "down" }),
+    ]);
+    render(<Providers />);
+    await waitFor(() => {
+      const hint = document.querySelector("[data-testid='setup-hint']");
+      expect(hint).toBeTruthy();
+      expect(hint?.className).toContain("bg-status-danger");
+    });
+  });
+
+  it("renders setup_hint with warning styling for API provider when auth_present is false", async () => {
+    setupFetch([
+      { ...apiRow(), auth_present: false } as ProviderHealthRow,
+    ]);
+    render(<Providers />);
+    await waitFor(() => {
+      const hint = document.querySelector("[data-testid='setup-hint']");
+      expect(hint).toBeTruthy();
+      expect(hint?.className).toContain("bg-status-danger");
+    });
+  });
+
+  it("renders setup_hint with muted styling when CLI provider is healthy", async () => {
+    setupFetch([
+      healthRow({ auth_present: false, status: "healthy" }),
+    ]);
+    render(<Providers />);
+    await waitFor(() => {
+      const hint = document.querySelector("[data-testid='setup-hint']");
+      expect(hint).toBeTruthy();
+      expect(hint?.className).toContain("text-fg-muted");
+      expect(hint?.className).not.toContain("bg-status-danger");
+    });
+  });
+
+  it("renders setup_hint with muted styling when auth_present is true", async () => {
+    setupFetch([
+      healthRow({ auth_present: true, status: "healthy" }),
+    ]);
+    render(<Providers />);
+    await waitFor(() => {
+      const hint = document.querySelector("[data-testid='setup-hint']");
+      expect(hint).toBeTruthy();
+      expect(hint?.className).toContain("text-fg-muted");
+      expect(hint?.className).not.toContain("bg-status-danger");
+    });
+  });
+
+  it("renders backtick-delimited code spans as monospace <code> elements", async () => {
+    setupFetch([healthRow({ auth_present: false, status: "down" })]);
+    render(<Providers />);
+    await waitFor(() => {
+      // registryEntries hint for claude-code: "Run `claude login` in your terminal"
+      const codeEl = document.querySelector("[data-testid='setup-hint'] code");
+      expect(codeEl).toBeTruthy();
+      expect(codeEl?.className).toContain("font-mono");
+      expect(codeEl?.textContent).toBe("claude login");
+    });
+  });
+
+  it("setup hint is purely presentational — no onclick or data-execute attribute", async () => {
+    setupFetch([healthRow({ auth_present: false, status: "down" })]);
+    render(<Providers />);
+    await waitFor(() => {
+      const hint = document.querySelector("[data-testid='setup-hint']");
+      expect(hint).toBeTruthy();
+      expect(hint?.getAttribute("onclick")).toBeNull();
+      expect(hint?.getAttribute("data-execute")).toBeNull();
+    });
+  });
+
   it("shows empty state when no providers", async () => {
     setupFetch([]);
     render(<Providers />);
