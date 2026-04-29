@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   GitBranch,
   FlaskConical,
@@ -195,26 +196,41 @@ function PromptRowItem({ row, selected, onClick }: PromptRowItemProps) {
 
 interface TemplateViewerProps {
   templateHash: string;
+  promptVersionId: string;
 }
 
-function TemplateViewer({ templateHash }: TemplateViewerProps) {
-  const [content, setContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+function TemplateViewer({ templateHash, promptVersionId }: TemplateViewerProps) {
+  // Try blob store first, fall back to event payload
+  const blobQuery = useQuery({
+    queryKey: ["blob", templateHash],
+    queryFn: async () => {
+      const res = await fetch(`/api/blobs/${templateHash}`);
+      if (!res.ok) throw new Error("blob not found");
+      return res.text();
+    },
+    staleTime: Infinity,
+    retry: false,
+  });
 
-  useEffect(() => {
-    setLoading(true);
-    fetch(`/api/blobs/${templateHash}`)
-      .then((r) => (r.ok ? r.text() : Promise.reject()))
-      .then(setContent)
-      .catch(() => setContent(null))
-      .finally(() => setLoading(false));
-  }, [templateHash]);
+  const fallbackQuery = useQuery({
+    queryKey: ["prompt_template", promptVersionId],
+    queryFn: async () => {
+      const res = await fetch(`/api/projections/prompt_template/${promptVersionId}`);
+      if (!res.ok) throw new Error("template not found");
+      return (await res.json() as { template: string }).template;
+    },
+    enabled: blobQuery.isError,
+    staleTime: Infinity,
+  });
+
+  const content = blobQuery.data ?? fallbackQuery.data;
+  const loading = blobQuery.isLoading || (blobQuery.isError && fallbackQuery.isLoading);
 
   if (loading)
     return <div className="text-xs text-text-tertiary p-4">Loading template…</div>;
   if (!content)
     return (
-      <div className="text-xs text-warning p-4">Template not found in blob store.</div>
+      <div className="text-xs text-warning p-4">Template not found.</div>
     );
 
   return (
@@ -562,7 +578,7 @@ function DetailPane({ row, allRows, onNewVersion, onStartAb, onRetire }: DetailP
         <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-3">
           Template
         </h3>
-        <TemplateViewer templateHash={row.template_hash} />
+        <TemplateViewer templateHash={row.template_hash} promptVersionId={row.prompt_version_id} />
       </div>
 
       {/* Version history */}

@@ -58,3 +58,8 @@ export function getWorktreesDir(): string {
 export function getConfigPath(): string {
   return path.join(getOrchestratorDir(), "config.yaml");
 }
+
+/** User-editable prompts: <cwd>/.orchestrator/prompts/ */
+export function getPromptsDir(): string {
+  return path.join(getOrchestratorDir(), "prompts");
+}

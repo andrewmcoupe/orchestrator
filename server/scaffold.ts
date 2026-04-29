@@ -13,20 +13,29 @@ import {
   getWorktreesDir,
   getConfigPath,
   getCredentialsPath,
+  getPromptsDir,
   getDefaultRepoRoot,
 } from "./paths.js";
 
 /**
- * Resolve the bundled templates/ directory shipped with the package.
+ * Resolve a bundled directory shipped with the package.
  * Uses import.meta.dirname so it works regardless of where the package
  * is installed.
  */
-function getTemplatesDir(): string {
-  // From dist/server/ we need to go up two levels to reach the package root
-  const distPath = path.join(import.meta.dirname, "..", "..", "templates");
+function getBundledDir(name: string): string {
   // In dev/test mode, import.meta.dirname is server/ — go up one level
-  const devPath = path.join(import.meta.dirname, "..", "templates");
+  const devPath = path.join(import.meta.dirname, "..", name);
+  // From dist/server/ we need to go up two levels to reach the package root
+  const distPath = path.join(import.meta.dirname, "..", "..", name);
   return fs.existsSync(devPath) ? devPath : distPath;
+}
+
+function getTemplatesDir(): string {
+  return getBundledDir("templates");
+}
+
+function getBundledPromptsDir(): string {
+  return getBundledDir("prompts");
 }
 
 /**
@@ -104,6 +113,20 @@ export function scaffold(): ScaffoldResult {
     fs.copyFileSync(credsSrc, credsDest);
   }
   created.push(credsDest);
+
+  // Copy bundled prompts into .orchestrator/prompts/
+  const promptsDest = getPromptsDir();
+  const promptsSrc = getBundledPromptsDir();
+  if (fs.existsSync(promptsSrc)) {
+    fs.mkdirSync(promptsDest, { recursive: true });
+    for (const file of fs.readdirSync(promptsSrc)) {
+      const dest = path.join(promptsDest, file);
+      if (!fs.existsSync(dest)) {
+        fs.copyFileSync(path.join(promptsSrc, file), dest);
+        created.push(dest);
+      }
+    }
+  }
 
   // Ensure .orchestrator/ is in .gitignore
   ensureGitignoreEntry(getDefaultRepoRoot());
