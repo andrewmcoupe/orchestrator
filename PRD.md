@@ -1,134 +1,83 @@
-# Migrate UI to TanStack Router with File-Based Routing
+# Warn End-Users When No AI Providers Are Available
 
 ## Overview
 
-Replace the custom hash-based routing system with TanStack Router using the Vite plugin for file-based route generation. This migrates all navigation from `window.location.hash` assignments to TanStack Router primitives (`<Link>`, `useNavigate`, `useParams`), converts full-screen overlays (ingest, config, review) to route-based dialogs, and removes the legacy routing hooks.
+When a user has no AI providers configured (no API key in `.orchestrator/.env.local` and no CLI tool authenticated), the orchestrator currently lets them attempt task creation, which fails opaquely at execution time. This PRD adds login-status detection for CLI providers, surfaces actionable setup instructions on the `/providers` page, and shows a persistent global banner when zero providers are available so the user knows what to fix and where.
 
-## Install TanStack Router and configure Vite plugin
+## Detect CLI login status during provider probing
 
-- Install `@tanstack/react-router` and `@tanstack/router-plugin` as dependencies in `web/`.
-- Update `web/vite.config.ts` to add the `tanstackRouter` plugin before `@vitejs/plugin-react` with `target: "react"` and `autoCodeSplitting: true`.
-- Configure `routesDirectory` to `./src/routes` and `generatedRouteTree` to `./src/routeTree.gen.ts`.
-- Add `routeTree.gen.ts` to `.gitignore`, `.prettierignore`, and ESLint ignore patterns.
-- Add VSCode settings to mark `routeTree.gen.ts` as readonly and exclude it from search and file watcher.
+Today, CLI providers (`claude-code`, `codex`, `gemini-cli`) only report whether their binary is installed; the projection's `auth_present` flag is always `false` for them. This task makes `auth_present` meaningful for CLI providers so the rest of the system can use a single uniform availability signal.
 
-## Create root layout route
+Requirements:
 
-- Create `web/src/routes/__root.tsx` as the root layout route.
-- Render the shared shell: `TopBar`, `Rail`, `EventStreamStrip`, and an `<Outlet />` for child content.
-- Move the `QueryClientProvider`, `ThemeProvider`, and any other top-level providers from `App.tsx` into the root layout or the router context.
-- The root layout must always render the rail, topbar, and event stream strip — overlays are now dialogs on top, not layout replacements.
+- Extend the CLI probe in `server/providers/probe.ts` to perform a second step after the existing `<binary> --version` check, when the binary is present.
+- For `claude-code`: run `claude auth status --text` with a 3s timeout. Set `auth_present = true` iff exit code is 0.
+- For `codex`: run `codex login status` with a 3s timeout. Set `auth_present = true` iff exit code is 0 AND stdout contains the literal substring `"Logged in"`.
+- For `gemini-cli`: skip the login check (no programmatic command exists). Always set `auth_present = false`. The provider is still usable when `status === "healthy"`; downstream code must treat `gemini-cli` as "available" on healthy status alone.
+- The login check must NOT change the `status` field. Status remains driven by `--version` (`healthy` / `degraded` / `down`). `auth_present` is independent.
+- If the binary is missing (`status === "down"`), skip the login check entirely and set `auth_present = false`.
+- Emit `auth_present` as part of the existing `provider.probed` event payload (extend the event payload schema in `shared/events/` if needed). The `provider_health` projection must persist this updated `auth_present` on each probe — currently `auth_present` is only derived at `provider.configured` time, so the projection's `read` handler for `provider.probed` events must be extended to update it.
+- Update `deriveAuthPresent` in `server/projections/providerHealth.ts` so the `cli_login` branch no longer hardcodes `false` at configuration time — instead, leave the existing value untouched (i.e., on `provider.configured` events for CLI providers, default to current DB value or `false` if the row is new).
+- Add unit tests covering: claude-code logged in, claude-code not logged in (non-zero exit), codex logged in, codex not logged in, codex stdout missing "Logged in" substring (treat as not logged in), gemini-cli always returns `auth_present: false`, binary missing → `auth_present: false`.
 
-## Create the router instance and update App.tsx
+## Surface per-provider setup instructions on the providers page
 
-- Create a `web/src/router.tsx` file that instantiates the TanStack Router with the generated route tree.
-- Update `web/src/App.tsx` to render `<RouterProvider router={router} />` instead of the current section-based conditional rendering.
-- Remove all overlay state management (`isIngest`, `configTaskId`, `reviewRoute`) and their associated `useState`/`useEffect` hooks from `App.tsx`.
-- Remove the `hashchange` event listener logic.
+Each provider on `/providers` must show a concrete, copyable instruction telling the user how to set it up. Currently the page shows status but no actionable next step.
 
-## Create file-based route files for each section
+Requirements:
 
-- Create `web/src/routes/index.tsx` that redirects to `/tasks` using TanStack Router's `redirect` or `Navigate` component.
-- Create `web/src/routes/tasks.tsx` as a layout route for the tasks section, rendering the `TaskListSidebar` and an `<Outlet />` for the detail pane.
-- Create `web/src/routes/tasks/index.tsx` for `/tasks` with no task selected (empty detail pane or placeholder).
-- Create `web/src/routes/tasks/$taskId.tsx` for `/tasks/:taskId` that reads `taskId` from `useParams` and renders `TaskDetailPane`.
-- Create `web/src/routes/tasks/$taskId/config.tsx` for `/tasks/:taskId/config` that renders the `TaskConfig` component inside a large viewport-filling dialog. Closing the dialog navigates back to `/tasks/:taskId`.
-- Create `web/src/routes/tasks/$taskId/review/$attemptId.tsx` for `/tasks/:taskId/review/:attemptId` that renders the `Review` component inside a large viewport-filling dialog. Closing the dialog navigates back to `/tasks/:taskId`.
-- Create `web/src/routes/ingest.tsx` for `/ingest` that renders the `Ingest` component inside a large viewport-filling dialog. Closing the dialog navigates to `/tasks`.
-- Create `web/src/routes/prompts.tsx` for `/prompts` rendering the `Prompts` screen.
-- Create `web/src/routes/providers.tsx` for `/providers` rendering the `Providers` screen. Accept an optional `focus` search param for provider focus (e.g., `/providers?focus=claude-code`).
-- Create `web/src/routes/measurement.tsx` for `/measurement` rendering the `Measurement` screen.
-- Create `web/src/routes/settings.tsx` for `/settings` rendering the `Settings` screen.
-- Create `web/src/routes/guide.tsx` for `/guide` rendering the `Guide` screen.
+- Add a `setup_hint` field to the static provider config in `server/providers/registry.ts`. Each entry contains a short imperative instruction string. Values:
+  - `claude-code`: `"Run `claude login` in your terminal"`
+  - `codex`: `"Run `codex login` in your terminal"`
+  - `gemini-cli`: `"Run `gemini` in your terminal and follow the login prompt"`
+  - `anthropic-api`: ``"Add `ANTHROPIC_API_KEY=...` to `.orchestrator/.env.local`"``
+  - `openai-api`: ``"Add `OPENAI_API_KEY=...` to `.orchestrator/.env.local`"``
+- Expose `setup_hint` via the existing `GET /api/providers` endpoint (or wherever the Providers page already fetches its list) so the UI does not hardcode the hints.
+- In `web/src/screens/providers/Providers.tsx`, render `setup_hint` on every provider card, regardless of `auth_present` value, so users can self-serve at any time.
+- When `auth_present === false` AND (for CLI providers) `status !== "healthy"`, render the hint with warning styling (use existing `bg-status-danger`/`border-status-danger` classes consistent with other warning treatments in the file).
+- When the provider IS available, render the hint in muted/info styling (e.g., `text-fg-muted`).
+- Render any backticked code spans (`` ` ``…`` ` ``) in the hint as monospace using the existing tailwind `font-mono` class so the commands are visually distinct.
+- The setup instruction is a presentational string only; do not auto-execute commands or write to `.env.local` from the UI.
+- Update `web/src/screens/providers/Providers.test.tsx` to assert each provider card renders its hint text.
 
-## Convert overlays to route-based dialogs
+## Add global "no providers available" banner
 
-- Replace the full-screen overlay pattern for ingest, config, and review with large viewport-filling dialog modals.
-- Each dialog route renders the existing screen component inside a `Dialog` component that covers a large proportion of the viewport.
-- The dialog backdrop shows the parent route content beneath (rail, topbar, strip remain visible).
-- Closing the dialog (escape key, backdrop click, or close/back button) uses TanStack Router's `useNavigate` to navigate to the parent route.
-- The ingest dialog navigates back to `/tasks` on close.
-- The config dialog navigates back to `/tasks/$taskId` on close.
-- The review dialog navigates back to `/tasks/$taskId` on close.
+When zero providers are available across the whole system, show a persistent, non-dismissible banner across all routes that links to the providers page.
 
-## Replace all navigation with TanStack Router primitives
+Requirements:
 
-- Replace all `window.location.hash = "#/..."` assignments throughout the codebase with `<Link>` components or `useNavigate()` calls.
-- Prefer `<Link>` for clickable navigation elements (buttons, list items, icons).
-- Use `useNavigate()` only for programmatic navigation (e.g., after an action completes).
-- Remove navigation callback props (`onIngest`, `onEditConfig`, `onReview`, `onBack`, `onMergeIconClick`) from all components. Each component navigates directly using TanStack Router hooks.
-- Update `web/src/components/Rail.tsx` to use `<Link>` for each section with TanStack Router's active link styling instead of manual `section === "tasks"` comparisons.
-- Update `web/src/components/TopBar.tsx` to use `<Link to="/guide">` for the help icon and `<Link to="/providers" search={{ focus: providerId }}>` for provider pill clicks.
-- Update `web/src/screens/tasks/TaskListSidebar.tsx` to use `<Link to="/tasks/$taskId" params={{ taskId }}>` for task selection and `<Link to="/ingest">` for the ingest button.
-- Update `web/src/screens/tasks/TaskDetailPane.tsx` to use `<Link>` for the config and review navigation buttons.
-
-## Convert provider focus to a search param
-
-- The `Providers` screen currently receives `focusedProvider` as React state passed from `App.tsx`.
-- Define a `focus` search param on the `/providers` route using TanStack Router's search param validation.
-- Read the focused provider from `useSearch()` instead of props.
-- Provider pill clicks in `TopBar` navigate to `/providers?focus=<providerId>`.
-- Remove the `focusedProvider` state and `setFocusedProvider` from `App.tsx`.
-
-## Update keyboard shortcuts
-
-- The current `useHotkeys` for `⌘1` through `⌘5` calls `navigate(section)` from `useSection`.
-- Update the hotkey handlers to use TanStack Router's `useNavigate()` with the corresponding paths: `/tasks`, `/prompts`, `/providers`, `/measurement`, `/settings`.
-- Move the hotkey registration into the root layout route or keep it in a shared hook that uses `useNavigate`.
-
-## Delete legacy routing code
-
-- Delete `web/src/hooks/useSection.ts`.
-- Delete `web/src/hooks/useSelectedTaskId.ts`.
-- Remove the `Section` type and `SCREENS` map from `App.tsx`.
-- Remove the `parseConfigTaskId`, `parseReviewRoute`, and related regex parsing functions from `App.tsx`.
-- Remove the `navigateFromIngest`, `navigateFromConfig`, `navigateFromReview` callback functions from `App.tsx`.
-- Remove all `onBack` props from `Ingest`, `TaskConfig`, and `Review` screen components — they navigate directly now.
-
-## Update SSE event stream filtering
-
-- The `EventStreamStrip` currently receives a `correlationId` derived from the selected task ID (via `useSelectedTaskId`).
-- Update it to read the task ID from TanStack Router's route params using `useParams` or `useMatch` for the tasks routes.
-- If the current route is not a task route, pass no correlation filter.
+- Create a new component `web/src/components/NoProvidersBanner.tsx`.
+- Compute the banner's visibility from `useProviderHealth()` in `web/src/store/eventStore.ts`. The banner is visible iff: **for every provider, `auth_present === false` AND `status !== "healthy"`**. Equivalently, hide the banner if any provider has `auth_present === true` OR `status === "healthy"`.
+- While the event store is still hydrating (no provider rows yet), do NOT render the banner. Read the existing hydration flag in the store; if absent, treat an empty `providerHealth` map as "still loading" and render nothing.
+- Banner copy: **"No AI providers available."** followed by **"Add an API key to `.orchestrator/.env.local` or sign in via a CLI tool (e.g. `claude login`) to start running tasks."**
+- Banner includes a primary CTA button labelled **"Open provider settings"** that navigates to `/providers` using the existing TanStack Router `<Link>` / `useNavigate` API (see existing usage in `__root.tsx`).
+- Banner is non-dismissible (no close button). It auto-disappears the moment any provider becomes available.
+- Visual style: full-width, sits directly between `<TopBar>` and the main `<div className="flex flex-1 min-h-0">` row in `web/src/routes/__root.tsx`. Use warning/danger styling consistent with existing alerts in the codebase (`bg-status-danger`, `border-status-danger/20`, padded with `px-4 py-2`). Use a Lucide warning icon (`AlertTriangle`) on the left.
+- The banner must NOT shift main content layout when toggling — it pushes content down naturally because it lives in the existing flex column.
+- Add `web/src/components/NoProvidersBanner.test.tsx` covering: shows when all providers have `auth_present: false` and `status: "down"` or `"degraded"`; hides when one provider has `auth_present: true`; hides when one CLI provider has `status: "healthy"` even with `auth_present: false`; renders nothing during initial hydration (empty providerHealth map).
 
 ## Implementation Touchpoints
 
 | File | Change |
 |---|---|
-| `web/package.json` | Add `@tanstack/react-router` and `@tanstack/router-plugin` |
-| `web/vite.config.ts` | Add `tanstackRouter` plugin before React plugin |
-| `web/src/routes/__root.tsx` | New — root layout with TopBar, Rail, EventStreamStrip, Outlet |
-| `web/src/routes/index.tsx` | New — redirect to `/tasks` |
-| `web/src/routes/tasks.tsx` | New — tasks layout with TaskListSidebar and Outlet |
-| `web/src/routes/tasks/index.tsx` | New — empty task selection state |
-| `web/src/routes/tasks/$taskId.tsx` | New — task detail pane via useParams |
-| `web/src/routes/tasks/$taskId/config.tsx` | New — TaskConfig in viewport-filling dialog |
-| `web/src/routes/tasks/$taskId/review/$attemptId.tsx` | New — Review in viewport-filling dialog |
-| `web/src/routes/ingest.tsx` | New — Ingest in viewport-filling dialog |
-| `web/src/routes/prompts.tsx` | New — Prompts screen |
-| `web/src/routes/providers.tsx` | New — Providers screen with `focus` search param |
-| `web/src/routes/measurement.tsx` | New — Measurement screen |
-| `web/src/routes/settings.tsx` | New — Settings screen |
-| `web/src/routes/guide.tsx` | New — Guide screen |
-| `web/src/router.tsx` | New — router instance creation |
-| `web/src/App.tsx` | Replace conditional rendering with RouterProvider, remove overlay state and legacy routing |
-| `web/src/components/Rail.tsx` | Replace `navigate(section)` with `<Link>` components, use active link styling |
-| `web/src/components/TopBar.tsx` | Replace hash navigation with `<Link>`, provider pills use search params |
-| `web/src/screens/tasks/Tasks.tsx` | Remove navigation callback props |
-| `web/src/screens/tasks/TaskListSidebar.tsx` | Replace hash navigation with `<Link>` components |
-| `web/src/screens/tasks/TaskDetailPane.tsx` | Replace callback props with `<Link>` for config/review |
-| `web/src/screens/ingest/Ingest.tsx` | Remove `onBack` prop, use `useNavigate` for close, wrap in dialog |
-| `web/src/screens/config/TaskConfig.tsx` | Remove `onBack` prop, use `useNavigate` for close, wrap in dialog |
-| `web/src/screens/review/Review.tsx` | Remove `onBack` prop, use `useNavigate` for close, wrap in dialog |
-| `web/src/components/EventStreamStrip.tsx` | Read correlation ID from router params instead of props |
-| `web/src/hooks/useSection.ts` | Delete |
-| `web/src/hooks/useSelectedTaskId.ts` | Delete |
+| `server/providers/probe.ts` | Add post-version login probe for `claude-code` (`claude auth status --text`) and `codex` (`codex login status`). Return `auth_present` in the probe result. |
+| `server/providers/registry.ts` | Add `setup_hint` field to each provider config. |
+| `server/projections/providerHealth.ts` | Persist `auth_present` from `provider.probed` events; stop overriding `auth_present` to `false` for CLI providers in `deriveAuthPresent`. |
+| `shared/events/` (provider event types) | Extend `provider.probed` payload schema to include `auth_present: boolean`. |
+| `server/routes/providers.ts` | Include `setup_hint` in the providers list response. |
+| `web/src/screens/providers/Providers.tsx` | Render `setup_hint` on each provider card with conditional styling. |
+| `web/src/screens/providers/Providers.test.tsx` | Assert hints render for every provider. |
+| `web/src/components/NoProvidersBanner.tsx` | New component — global banner with CTA. |
+| `web/src/components/NoProvidersBanner.test.tsx` | New test file for the banner visibility logic. |
+| `web/src/routes/__root.tsx` | Mount `<NoProvidersBanner />` between `<TopBar>` and the main flex row. |
+| `server/providers/probe.test.ts` (or equivalent) | Unit tests for the new login probe logic. |
 
 ## Out of Scope
 
-- Server-side rendering or SSR integration.
-- Loader-based data fetching — keep existing TanStack Query hooks for data fetching.
-- Route-level error boundaries beyond the default TanStack Router behaviour.
-- Animated route transitions.
-- Nested layouts beyond the tasks section.
-- Migrating from TanStack Query to TanStack Router loaders.
+- **Detecting `gemini-cli` login state.** The Gemini CLI provides no programmatic auth-status command; login is handled inside the interactive UI. We accept that a user with `gemini` installed but not logged in will still see the binary marked `healthy` and will only learn of the auth failure at task-run time.
+- **Blocking task creation when no providers are available.** The banner warns; it does not prevent the user from creating tasks. Run-time failures continue to surface through the existing event/error system.
+- **Editing `.env.local` from the UI.** The UI shows the env-var name to add; the user edits the file themselves. API keys remain read-only at boot.
+- **Dismissibility / per-session hide.** The banner is intentionally persistent until resolved.
+- **Health-failure warnings** (e.g., a configured provider that just started failing probes). This PRD only covers the zero-providers-available onboarding case.
+- **Documentation links.** No external docs links are added to setup hints in v1; the inline command is sufficient.
+- **Re-running probes on demand from the banner.** Probes continue on the existing 60s scheduler; no manual refresh button is added.
