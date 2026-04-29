@@ -356,8 +356,8 @@ describe("runGate", () => {
   it("appends gate.timed_out for a command that exceeds timeout", async () => {
     const slowGate: GateConfig = {
       ...baseGate,
-      command: "node -e \"setTimeout(() => {}, 60000)\"",
-      timeout_seconds: 1,
+      command: "tail -f /dev/null",
+      timeout_seconds: 2,
     };
     const result = await runGate(db, slowGate, "attempt-timeout", "/tmp");
     expect(result.status).toBe("timed_out");
@@ -368,5 +368,5 @@ describe("runGate", () => {
     const types = events.map((e) => e.type);
     expect(types).toContain("gate.started");
     expect(types).toContain("gate.timed_out");
-  }, 30_000);
+  }, 15_000);
 });
