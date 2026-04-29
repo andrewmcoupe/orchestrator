@@ -1,5 +1,11 @@
 # @andycoupe/orchestrator
 
+## 0.3.1
+
+### Patch Changes
+
+- d345c51: Fix the package json resolution
+
 ## 0.3.0
 
 ### Minor Changes
