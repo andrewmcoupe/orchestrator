@@ -17,11 +17,14 @@ const DEFAULT_ACTOR: Actor = { kind: "user", user_id: "local" };
 
 function readVersion(): string {
   const require = createRequire(import.meta.url);
-  try {
-    return (require("../../package.json") as { version: string }).version;
-  } catch {
-    return (require("../package.json") as { version: string }).version;
+  // server/routes/settings.ts (dev) → ../../package.json
+  // dist/server/routes/settings.js (built) → ../../../package.json
+  for (const rel of ["../../package.json", "../../../package.json"]) {
+    try {
+      return (require(rel) as { version: string }).version;
+    } catch { /* try next */ }
   }
+  return "0.0.0";
 }
 const VERSION = readVersion();
 
