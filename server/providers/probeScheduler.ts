@@ -80,7 +80,7 @@ export async function probeOne(
       latency_ms: result.latency_ms,
       error: result.error,
       models_listed: result.models,
-      auth_present: result.auth_present,
+      auth_present: result.auth_present ?? false,
     },
   });
 }

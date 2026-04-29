@@ -103,6 +103,7 @@ describe("providerHealth projection", () => {
         status: "healthy",
         latency_ms: 120,
         models_listed: ["claude-sonnet-4-6", "claude-opus-4-7"],
+        auth_present: true,
       },
     });
 
@@ -135,6 +136,7 @@ describe("providerHealth projection", () => {
         provider_id: "claude-code",
         status: "down",
         error: "claude: not found on PATH",
+        auth_present: false,
       },
     });
 
@@ -199,6 +201,7 @@ describe("providerHealth projection", () => {
         status: "healthy",
         latency_ms: 200,
         models_listed: ["claude-sonnet-4-6"],
+        auth_present: true,
       },
     });
 
@@ -225,7 +228,7 @@ describe("providerHealth projection", () => {
       aggregate_type: "provider",
       aggregate_id: "openai-api",
       actor,
-      payload: { provider_id: "openai-api", status: "healthy", latency_ms: 100 },
+      payload: { provider_id: "openai-api", status: "healthy", latency_ms: 100, auth_present: true },
     });
     expect(getRow(db, "openai-api")!.auth_present).toBe(true);
 
@@ -235,7 +238,7 @@ describe("providerHealth projection", () => {
       aggregate_type: "provider",
       aggregate_id: "openai-api",
       actor,
-      payload: { provider_id: "openai-api", status: "down", error: "HTTP 401" },
+      payload: { provider_id: "openai-api", status: "down", error: "HTTP 401", auth_present: false },
     });
     expect(getRow(db, "openai-api")!.auth_present).toBe(false);
   });
@@ -258,11 +261,11 @@ describe("providerHealth projection", () => {
       aggregate_type: "provider",
       aggregate_id: "claude-code",
       actor,
-      payload: { provider_id: "claude-code", status: "healthy", latency_ms: 20 },
+      payload: { provider_id: "claude-code", status: "healthy", latency_ms: 20, auth_present: true },
     });
 
-    // cli_login providers don't track auth_present
-    expect(getRow(db, "claude-code")!.auth_present).toBe(false);
+    // cli_login providers now get auth_present from the probe event
+    expect(getRow(db, "claude-code")!.auth_present).toBe(true);
   });
 
   it("probe for unknown provider does not create row", async () => {
@@ -275,6 +278,7 @@ describe("providerHealth projection", () => {
         provider_id: "nonexistent",
         status: "down",
         error: "no config",
+        auth_present: false,
       },
     });
 
@@ -302,7 +306,7 @@ describe("providerHealth projection", () => {
         aggregate_type: "provider",
         aggregate_id: "openai-api",
         actor,
-        payload: { provider_id: "openai-api", status },
+        payload: { provider_id: "openai-api", status, auth_present: true },
       });
     }
 
@@ -331,6 +335,7 @@ describe("providerHealth projection", () => {
         provider_id: "claude-code",
         status: "healthy",
         latency_ms: 42,
+        auth_present: true,
       },
     });
 

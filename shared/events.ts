@@ -781,7 +781,7 @@ export interface ProviderProbed {
   error?: string;
   models_listed?: string[];
   /** Whether the provider's auth credentials are present and valid. */
-  auth_present?: boolean;
+  auth_present: boolean;
 }
 
 export interface ProviderAuthChanged {
