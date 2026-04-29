@@ -1,5 +1,5 @@
 import { BookOpen } from "lucide-react";
-import { Link, useMatches } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { ProviderPill } from "./ProviderPill.js";
 import { ModeToggle } from "./mode-toggle.js";
 import type { ProviderStatus } from "./ProviderPill.js";

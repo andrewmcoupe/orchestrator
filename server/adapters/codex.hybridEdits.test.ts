@@ -18,11 +18,8 @@ vi.mock("execa", () => ({ execa: mockExeca }));
 import {
   invoke,
   detectFileEdits,
-  translateLine,
   type InvokeOptions,
-  type CodexLine,
   type Spawner,
-  type TranslateContext,
 } from "./codex.js";
 import type { BlobStore } from "../blobStore.js";
 import type { AppendEventInput } from "../eventStore.js";

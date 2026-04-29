@@ -28,7 +28,7 @@ function makeEvent<T extends AnyEvent["type"]>(
   } as Extract<AnyEvent, { type: T }>;
 }
 
-const testConfig: TaskConfig = {
+const _testConfig: TaskConfig = {
   phases: [
     {
       name: "implementer",

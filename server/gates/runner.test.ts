@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { runMigrations } from "../eventStore.js";
-import { initProjections, appendAndProject } from "../projectionRunner.js";
+import { initProjections } from "../projectionRunner.js";
 import "../projections/register.js";
 import { runGate, selectParser } from "./runner.js";
 import { registerGate, clearGateRegistry } from "./registry.js";

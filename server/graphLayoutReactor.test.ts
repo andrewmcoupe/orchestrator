@@ -216,7 +216,7 @@ describe("graphLayoutReactor", () => {
     await waitForLayout();
 
     const layout1 = readGraphLayout(db);
-    const updatedAt1 = db
+    const _updatedAt1 = db
       .prepare(
         "SELECT updated_at FROM proj_graph_layout WHERE id = 'singleton'",
       )

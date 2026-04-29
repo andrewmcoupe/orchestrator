@@ -53,7 +53,7 @@ function toReactFlowElements(layout: GraphLayoutResponse) {
   const edges: Edge[] = layout.edges.map((e, i) => {
     const targetStatus = layout.nodes[e.target]?.status;
     const isDone = targetStatus != null && DONE_STATUSES.has(targetStatus);
-    const isCritical = criticalEdgeSet.has(`${e.source}->${e.target}`);
+    const _isCritical = criticalEdgeSet.has(`${e.source}->${e.target}`);
 
     return {
       id: `e-${e.source}-${e.target}-${i}`,

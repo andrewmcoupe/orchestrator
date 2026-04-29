@@ -250,7 +250,7 @@ describe("Settings screen", () => {
     });
 
     it("master switch toggles via POST to settings/auto-merge", async () => {
-      const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      const fetchMock = vi.fn((url: string) => {
         if (url.includes("/api/settings/defaults")) {
           return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_DEFAULTS) });
         }

@@ -15,7 +15,7 @@
  *   5. Live mode → emit task.auto_approved, invoke merge, handle failures
  */
 import type Database from "better-sqlite3";
-import type { AutoMergePolicy, TaskConfig, MergeStrategy } from "@shared/events.js";
+import type { AutoMergePolicy, TaskConfig } from "@shared/events.js";
 import { appendAndProject } from "./projectionRunner.js";
 import type { MergeResult } from "./merge.js";
 

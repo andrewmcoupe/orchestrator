@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import { execa } from "execa";
 import type { BlobStore } from "../blobStore.js";
 import type { AppendEventInput } from "../eventStore.js";
-import type { EventType, ExitReason, PhaseName, TransportOptions } from "@shared/events.js";
+import type { ExitReason, PhaseName, TransportOptions } from "@shared/events.js";
 import { classifySubprocessError } from "./claudeCode.js";
 import { computeCost } from "./modelPricing.js";
 
@@ -152,33 +152,29 @@ async function* execaSpawner(
     });
   }
 
-  try {
-    let buffer = "";
-    for await (const chunk of stdout) {
-      buffer += chunk.toString();
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (line.trim()) yield line;
-      }
+  let buffer = "";
+  for await (const chunk of stdout) {
+    buffer += chunk.toString();
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.trim()) yield line;
     }
-    if (buffer.trim()) yield buffer;
+  }
+  if (buffer.trim()) yield buffer;
 
-    const result = await proc;
-    console.log(`[codex] process exited: code=${result.exitCode}, signal=${result.signal ?? "none"}, stderr=${stderrTail.slice(-500)}`);
-    if (result.exitCode !== 0) {
-      const err = new Error(
-        stderrTail || result.stderr || `codex exited with code ${result.exitCode}`,
-      ) as Error & { exitCode?: number; signal?: string; stderrTail?: string };
-      err.exitCode = result.exitCode ?? 1;
-      if (result.signal) err.signal = result.signal;
-      err.stderrTail = stderrTail || result.stderr || "";
-      throw err;
-    }
-    if (context) context.stderrTail = stderrTail;
-  } catch (err) {
+  const result = await proc;
+  console.log(`[codex] process exited: code=${result.exitCode}, signal=${result.signal ?? "none"}, stderr=${stderrTail.slice(-500)}`);
+  if (result.exitCode !== 0) {
+    const err = new Error(
+      stderrTail || result.stderr || `codex exited with code ${result.exitCode}`,
+    ) as Error & { exitCode?: number; signal?: string; stderrTail?: string };
+    err.exitCode = result.exitCode ?? 1;
+    if (result.signal) err.signal = result.signal;
+    err.stderrTail = stderrTail || result.stderr || "";
     throw err;
   }
+  if (context) context.stderrTail = stderrTail;
 }
 
 // ============================================================================

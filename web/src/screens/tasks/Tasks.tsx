@@ -7,8 +7,6 @@ import {DependencyGraph} from "./DependencyGraph.js";
 import {MergeDialog} from "../review/MergeDialog.js";
 import type {TaskStatus} from "@shared/events.js";
 
-type TasksProps = {};
-
 /** Statuses that are approved-but-not-merged */
 const APPROVED_STATUSES = new Set(["approved", "awaiting_merge"]);
 
@@ -23,7 +21,7 @@ const BLOCKED_STATUSES = new Set<TaskStatus>(["blocked", "rejected"]);
  * Cockpit screen — the default Tasks view.
  * Supports list mode (sidebar + detail pane) and graph mode (full-width dependency graph).
  */
-export function Tasks({}: TasksProps) {
+export function Tasks() {
   const tasks = useTaskList();
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { taskId?: string };

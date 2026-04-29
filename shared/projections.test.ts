@@ -345,7 +345,7 @@ describe("PROJECTION_SUBSCRIPTIONS completeness", () => {
   it("has no duplicate projections in any single entry", async () => {
     const { PROJECTION_SUBSCRIPTIONS } = await import("./projections.js");
 
-    for (const [key, projections] of Object.entries(PROJECTION_SUBSCRIPTIONS)) {
+    for (const [_key, projections] of Object.entries(PROJECTION_SUBSCRIPTIONS)) {
       const unique = new Set(projections);
       expect(unique.size).toBe(
         projections.length,

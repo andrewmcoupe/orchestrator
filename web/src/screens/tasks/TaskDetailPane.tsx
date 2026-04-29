@@ -32,7 +32,6 @@ import {
 } from "@web/src/components/ui/tooltip";
 import {
   Dialog,
-  DialogTrigger,
   DialogContent,
   DialogHeader,
   DialogTitle,

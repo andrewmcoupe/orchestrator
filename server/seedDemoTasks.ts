@@ -6,7 +6,7 @@
  */
 
 import type Database from "better-sqlite3";
-import { ulid, monotonicFactory } from "ulid";
+import { monotonicFactory } from "ulid";
 import { appendAndProject } from "./projectionRunner.js";
 import { DEFAULT_TASK_CONFIG } from "@shared/projections.js";
 

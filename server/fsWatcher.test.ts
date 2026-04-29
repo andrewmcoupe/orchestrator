@@ -5,7 +5,7 @@
  * A short debounceMs (50ms) is used so tests complete quickly.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";

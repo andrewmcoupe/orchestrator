@@ -2,9 +2,8 @@
  * Tests for GET /api/blobs/:hash
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Hono } from "hono";
-import { testClient } from "hono/testing";
 import { createBlobRoutes } from "./blobs.js";
 
 // We mock the blobStore module so these tests don't touch disk

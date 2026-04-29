@@ -32,7 +32,6 @@ import type {
   Transport,
   AuditConcern,
   GateConfig,
-  ExitReason,
 } from "./events.js";
 
 // ============================================================================
@@ -331,7 +330,13 @@ export interface AttemptRow {
   task_id: string;
   attempt_number: number;
   status: AttemptStatus;
-  outcome?: "approved" | "rejected" | "revised" | "escalated" | "failed" | "no_changes";
+  outcome?:
+    | "approved"
+    | "rejected"
+    | "revised"
+    | "escalated"
+    | "failed"
+    | "no_changes";
   started_at: string;
   completed_at?: string;
   duration_ms?: number;
@@ -730,11 +735,21 @@ export function reduceTaskList(
 
     case "task.merged":
       if (!current) return null;
-      return { ...current, status: "merged", auto_merged: false, updated_at: event.ts };
+      return {
+        ...current,
+        status: "merged",
+        auto_merged: false,
+        updated_at: event.ts,
+      };
 
     case "task.auto_merged":
       if (!current) return null;
-      return { ...current, status: "merged", auto_merged: true, updated_at: event.ts };
+      return {
+        ...current,
+        status: "merged",
+        auto_merged: true,
+        updated_at: event.ts,
+      };
 
     case "task.finalized":
       if (!current) return null;
@@ -836,14 +851,19 @@ export function reduceTaskDetail(
       if (diff.phases) merged.phases = diff.phases;
       if (diff.gates) merged.gates = diff.gates;
       if (diff.retry_policy)
-        merged.retry_policy = { ...current.config.retry_policy, ...diff.retry_policy };
+        merged.retry_policy = {
+          ...current.config.retry_policy,
+          ...diff.retry_policy,
+        };
       if (diff.auto_merge_policy !== undefined)
         merged.auto_merge_policy = diff.auto_merge_policy;
-      if (diff.shadow_mode !== undefined)
-        merged.shadow_mode = diff.shadow_mode;
+      if (diff.shadow_mode !== undefined) merged.shadow_mode = diff.shadow_mode;
 
       // Derive which keys are overridden vs the preset
-      const overrideKeys = deriveOverrideKeys(diff, current.preset_override_keys);
+      const overrideKeys = deriveOverrideKeys(
+        diff,
+        current.preset_override_keys,
+      );
 
       return {
         ...current,
@@ -1042,9 +1062,10 @@ export function reduceProviderHealth(
       if (!current) return null;
       // For API providers (env_var auth), infer auth_present from probe result:
       // a successful probe means the key was used and accepted.
-      const authPresent = current.auth_method === "env_var"
-        ? event.payload.status === "healthy"
-        : current.auth_present;
+      const authPresent =
+        current.auth_method === "env_var"
+          ? event.payload.status === "healthy"
+          : current.auth_present;
       return {
         ...current,
         status: event.payload.status,
@@ -1393,7 +1414,8 @@ export function reduceAttempt(
         audit: current.audit
           ? {
               ...current.audit,
-              overridden: (event.payload as { override?: boolean }).override === true,
+              overridden:
+                (event.payload as { override?: boolean }).override === true,
             }
           : undefined,
         last_event_id: event.id,
@@ -1415,7 +1437,9 @@ export function reduceAttempt(
         commit_sha: event.payload.commit_sha,
         empty: event.payload.empty,
         // Non-empty: point to self. Empty: leave undefined for write-time resolution.
-        effective_diff_attempt_id: event.payload.empty ? undefined : current.attempt_id,
+        effective_diff_attempt_id: event.payload.empty
+          ? undefined
+          : current.attempt_id,
         last_event_id: event.id,
       };
 
@@ -1449,7 +1473,10 @@ export function reduceAttempt(
         ...current,
         phases: {
           ...current.phases,
-          [p.phase_name]: { ...existing, context_manifest_hash: p.manifest_hash },
+          [p.phase_name]: {
+            ...existing,
+            context_manifest_hash: p.manifest_hash,
+          },
         },
         last_event_id: event.id,
       };
@@ -1461,7 +1488,9 @@ export function reduceAttempt(
       const existing = current.phases[p.phase_name];
       const exitReason = p.exit_reason;
       const lastFailureReason =
-        exitReason && exitReason !== "normal" ? exitReason : current.last_failure_reason;
+        exitReason && exitReason !== "normal"
+          ? exitReason
+          : current.last_failure_reason;
       return {
         ...current,
         last_failure_reason: lastFailureReason,
@@ -1534,7 +1563,11 @@ export function reduceAttempt(
       // Accumulate per-file stats (a path may be edited by multiple tool calls)
       const existing = current.files_changed.find((f) => f.path === p.path);
       const op: FileChangeSummary["operation"] =
-        p.operation === "create" ? "create" : p.operation === "delete" ? "delete" : "update";
+        p.operation === "create"
+          ? "create"
+          : p.operation === "delete"
+            ? "delete"
+            : "update";
       const files_changed: FileChangeSummary[] = existing
         ? current.files_changed.map((f) =>
             f.path === p.path
@@ -1547,7 +1580,12 @@ export function reduceAttempt(
           )
         : [
             ...current.files_changed,
-            { path: p.path, operation: op, lines_added: p.lines_added, lines_removed: p.lines_removed },
+            {
+              path: p.path,
+              operation: op,
+              lines_added: p.lines_added,
+              lines_removed: p.lines_removed,
+            },
           ];
       return { ...current, files_changed, last_event_id: event.id };
     }
@@ -1565,7 +1603,11 @@ export function reduceAttempt(
         ...current,
         gate_runs: [
           ...current.gate_runs,
-          { gate_run_id: p.gate_run_id, gate_name: p.gate_name, status: "running" },
+          {
+            gate_run_id: p.gate_run_id,
+            gate_name: p.gate_name,
+            status: "running",
+          },
         ],
         last_event_id: event.id,
       };
@@ -1631,7 +1673,9 @@ export function reduceAttempt(
           confidence: p.confidence,
           summary: p.summary,
           concern_count: p.concerns.length,
-          blocking_count: p.concerns.filter((c: AuditConcern) => c.severity === "blocking").length,
+          blocking_count: p.concerns.filter(
+            (c: AuditConcern) => c.severity === "blocking",
+          ).length,
           concerns: p.concerns,
           overridden: false,
         },
@@ -1745,8 +1789,7 @@ export function reducePromptLibrary(
       const isSuccess =
         (event.payload as { outcome: string }).outcome === "success";
       const oldRate = current.success_rate_last_30d ?? 0;
-      const newRate =
-        (oldRate * oldCount + (isSuccess ? 1 : 0)) / newCount;
+      const newRate = (oldRate * oldCount + (isSuccess ? 1 : 0)) / newCount;
       const cost = (event.payload as { cost_usd: number }).cost_usd ?? 0;
       const oldAvg = current.avg_cost_usd ?? 0;
       const newAvg = (oldAvg * oldCount + cost) / newCount;
@@ -1764,7 +1807,10 @@ export function reducePromptLibrary(
       const isVariant =
         variants.A === current.prompt_version_id ||
         variants.B === current.prompt_version_id;
-      if (!isVariant || current.ab_experiment_ids.includes(event.payload.experiment_id)) {
+      if (
+        !isVariant ||
+        current.ab_experiment_ids.includes(event.payload.experiment_id)
+      ) {
         return current;
       }
       return {
@@ -1947,7 +1993,11 @@ export function reduceSettings(
 
   switch (event.type) {
     case "settings.changed":
-      return { ...(current ?? defaults), ...event.payload.changes, updated_at: event.ts };
+      return {
+        ...(current ?? defaults),
+        ...event.payload.changes,
+        updated_at: event.ts,
+      };
 
     case "settings.auto_merge_enabled_set":
       return {

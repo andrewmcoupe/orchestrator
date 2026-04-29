@@ -19,7 +19,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   RefreshCw,
   SlidersHorizontal,
-  Plus,
   CheckCircle2,
   XCircle,
   AlertTriangle,
@@ -169,7 +168,7 @@ function EditConfigForm({ row, onSave, onCancel }: EditConfigFormProps) {
     row.transport !== "anthropic-api" && row.transport !== "openai-api";
   const [binaryPath, setBinaryPath] = useState(row.binary_path ?? "");
   const [endpoint, setEndpoint] = useState(row.endpoint ?? "");
-  const [authMethod, setAuthMethod] = useState<EditState["auth_method"]>(
+  const [authMethod] = useState<EditState["auth_method"]>(
     row.auth_method ?? "cli_login",
   );
   const [saving, setSaving] = useState(false);

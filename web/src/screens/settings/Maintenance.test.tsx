@@ -76,7 +76,7 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
 
   vi.stubGlobal(
     "fetch",
-    vi.fn((url: string, opts?: RequestInit) => {
+    vi.fn((url: string) => {
       const key = Object.keys(responses).find((k) => url.includes(k));
       const body = key ? responses[key] : {};
       return Promise.resolve({

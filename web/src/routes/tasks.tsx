@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, useParams, useNavigate, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useEventStore, useTaskDetail, useTaskList } from "../store/eventStore.js";
+import { useTaskDetail, useTaskList } from "../store/eventStore.js";
 import { TaskListSidebar } from "../screens/tasks/TaskListSidebar.js";
 import { TaskDetailPane } from "../screens/tasks/TaskDetailPane.js";
 import { DependencyGraph } from "../screens/tasks/DependencyGraph.js";
@@ -53,7 +53,6 @@ function TasksLayout() {
   const [selectedPrdId, setSelectedPrdId] = useState<string>("all");
 
   const taskDetail = useTaskDetail(selectedId ?? undefined);
-  const applyEvent = useEventStore((s) => s.applyEvent);
 
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const branchPollRef = useRef<ReturnType<typeof setInterval> | null>(null);

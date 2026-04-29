@@ -173,7 +173,7 @@ function getTaskFromList(
   );
 }
 
-function getTaskDetail(
+function _getTaskDetail(
   db: Database.Database,
   taskId: string,
 ): TaskDetailRow | null {

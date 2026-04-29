@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createSSEClient } from "./sse.js";
 import type { AnyEvent } from "@shared/events.js";
 
@@ -39,6 +39,7 @@ beforeEach(() => {
   (globalThis as Record<string, unknown>).EventSource = class extends MockEventSource {
     constructor(url: string) {
       super(url);
+      // oxlint-disable-next-line no-this-alias
       lastEventSource = this;
     }
   };

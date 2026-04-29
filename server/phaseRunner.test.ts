@@ -20,7 +20,7 @@ import {
   type PhaseRunnerDeps,
   type AdapterInvokeFn,
 } from "./phaseRunner.js";
-import type { Actor, TaskConfig, InvocationCompleted, ExitReason, PhaseCompleted } from "@shared/events.js";
+import type { Actor, TaskConfig, InvocationCompleted, PhaseCompleted } from "@shared/events.js";
 import { evaluateExitReasonPolicy } from "./phaseRunner.js";
 import type { AppendEventInput } from "./eventStore.js";
 import type { BlobStore } from "./blobStore.js";
@@ -1939,6 +1939,7 @@ describe("runAttempt", () => {
         claudeCodeCalled = true;
         yield* makeFakeCliInvoker()(opts, fakeBlobStore);
       };
+      // oxlint-disable-next-line require-yield
       const fakeCodexInvoker: AdapterInvokeFn = async function* () {
         codexCalled = true;
       };

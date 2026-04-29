@@ -8,7 +8,7 @@
  *   4. File edit detection (git diff parsing helpers)
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   buildArgs,
   translateLine,
@@ -23,7 +23,7 @@ import {
 } from "./claudeCode.js";
 import type { BlobStore } from "../blobStore.js";
 import { invoke } from "./claudeCode.js";
-import type { ExitReason, InvocationCompleted } from "@shared/events.js";
+import type { InvocationCompleted } from "@shared/events.js";
 
 // ============================================================================
 // Helpers
@@ -38,7 +38,10 @@ function makeBlobStore(): BlobStore & { stored: Map<string, string> } {
         ? content.toString("hex").slice(0, 8)
         : String(content).slice(0, 8);
       const hash = "a".repeat(64 - key.length) + key;
-      stored.set(hash, Buffer.isBuffer(content) ? content.toString() : String(content));
+      stored.set(
+        hash,
+        Buffer.isBuffer(content) ? content.toString() : String(content),
+      );
       return { hash };
     },
     getBlob(hash) {
@@ -114,7 +117,10 @@ describe("buildArgs", () => {
   });
 
   it("includes system prompt file when provided", () => {
-    const opts: InvokeOptions = { ...baseOpts, systemPromptFile: "/tmp/system.md" };
+    const opts: InvokeOptions = {
+      ...baseOpts,
+      systemPromptFile: "/tmp/system.md",
+    };
     const args = buildArgs(opts);
     expect(args).toContain("--append-system-prompt-file");
     expect(args).toContain("/tmp/system.md");
@@ -146,7 +152,10 @@ describe("translateLine — system init", () => {
     expect(input.type).toBe("invocation.started");
     expect(input.aggregate_type).toBe("attempt");
     expect(input.aggregate_id).toBe("att-001");
-    expect(input.actor).toMatchObject({ kind: "cli", transport: "claude-code" });
+    expect(input.actor).toMatchObject({
+      kind: "cli",
+      transport: "claude-code",
+    });
     expect(input.payload).toMatchObject({
       invocation_id: "inv-001",
       attempt_id: "att-001",
@@ -182,7 +191,9 @@ describe("translateLine — assistant text", () => {
     const inputs = translateLine(line, baseOpts, blobStore);
     // One assistant_message per text block
     expect(inputs.length).toBeGreaterThanOrEqual(1);
-    const msgInput = inputs.find((i) => i.type === "invocation.assistant_message");
+    const msgInput = inputs.find(
+      (i) => i.type === "invocation.assistant_message",
+    );
     expect(msgInput).toBeDefined();
     expect(msgInput!.payload).toMatchObject({
       invocation_id: "inv-001",
@@ -197,7 +208,10 @@ describe("translateLine — assistant text", () => {
 
 describe("translateLine — assistant tool_use", () => {
   it("produces invocation.tool_called from tool_use block and stores args in blob", () => {
-    const toolInput = { file_path: "/tmp/worktree/T-001/hello.txt", content: "Hello, world\n" };
+    const toolInput = {
+      file_path: "/tmp/worktree/T-001/hello.txt",
+      content: "Hello, world\n",
+    };
     const line: ClaudeCodeLine = {
       type: "assistant",
       message: {
@@ -247,7 +261,12 @@ describe("translateLine — assistant tool_use", () => {
         role: "assistant",
         content: [
           { type: "text", text: "Working on it." },
-          { type: "tool_use", id: "t2", name: "Read", input: { path: "src/index.ts" } },
+          {
+            type: "tool_use",
+            id: "t2",
+            name: "Read",
+            input: { path: "src/index.ts" },
+          },
         ],
         model: "claude-sonnet-4-6",
         stop_reason: "tool_use",
@@ -257,7 +276,9 @@ describe("translateLine — assistant tool_use", () => {
     };
     const blobStore = makeBlobStore();
     const inputs = translateLine(line, baseOpts, blobStore);
-    expect(inputs.some((i) => i.type === "invocation.assistant_message")).toBe(true);
+    expect(inputs.some((i) => i.type === "invocation.assistant_message")).toBe(
+      true,
+    );
     expect(inputs.some((i) => i.type === "invocation.tool_called")).toBe(true);
   });
 });
@@ -285,7 +306,9 @@ describe("translateLine — user tool_result", () => {
     };
     const blobStore = makeBlobStore();
     const toolCallTime = Date.now();
-    const inputs = translateLine(line, baseOpts, blobStore, { "tool-1": toolCallTime - 200 });
+    const inputs = translateLine(line, baseOpts, blobStore, {
+      "tool-1": toolCallTime - 200,
+    });
 
     expect(inputs.length).toBeGreaterThanOrEqual(1);
     const returned = inputs.find((i) => i.type === "invocation.tool_returned");
@@ -374,9 +397,13 @@ describe("translateLine — result error", () => {
     const inputs = translateLine(line, baseOpts, blobStore);
     expect(inputs).toHaveLength(2);
     expect(inputs[0].type).toBe("invocation.errored");
-    expect((inputs[0].payload as { error_category: string }).error_category).toBe("unknown");
+    expect(
+      (inputs[0].payload as { error_category: string }).error_category,
+    ).toBe("unknown");
     expect(inputs[1].type).toBe("invocation.completed");
-    expect((inputs[1].payload as { exit_reason: string }).exit_reason).toBe("unknown");
+    expect((inputs[1].payload as { exit_reason: string }).exit_reason).toBe(
+      "unknown",
+    );
   });
 
   it("maps error_budget_exceeded subtype to budget_exceeded category", () => {
@@ -395,9 +422,9 @@ describe("translateLine — result error", () => {
     const inputs = translateLine(line, baseOpts, blobStore);
     const errored = inputs.find((i) => i.type === "invocation.errored");
     expect(errored).toBeDefined();
-    expect((errored!.payload as { error_category: string }).error_category).toBe(
-      "budget_exceeded",
-    );
+    expect(
+      (errored!.payload as { error_category: string }).error_category,
+    ).toBe("budget_exceeded");
   });
 
   it("maps error_max_turns subtype to turn_limit category", () => {
@@ -415,7 +442,9 @@ describe("translateLine — result error", () => {
     const blobStore = makeBlobStore();
     const inputs = translateLine(line, baseOpts, blobStore);
     const errored = inputs.find((i) => i.type === "invocation.errored");
-    expect((errored!.payload as { error_category: string }).error_category).toBe("turn_limit");
+    expect(
+      (errored!.payload as { error_category: string }).error_category,
+    ).toBe("turn_limit");
   });
 });
 
@@ -529,7 +558,9 @@ describe("invoke() pipeline", () => {
         permissionMode: "acceptEdits",
       });
       // Simulate non-zero exit by throwing
-      const err = new Error("Process exited with code 1") as Error & { exitCode?: number };
+      const err = new Error("Process exited with code 1") as Error & {
+        exitCode?: number;
+      };
       err.exitCode = 1;
       throw err;
     }
@@ -614,7 +645,12 @@ describe("invoke() pipeline", () => {
         message: {
           role: "user",
           content: [
-            { type: "tool_result", tool_use_id: "tc1", content: "OK", is_error: false },
+            {
+              type: "tool_result",
+              tool_use_id: "tc1",
+              content: "OK",
+              is_error: false,
+            },
           ],
         },
         session_id: "s1",
@@ -643,7 +679,9 @@ describe("invoke() pipeline", () => {
       allInputs.push(input);
     }
 
-    const toolCalledInput = allInputs.find((i) => i.type === "invocation.tool_called");
+    const toolCalledInput = allInputs.find(
+      (i) => i.type === "invocation.tool_called",
+    );
     expect(toolCalledInput).toBeDefined();
 
     const { args_hash } = toolCalledInput!.payload as { args_hash: string };
@@ -677,7 +715,10 @@ describe("exit reason classification", () => {
 
   describe("classifySubprocessError", () => {
     it("classifies SIGKILL as killed", () => {
-      const err = Object.assign(new Error("killed"), { signal: "SIGKILL", exitCode: 137 });
+      const err = Object.assign(new Error("killed"), {
+        signal: "SIGKILL",
+        exitCode: 137,
+      });
       expect(classifySubprocessError(err)).toBe("killed");
     });
 
@@ -693,41 +734,63 @@ describe("exit reason classification", () => {
 
     it("classifies permission prompt in stderr as permission_blocked", () => {
       const err = Object.assign(new Error("failed"), { exitCode: 1 });
-      expect(classifySubprocessError(err, "Waiting for permission to use tool")).toBe("permission_blocked");
+      expect(
+        classifySubprocessError(err, "Waiting for permission to use tool"),
+      ).toBe("permission_blocked");
     });
 
     it("classifies ENOTFOUND as network_error", () => {
       const err = Object.assign(new Error("failed"), { exitCode: 1 });
-      expect(classifySubprocessError(err, "Error: ENOTFOUND api.anthropic.com")).toBe("network_error");
+      expect(
+        classifySubprocessError(err, "Error: ENOTFOUND api.anthropic.com"),
+      ).toBe("network_error");
     });
 
     it("classifies ECONNREFUSED as network_error", () => {
       const err = Object.assign(new Error("failed"), { exitCode: 1 });
-      expect(classifySubprocessError(err, "connect ECONNREFUSED 127.0.0.1:443")).toBe("network_error");
+      expect(
+        classifySubprocessError(err, "connect ECONNREFUSED 127.0.0.1:443"),
+      ).toBe("network_error");
     });
 
     it("classifies 'socket hang up' as network_error (AC7)", () => {
       const err = Object.assign(new Error("failed"), { exitCode: 1 });
-      expect(classifySubprocessError(err, "Error: socket hang up")).toBe("network_error");
+      expect(classifySubprocessError(err, "Error: socket hang up")).toBe(
+        "network_error",
+      );
     });
 
     it("classifies schema validation errors as schema_invalid", () => {
       const err = Object.assign(new Error("failed"), { exitCode: 1 });
-      expect(classifySubprocessError(err, "schema validation failed")).toBe("schema_invalid");
+      expect(classifySubprocessError(err, "schema validation failed")).toBe(
+        "schema_invalid",
+      );
     });
 
     it("classifies segfault as crashed", () => {
       const err = Object.assign(new Error("failed"), { exitCode: 1 });
-      expect(classifySubprocessError(err, "Segmentation fault (core dumped)\nSIGSEGV")).toBe("crashed");
+      expect(
+        classifySubprocessError(
+          err,
+          "Segmentation fault (core dumped)\nSIGSEGV",
+        ),
+      ).toBe("crashed");
     });
 
     it("classifies stack trace in stderr as crashed (AC9)", () => {
       const err = Object.assign(new Error("failed"), { exitCode: 1 });
-      expect(classifySubprocessError(err, "at Object.<anonymous> (/app/index.js:10:5)\nstack trace")).toBe("crashed");
+      expect(
+        classifySubprocessError(
+          err,
+          "at Object.<anonymous> (/app/index.js:10:5)\nstack trace",
+        ),
+      ).toBe("crashed");
     });
 
     it("falls through to unknown with no matching pattern", () => {
-      const err = Object.assign(new Error("something went wrong"), { exitCode: 1 });
+      const err = Object.assign(new Error("something went wrong"), {
+        exitCode: 1,
+      });
       expect(classifySubprocessError(err)).toBe("unknown");
     });
   });
@@ -749,7 +812,9 @@ describe("exit reason classification", () => {
       const inputs = translateLine(line, baseOpts, blobStore, {}, 1000);
       const completed = inputs.find((i) => i.type === "invocation.completed");
       expect(completed).toBeDefined();
-      expect((completed!.payload as { exit_reason: string }).exit_reason).toBe("budget_exceeded");
+      expect((completed!.payload as { exit_reason: string }).exit_reason).toBe(
+        "budget_exceeded",
+      );
     });
   });
 
@@ -770,7 +835,9 @@ describe("exit reason classification", () => {
       const inputs = translateLine(line, baseOpts, blobStore, {}, 1000);
       const completed = inputs.find((i) => i.type === "invocation.completed");
       expect(completed).toBeDefined();
-      expect((completed!.payload as { exit_reason: string }).exit_reason).toBe("turn_limit");
+      expect((completed!.payload as { exit_reason: string }).exit_reason).toBe(
+        "turn_limit",
+      );
     });
   });
 
@@ -784,7 +851,9 @@ describe("exit reason classification", () => {
           model: "claude-sonnet-4-6",
           permissionMode: "acceptEdits",
         });
-        const err = new Error("Unexpected crash") as Error & { exitCode?: number };
+        const err = new Error("Unexpected crash") as Error & {
+          exitCode?: number;
+        };
         err.exitCode = 1;
         throw err;
       }
@@ -838,7 +907,11 @@ describe("exit reason classification", () => {
       const blobStore = makeBlobStore();
       const results: Array<{ type: string; payload: unknown }> = [];
 
-      for await (const input of invoke(baseOpts, blobStore, permissionHangSpawner)) {
+      for await (const input of invoke(
+        baseOpts,
+        blobStore,
+        permissionHangSpawner,
+      )) {
         results.push({ type: input.type, payload: input.payload });
       }
 
@@ -868,7 +941,9 @@ describe("exit reason classification", () => {
       const blobStore = makeBlobStore();
       const inputs = translateLine(line, baseOpts, blobStore, {}, 1000);
       expect(inputs).toHaveLength(1);
-      expect((inputs[0].payload as { exit_reason: string }).exit_reason).toBe("normal");
+      expect((inputs[0].payload as { exit_reason: string }).exit_reason).toBe(
+        "normal",
+      );
     });
   });
 
@@ -885,26 +960,37 @@ describe("exit reason classification", () => {
         new Error("Waiting for permission to use tool Write"),
         { signal: "SIGKILL", exitCode: 137 },
       );
-      expect(classifySubprocessError(err, err.message)).toBe("permission_blocked");
+      expect(classifySubprocessError(err, err.message)).toBe(
+        "permission_blocked",
+      );
     });
 
     it("still returns killed when SIGKILL without permission prompt in stderr", () => {
-      const err = Object.assign(new Error("Process was killed"), { signal: "SIGKILL", exitCode: 137 });
+      const err = Object.assign(new Error("Process was killed"), {
+        signal: "SIGKILL",
+        exitCode: 137,
+      });
       expect(classifySubprocessError(err, err.message)).toBe("killed");
     });
   });
 
   describe("parsePermissionBlockedOn — tool name extraction", () => {
     it("extracts tool name from 'Waiting for permission to use tool ToolName'", () => {
-      expect(parsePermissionBlockedOn("Waiting for permission to use tool Write")).toBe("Write");
+      expect(
+        parsePermissionBlockedOn("Waiting for permission to use tool Write"),
+      ).toBe("Write");
     });
 
     it("extracts tool name from 'Waiting for permission to use ToolName' (no 'tool' keyword)", () => {
-      expect(parsePermissionBlockedOn("Waiting for permission to use Bash")).toBe("Bash");
+      expect(
+        parsePermissionBlockedOn("Waiting for permission to use Bash"),
+      ).toBe("Bash");
     });
 
     it("extracts tool name from quoted tool name", () => {
-      expect(parsePermissionBlockedOn('Waiting for permission to use tool "Edit"')).toBe("Edit");
+      expect(
+        parsePermissionBlockedOn('Waiting for permission to use tool "Edit"'),
+      ).toBe("Edit");
     });
 
     it("returns null when permission pattern is absent", () => {
@@ -931,7 +1017,9 @@ describe("exit reason classification", () => {
         // The error simulates what execaSpawner throws when SIGKILL terminates the process
         // after a permission hang: message = result.stderr, signal = SIGKILL, exitCode = 137
         const err = Object.assign(
-          new Error("Waiting for permission to use tool Write\nClaude is requesting permission to write to a file."),
+          new Error(
+            "Waiting for permission to use tool Write\nClaude is requesting permission to write to a file.",
+          ),
           { signal: "SIGKILL", exitCode: 137 },
         );
         throw err;
@@ -940,7 +1028,11 @@ describe("exit reason classification", () => {
       const blobStore = makeBlobStore();
       const results: Array<{ type: string; payload: unknown }> = [];
 
-      for await (const input of invoke(baseOpts, blobStore, permissionKillSpawner)) {
+      for await (const input of invoke(
+        baseOpts,
+        blobStore,
+        permissionKillSpawner,
+      )) {
         results.push({ type: input.type, payload: input.payload });
       }
 
@@ -969,7 +1061,11 @@ describe("exit reason classification", () => {
       const blobStore = makeBlobStore();
       const results: Array<{ type: string; payload: unknown }> = [];
 
-      for await (const input of invoke(baseOpts, blobStore, permissionKillSpawner)) {
+      for await (const input of invoke(
+        baseOpts,
+        blobStore,
+        permissionKillSpawner,
+      )) {
         results.push({ type: input.type, payload: input.payload });
       }
 
@@ -990,17 +1086,21 @@ describe("exit reason classification", () => {
           permissionMode: "acceptEdits",
         });
         // Permission prompt without a parseable tool name
-        const err = Object.assign(
-          new Error("Waiting for permission"),
-          { signal: "SIGKILL", exitCode: 137 },
-        );
+        const err = Object.assign(new Error("Waiting for permission"), {
+          signal: "SIGKILL",
+          exitCode: 137,
+        });
         throw err;
       }
 
       const blobStore = makeBlobStore();
       const results: Array<{ type: string; payload: unknown }> = [];
 
-      for await (const input of invoke(baseOpts, blobStore, permissionKillSpawner)) {
+      for await (const input of invoke(
+        baseOpts,
+        blobStore,
+        permissionKillSpawner,
+      )) {
         results.push({ type: input.type, payload: input.payload });
       }
 
@@ -1166,14 +1266,22 @@ describe("stdout/stderr tail capture", () => {
       putBlob(_content) {
         throw new Error("blob store unavailable");
       },
-      getBlob(_hash) { return null; },
-      hasBlob(_hash) { return false; },
+      getBlob(_hash) {
+        return null;
+      },
+      hasBlob(_hash) {
+        return false;
+      },
     };
 
     const results: Array<{ type: string; payload: unknown }> = [];
 
     // Must not throw even though blob store throws on putBlob
-    for await (const input of invoke(baseOpts, throwingBlobStore, fakeSpawner)) {
+    for await (const input of invoke(
+      baseOpts,
+      throwingBlobStore,
+      fakeSpawner,
+    )) {
       results.push({ type: input.type, payload: input.payload });
     }
 
