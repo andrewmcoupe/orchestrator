@@ -19,7 +19,6 @@ const sourceSpanSchema = z.object({
 const transportSchema = z.enum([
   "claude-code",
   "codex",
-  "aider",
   "gemini-cli",
   "anthropic-api",
   "openai-api",

@@ -132,7 +132,6 @@ const TRANSPORTS: Transport[] = [
   "anthropic-api",
   "openai-api",
   "codex",
-  "aider",
   "gemini-cli",
 ];
 
@@ -141,7 +140,6 @@ const MODELS_BY_TRANSPORT: Record<Transport, string[]> = {
   "anthropic-api": ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
   "openai-api": ["gpt-4o", "gpt-4-turbo", "o3"],
   codex: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.5"],
-  aider: ["aider-default"],
   "gemini-cli": ["gemini-2.5-pro", "gemini-2.0-flash"],
 };
 
@@ -234,7 +232,6 @@ function PhaseCard({
                   const isCli = [
                     "claude-code",
                     "codex",
-                    "aider",
                     "gemini-cli",
                   ].includes(newTransport);
                   const wasCli = phase.transport_options.kind === "cli";

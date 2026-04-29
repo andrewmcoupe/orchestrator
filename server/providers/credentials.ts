@@ -5,7 +5,7 @@
  * imported into event payloads or logs — only the boolean `auth_present` flag
  * reaches the outside world.
  *
- * CLI providers (claude-code, codex, aider, gemini-cli) manage their own
+ * CLI providers (claude-code, codex, gemini-cli) manage their own
  * credentials; this module always returns null for them.
  */
 
