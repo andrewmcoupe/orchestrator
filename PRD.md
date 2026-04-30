@@ -1,83 +1,112 @@
-# Warn End-Users When No AI Providers Are Available
+# Add Gemini CLI as an AI Provider (Effect-based pilot)
 
 ## Overview
 
-When a user has no AI providers configured (no API key in `.orchestrator/.env.local` and no CLI tool authenticated), the orchestrator currently lets them attempt task creation, which fails opaquely at execution time. This PRD adds login-status detection for CLI providers, surfaces actionable setup instructions on the `/providers` page, and shows a persistent global banner when zero providers are available so the user knows what to fix and where.
+Add `gemini-cli` as a full-peer AI provider alongside `claude-code` and `codex`, capable of running orchestrator phases that read and edit files in worktrees. The new adapter is built using `effect` and `@effect/vitest` internally as a deliberate pilot; it exposes the same `async function*` boundary as the existing adapters so `server/phaseRunner.ts` dispatch and the other two providers are untouched. Cost tracking is intentionally omitted — only raw token counts are emitted.
 
-## Detect CLI login status during provider probing
+## Add Spawner service and Gemini stream-json schemas
 
-Today, CLI providers (`claude-code`, `codex`, `gemini-cli`) only report whether their binary is installed; the projection's `auth_present` flag is always `false` for them. This task makes `auth_present` meaningful for CLI providers so the rest of the system can use a single uniform availability signal.
+Create the foundational Effect primitives the adapter will build on. This task introduces no orchestrator wiring — just the service interface, the schema decoders, and the event mapper, all unit-tested in isolation.
 
-Requirements:
+- Create `server/adapters/gemini/spawner.ts`. Define an Effect `Context.Tag` named `Spawner` whose service shape is:
+  ```ts
+  interface Spawner {
+    readonly spawn: (
+      command: string,
+      args: ReadonlyArray<string>,
+      input: string,
+    ) => Effect.Effect<SpawnHandle, SpawnError, never>;
+  }
+  ```
+  where `SpawnHandle` exposes `stdout: Stream.Stream<string, never>` (line-delimited), `stderr: Stream.Stream<string, never>`, `exitCode: Effect.Effect<number, never>`, and `kill: Effect.Effect<void, never>`.
+- Provide `SpawnerLive` (a `Layer` wrapping `node:child_process.spawn` with `Effect.acquireRelease` so interruption deterministically calls `kill('SIGTERM')`, falling back to `SIGKILL` after 2s). The live layer must split stdout into lines (handle partial chunks across reads) and pass `input` via stdin then close it.
+- Create `server/adapters/gemini/schema.ts`. Use `effect/Schema` to define decoders for the three known Gemini stream-json variants captured from a real run:
+  - `InitEvent`: `{ type: "init", timestamp: string, session_id: string, model: string }`
+  - `MessageEvent`: `{ type: "message", timestamp: string, role: "user" | "assistant", content: string, delta?: boolean }`
+  - `ResultEvent`: `{ type: "result", timestamp: string, status: "success" | "error", stats: { total_tokens: number, input_tokens: number, output_tokens: number, duration_ms: number, tool_calls: number } }`
+  Export a discriminated union `GeminiStreamEvent` and a `decodeLine(line: string): Effect.Effect<Option<GeminiStreamEvent>, never>` that returns `None` for non-JSON lines or unknown `type` values (must NOT fail — Gemini emits stderr noise like `[STARTUP]` lines and `Loaded cached credentials` and may add new event variants in future versions). Log unknown variants at debug level via `Effect.logDebug`.
+- Create `server/adapters/gemini/mapper.ts`. Export `mapEvent(event: GeminiStreamEvent, state: MapperState): { state: MapperState, emit: ReadonlyArray<AppendEventInput> }` where `AppendEventInput` is imported from `@shared/events`. Mapping rules:
+  - `init` → emit one `invocation.started` with `provider_id: "gemini-cli"`, `model: event.model`, `session_id: event.session_id`.
+  - `message` with `role: "assistant"` and `delta: true` → accumulate `content` into `state.assistantBuffer`; emit nothing.
+  - `message` with `role: "assistant"` and `delta` falsy → flush buffer + this message, emit one `invocation.assistant_message`.
+  - `message` with `role: "user"` → emit nothing (the orchestrator already has the prompt).
+  - `result` → flush any remaining `assistantBuffer` as a final `invocation.assistant_message`, then emit one `invocation.completed` with `status: event.status`, `tokens: { input: event.stats.input_tokens, output: event.stats.output_tokens, total: event.stats.total_tokens }`, `duration_ms: event.stats.duration_ms`. Do NOT populate any cost/USD field.
+- Tests live in `server/adapters/gemini/spawner.test.ts`, `schema.test.ts`, `mapper.test.ts` using `it.effect` from `@effect/vitest`. Cover: line splitting across chunked stdout reads; decoder returns `None` for the literal `[STARTUP] StartupProfiler.flush()` and `Loaded cached credentials` lines from the captured sample; mapper buffers assistant deltas correctly across multiple chunks; mapper emits `invocation.completed` exactly once per `result` event.
+- **Unknown to verify at implementation time:** the JSON shape Gemini emits when `tool_calls > 0` (the captured sample had `tool_calls: 0`). Add a `// TODO(gemini-tools): capture and decode tool-call event variant` comment in `schema.ts` and define a permissive `unknown` fallthrough so tool-call events log + skip rather than crash.
 
-- Extend the CLI probe in `server/providers/probe.ts` to perform a second step after the existing `<binary> --version` check, when the binary is present.
-- For `claude-code`: run `claude auth status --text` with a 3s timeout. Set `auth_present = true` iff exit code is 0.
-- For `codex`: run `codex login status` with a 3s timeout. Set `auth_present = true` iff exit code is 0 AND stdout contains the literal substring `"Logged in"`.
-- For `gemini-cli`: skip the login check (no programmatic command exists). Always set `auth_present = false`. The provider is still usable when `status === "healthy"`; downstream code must treat `gemini-cli` as "available" on healthy status alone.
-- The login check must NOT change the `status` field. Status remains driven by `--version` (`healthy` / `degraded` / `down`). `auth_present` is independent.
-- If the binary is missing (`status === "down"`), skip the login check entirely and set `auth_present = false`.
-- Emit `auth_present` as part of the existing `provider.probed` event payload (extend the event payload schema in `shared/events/` if needed). The `provider_health` projection must persist this updated `auth_present` on each probe — currently `auth_present` is only derived at `provider.configured` time, so the projection's `read` handler for `provider.probed` events must be extended to update it.
-- Update `deriveAuthPresent` in `server/projections/providerHealth.ts` so the `cli_login` branch no longer hardcodes `false` at configuration time — instead, leave the existing value untouched (i.e., on `provider.configured` events for CLI providers, default to current DB value or `false` if the row is new).
-- Add unit tests covering: claude-code logged in, claude-code not logged in (non-zero exit), codex logged in, codex not logged in, codex stdout missing "Logged in" substring (treat as not logged in), gemini-cli always returns `auth_present: false`, binary missing → `auth_present: false`.
+## Build Gemini adapter with Effect program and async-generator boundary
 
-## Surface per-provider setup instructions on the providers page
+Implement the Gemini adapter itself by composing the spawner, schema, and mapper from the prior task, then expose it through the existing `AsyncIterable<AppendEventInput>` contract used by `claudeCode.ts` and `codex.ts`.
 
-Each provider on `/providers` must show a concrete, copyable instruction telling the user how to set it up. Currently the page shows status but no actionable next step.
+- Create `server/adapters/gemini.ts`. Mirror the public signature of `server/adapters/claudeCode.ts`'s `invoke`:
+  ```ts
+  export async function* invoke(
+    opts: GeminiInvokeOptions,
+    blobStore: BlobStore,
+    spawner?: Spawner,
+    signal?: AbortSignal,
+  ): AsyncIterable<AppendEventInput>
+  ```
+- Define `GeminiInvokeOptions` matching the `CLI` shape used by the other CLI adapters (`prompt: string`, `cwd: string`, `model?: string`, `permission_mode?: "default" | "accept_edits" | "bypass_permissions" | "plan"`, `sandbox?: boolean`, plus whatever fields the existing `ClaudeCodeInvokeOptions` carries that are transport-agnostic — match its shape).
+- Build the spawn argv:
+  - Always: `--output-format stream-json`, `--skip-trust`.
+  - `--model <opts.model ?? "gemini-2.5-pro">`. Validate `opts.model` is non-empty; do not gate on a hardcoded model list.
+  - `--approval-mode` mapping: `default → default`, `accept_edits → auto_edit`, `bypass_permissions → yolo`, `plan → plan`. Default to `default` if `permission_mode` is unset.
+  - `--sandbox` only if `opts.sandbox === true` (default off — the worktree already provides isolation).
+  - Pass `opts.prompt` via stdin, NOT as `-p`, to avoid argv length limits and shell-escaping issues.
+- Internally, write the orchestration as an Effect program:
+  - `Effect.acquireRelease` the `SpawnHandle` (release calls `kill`).
+  - Run a stateful fold over `stdout.pipe(Stream.mapEffect(decodeLine), Stream.filterMap(identity), ...)` that threads `MapperState` and yields each batch of `AppendEventInput`s.
+  - On `exitCode !== 0`, emit a final `invocation.completed` with `status: "error"` if no `result` event was seen.
+- Wrap that Effect at the boundary: the public `async function*` builds a `Layer` providing `SpawnerLive` (or the injected test `Spawner`), runs the program via `Effect.runFork`, and pulls events out via a `Queue` bridged into a normal `for await` loop. Wire `signal.aborted` to `Fiber.interrupt(fiber)` so cancellation tears down the spawn deterministically.
+- Tests in `server/adapters/gemini.test.ts`:
+  - **Inner Effect tests** (`it.effect`): provide a fake `Spawner` `Layer` whose `stdout` stream replays the real captured sample (init + 2 assistant deltas + result), assert the program emits the correct `AppendEventInput[]` and exits cleanly. A second test scripts a non-zero exit code with no `result` event and asserts a synthetic `invocation.completed { status: "error" }` is appended.
+  - **Outer wrapper test** (plain `vitest`): pass a fake spawner via the `spawner?` parameter, iterate `for await` over the returned `AsyncIterable`, assert the full event sequence matches expectations. One happy-path test is sufficient — detailed cases are covered by the inner tests.
+  - **Cancellation test** (plain `vitest`): start iteration, call `controller.abort()`, assert the iterator returns and the fake spawner's `kill` was invoked.
 
-Requirements:
+## Wire Gemini adapter into phaseRunner dispatch
 
-- Add a `setup_hint` field to the static provider config in `server/providers/registry.ts`. Each entry contains a short imperative instruction string. Values:
-  - `claude-code`: `"Run `claude login` in your terminal"`
-  - `codex`: `"Run `codex login` in your terminal"`
-  - `gemini-cli`: `"Run `gemini` in your terminal and follow the login prompt"`
-  - `anthropic-api`: ``"Add `ANTHROPIC_API_KEY=...` to `.orchestrator/.env.local`"``
-  - `openai-api`: ``"Add `OPENAI_API_KEY=...` to `.orchestrator/.env.local`"``
-- Expose `setup_hint` via the existing `GET /api/providers` endpoint (or wherever the Providers page already fetches its list) so the UI does not hardcode the hints.
-- In `web/src/screens/providers/Providers.tsx`, render `setup_hint` on every provider card, regardless of `auth_present` value, so users can self-serve at any time.
-- When `auth_present === false` AND (for CLI providers) `status !== "healthy"`, render the hint with warning styling (use existing `bg-status-danger`/`border-status-danger` classes consistent with other warning treatments in the file).
-- When the provider IS available, render the hint in muted/info styling (e.g., `text-fg-muted`).
-- Render any backticked code spans (`` ` ``…`` ` ``) in the hint as monospace using the existing tailwind `font-mono` class so the commands are visually distinct.
-- The setup instruction is a presentational string only; do not auto-execute commands or write to `.env.local` from the UI.
-- Update `web/src/screens/providers/Providers.test.tsx` to assert each provider card renders its hint text.
+Plug the new adapter into `server/phaseRunner.ts` so tasks with `transport: "gemini-cli"` actually run. The registry entry and `CLI_TRANSPORTS` membership already exist — only dispatch wiring is missing.
 
-## Add global "no providers available" banner
-
-When zero providers are available across the whole system, show a persistent, non-dismissible banner across all routes that links to the providers page.
-
-Requirements:
-
-- Create a new component `web/src/components/NoProvidersBanner.tsx`.
-- Compute the banner's visibility from `useProviderHealth()` in `web/src/store/eventStore.ts`. The banner is visible iff: **for every provider, `auth_present === false` AND `status !== "healthy"`**. Equivalently, hide the banner if any provider has `auth_present === true` OR `status === "healthy"`.
-- While the event store is still hydrating (no provider rows yet), do NOT render the banner. Read the existing hydration flag in the store; if absent, treat an empty `providerHealth` map as "still loading" and render nothing.
-- Banner copy: **"No AI providers available."** followed by **"Add an API key to `.orchestrator/.env.local` or sign in via a CLI tool (e.g. `claude login`) to start running tasks."**
-- Banner includes a primary CTA button labelled **"Open provider settings"** that navigates to `/providers` using the existing TanStack Router `<Link>` / `useNavigate` API (see existing usage in `__root.tsx`).
-- Banner is non-dismissible (no close button). It auto-disappears the moment any provider becomes available.
-- Visual style: full-width, sits directly between `<TopBar>` and the main `<div className="flex flex-1 min-h-0">` row in `web/src/routes/__root.tsx`. Use warning/danger styling consistent with existing alerts in the codebase (`bg-status-danger`, `border-status-danger/20`, padded with `px-4 py-2`). Use a Lucide warning icon (`AlertTriangle`) on the left.
-- The banner must NOT shift main content layout when toggling — it pushes content down naturally because it lives in the existing flex column.
-- Add `web/src/components/NoProvidersBanner.test.tsx` covering: shows when all providers have `auth_present: false` and `status: "down"` or `"degraded"`; hides when one provider has `auth_present: true`; hides when one CLI provider has `status: "healthy"` even with `auth_present: false`; renders nothing during initial hydration (empty providerHealth map).
+- In `server/phaseRunner.ts`:
+  - Import `invoke as geminiInvoke` from `./adapters/gemini`.
+  - Add `geminiCliInvoker?: AdapterInvokeFn` to the `PhaseRunnerDeps` type (alongside `claudeCodeInvoker` and `codexInvoker` around lines 139–161).
+  - In the dependency resolution block (around lines 346–361), add:
+    ```ts
+    const doGeminiInvoke =
+      deps?.geminiCliInvoker ?? ((opts, bs) => geminiInvoke(opts, bs));
+    ```
+  - In the CLI dispatch branch (around lines 604–671), add an arm for `transport === "gemini-cli"` that calls `doGeminiInvoke` with the same `opts` shape used for `claude-code` and `codex`. The mapping from the orchestrator's transport_options → `GeminiInvokeOptions` must mirror what's done for `claude-code`: forward `permission_mode`, `cwd`, `prompt`, `model`. Ignore `max_budget_usd` if present (gemini-cli does not enforce budgets).
+- Confirm `server/providers/registry.ts` line 49–55 already has the correct `gemini-cli` entry; if any field is wrong (e.g. `setup_hint`, `auth_method`), correct it but do not duplicate. The captured live sample shows `Loaded cached credentials` from a Google login, so `auth_method: "cli_login"` is correct.
+- Add ONE integration test in `server/phaseRunner.test.ts` (or extend an existing one): construct a task with `phase.transport: "gemini-cli"`, inject a fake `geminiCliInvoker` that yields a scripted `AppendEventInput[]`, run the phase, assert the events are persisted and the phase completes. Mirror the structure of the existing `claude-code` integration test.
+- Do NOT touch other adapters, the UI, or any cost/budget projections. The pilot deliberately keeps blast radius to the dispatch arm and the new adapter files.
 
 ## Implementation Touchpoints
 
 | File | Change |
 |---|---|
-| `server/providers/probe.ts` | Add post-version login probe for `claude-code` (`claude auth status --text`) and `codex` (`codex login status`). Return `auth_present` in the probe result. |
-| `server/providers/registry.ts` | Add `setup_hint` field to each provider config. |
-| `server/projections/providerHealth.ts` | Persist `auth_present` from `provider.probed` events; stop overriding `auth_present` to `false` for CLI providers in `deriveAuthPresent`. |
-| `shared/events/` (provider event types) | Extend `provider.probed` payload schema to include `auth_present: boolean`. |
-| `server/routes/providers.ts` | Include `setup_hint` in the providers list response. |
-| `web/src/screens/providers/Providers.tsx` | Render `setup_hint` on each provider card with conditional styling. |
-| `web/src/screens/providers/Providers.test.tsx` | Assert hints render for every provider. |
-| `web/src/components/NoProvidersBanner.tsx` | New component — global banner with CTA. |
-| `web/src/components/NoProvidersBanner.test.tsx` | New test file for the banner visibility logic. |
-| `web/src/routes/__root.tsx` | Mount `<NoProvidersBanner />` between `<TopBar>` and the main flex row. |
-| `server/providers/probe.test.ts` (or equivalent) | Unit tests for the new login probe logic. |
+| `server/adapters/gemini/spawner.ts` | NEW — Effect `Context.Tag` for `Spawner`, plus `SpawnerLive` Layer wrapping `child_process.spawn` with `Effect.acquireRelease` cleanup. |
+| `server/adapters/gemini/spawner.test.ts` | NEW — `it.effect` tests for line-splitting and kill-on-interrupt. |
+| `server/adapters/gemini/schema.ts` | NEW — `effect/Schema` decoders for `init`, `message`, `result` Gemini events plus permissive `decodeLine` that drops non-JSON / unknown variants. Includes TODO for tool-call variant. |
+| `server/adapters/gemini/schema.test.ts` | NEW — `it.effect` tests covering real captured sample lines and stderr noise. |
+| `server/adapters/gemini/mapper.ts` | NEW — Stateful `mapEvent` translating `GeminiStreamEvent` → `AppendEventInput[]`, buffering assistant deltas, no cost field. |
+| `server/adapters/gemini/mapper.test.ts` | NEW — `it.effect` tests for delta buffering and single completion event. |
+| `server/adapters/gemini.ts` | NEW — Public `async function* invoke(opts, blobStore, spawner?, signal?)` that composes spawner+schema+mapper inside an Effect program and bridges to `AsyncIterable<AppendEventInput>` with `AbortSignal` → `Fiber.interrupt`. |
+| `server/adapters/gemini.test.ts` | NEW — Inner Effect tests + outer async-iterable wrapper test + cancellation test. |
+| `server/phaseRunner.ts` | EDIT — Import `geminiInvoke`; add `geminiCliInvoker` to `PhaseRunnerDeps`; resolve `doGeminiInvoke`; add `gemini-cli` arm to CLI dispatch branch. |
+| `server/phaseRunner.test.ts` | EDIT — One integration test with injected fake `geminiCliInvoker`. |
+| `server/providers/registry.ts` | VERIFY (likely no change) — existing `gemini-cli` entry at lines 49–55 is correct per the live `cli_login` confirmation. |
 
 ## Out of Scope
 
-- **Detecting `gemini-cli` login state.** The Gemini CLI provides no programmatic auth-status command; login is handled inside the interactive UI. We accept that a user with `gemini` installed but not logged in will still see the binary marked `healthy` and will only learn of the auth failure at task-run time.
-- **Blocking task creation when no providers are available.** The banner warns; it does not prevent the user from creating tasks. Run-time failures continue to surface through the existing event/error system.
-- **Editing `.env.local` from the UI.** The UI shows the env-var name to add; the user edits the file themselves. API keys remain read-only at boot.
-- **Dismissibility / per-session hide.** The banner is intentionally persistent until resolved.
-- **Health-failure warnings** (e.g., a configured provider that just started failing probes). This PRD only covers the zero-providers-available onboarding case.
-- **Documentation links.** No external docs links are added to setup hints in v1; the inline command is sufficient.
-- **Re-running probes on demand from the banner.** Probes continue on the existing 60s scheduler; no manual refresh button is added.
+- Migrating `claudeCode.ts` or `codex.ts` to Effect. The pilot is deliberately Gemini-only; a follow-up PRD can decide whether to migrate after evaluating this one.
+- Refactoring `phaseRunner.ts`'s dispatch beyond adding the new arm.
+- Cost / USD tracking for Gemini. Token counts are emitted; no `max_budget_usd` enforcement, no per-token rate table, no projections changes.
+- UI changes (transport selectors, provider screens). The existing UI already lists `gemini-cli` from the registry; verify visually but do not modify.
+- Capturing and decoding the Gemini tool-call event variant. Flagged as a known unknown in `schema.ts`; will be addressed once a real sample with `tool_calls > 0` is captured.
+- Sandbox-mode (`--sandbox`) ergonomics beyond the opt-in flag — no container debugging, no fallback if sandbox fails.
+- Adding Gemini to any preset task templates in `server/presets.ts`.
+
+## Unknowns (orchestrator should raise pushback)
+
+- **Tool-call event JSON shape** — not present in the captured sample. The schema must handle them defensively (log + skip) until a real sample is captured. Implementing agent should attempt to trigger one (e.g. ask Gemini to read a file) and update `schema.ts` if successful in the same PR; otherwise leave the TODO.
