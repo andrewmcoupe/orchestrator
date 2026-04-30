@@ -1,5 +1,11 @@
 # @andycoupe/orchestrator
 
+## 0.6.0
+
+### Minor Changes
+
+- 00d62b7: Display an informative banner when no AI providers are setup on the user's system
+
 ## 0.5.0
 
 ### Minor Changes
