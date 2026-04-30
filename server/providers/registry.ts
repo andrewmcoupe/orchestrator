@@ -24,6 +24,8 @@ export type ProviderConfig = {
   /** Environment variable name that holds the API key. */
   env_var?: string;
   auth_method: "env_var" | "keychain" | "cli_login";
+  /** Human-readable setup instruction shown in the UI. */
+  setup_hint: string;
 };
 
 export const PROVIDERS: ProviderConfig[] = [
@@ -33,6 +35,7 @@ export const PROVIDERS: ProviderConfig[] = [
     kind: "cli",
     binary: "claude",
     auth_method: "cli_login",
+    setup_hint: "Run `claude login` in your terminal",
   },
   {
     provider_id: "codex",
@@ -40,6 +43,7 @@ export const PROVIDERS: ProviderConfig[] = [
     kind: "cli",
     binary: "codex",
     auth_method: "cli_login",
+    setup_hint: "Run `codex login` in your terminal",
   },
   {
     provider_id: "gemini-cli",
@@ -47,6 +51,7 @@ export const PROVIDERS: ProviderConfig[] = [
     kind: "cli",
     binary: "gemini",
     auth_method: "cli_login",
+    setup_hint: "Run `gemini` in your terminal and follow the login prompt",
   },
   {
     provider_id: "anthropic-api",
@@ -55,6 +60,7 @@ export const PROVIDERS: ProviderConfig[] = [
     endpoint: "https://api.anthropic.com",
     env_var: "ANTHROPIC_API_KEY",
     auth_method: "env_var",
+    setup_hint: "Add `ANTHROPIC_API_KEY=...` to `.orchestrator/.env.local`",
   },
   {
     provider_id: "openai-api",
@@ -63,6 +69,7 @@ export const PROVIDERS: ProviderConfig[] = [
     endpoint: "https://api.openai.com",
     env_var: "OPENAI_API_KEY",
     auth_method: "env_var",
+    setup_hint: "Add `OPENAI_API_KEY=...` to `.orchestrator/.env.local`",
   },
 ];
 

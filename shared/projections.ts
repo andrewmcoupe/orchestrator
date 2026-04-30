@@ -1060,12 +1060,14 @@ export function reduceProviderHealth(
 
     case "provider.probed": {
       if (!current) return null;
-      // For API providers (env_var auth), infer auth_present from probe result:
-      // a successful probe means the key was used and accepted.
+      // Use auth_present from the probe result when provided; fall back to
+      // inferring from status for API providers (backwards compat).
       const authPresent =
-        current.auth_method === "env_var"
-          ? event.payload.status === "healthy"
-          : current.auth_present;
+        event.payload.auth_present != null
+          ? event.payload.auth_present
+          : current.auth_method === "env_var"
+            ? event.payload.status === "healthy"
+            : current.auth_present;
       return {
         ...current,
         status: event.payload.status,

@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { createRootRoute, Outlet, useNavigate, useMatches } from "@tanstack/react-router";
+import {
+  createRootRoute,
+  Outlet,
+  useNavigate,
+  useMatches,
+} from "@tanstack/react-router";
 import { useHotkeys } from "../hooks/useHotkeys.js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@web/src/components/ui/tooltip";
@@ -7,7 +12,12 @@ import { ThemeProvider } from "../components/theme-provider.js";
 import { TopBar } from "../components/TopBar.js";
 import { Rail } from "../components/Rail.js";
 import { EventStreamStrip } from "../components/EventStreamStrip.js";
-import { useEventStore, useProviderHealth, useRecentEvents } from "../store/eventStore.js";
+import { NoProvidersBanner } from "../components/NoProvidersBanner.js";
+import {
+  useEventStore,
+  useProviderHealth,
+  useRecentEvents,
+} from "../store/eventStore.js";
 import { createSSEClient } from "../lib/sse.js";
 import type { SSEClient } from "../lib/sse.js";
 import type { ProviderInfo } from "../components/TopBar.js";
@@ -15,7 +25,14 @@ import type { ProviderStatus } from "../components/ProviderPill.js";
 
 const queryClient = new QueryClient();
 
-type Section = "tasks" | "prompts" | "providers" | "measurement" | "settings" | "guide" | "ingest";
+type Section =
+  | "tasks"
+  | "prompts"
+  | "providers"
+  | "measurement"
+  | "settings"
+  | "guide"
+  | "ingest";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -31,24 +48,40 @@ function RootLayout() {
 
   // Derive active section from the current route
   const matches = useMatches();
-  const topPath = matches[1]?.pathname?.split("/").filter(Boolean)[0] ?? "tasks";
-  const activeSection = (["tasks", "prompts", "providers", "measurement", "settings", "guide", "ingest"].includes(topPath)
-    ? topPath
-    : "tasks") as Section;
+  const topPath =
+    matches[1]?.pathname?.split("/").filter(Boolean)[0] ?? "tasks";
+  const activeSection = (
+    [
+      "tasks",
+      "prompts",
+      "providers",
+      "measurement",
+      "settings",
+      "guide",
+      "ingest",
+    ].includes(topPath)
+      ? topPath
+      : "tasks"
+  ) as Section;
 
   // Provider health from the store
   const providerHealthRows = useProviderHealth();
-  const providers: ProviderInfo[] = providerHealthRows.length > 0
-    ? providerHealthRows.map((r) => ({
-        name: r.provider_id,
-        status: r.status as ProviderStatus,
-      }))
-    : [
-        { name: "claude", status: "unknown" as ProviderStatus },
-        { name: "codex", status: "unknown" as ProviderStatus },
-        { name: "gemini", status: "unknown" as ProviderStatus },
-        { name: "local", status: "unknown" as ProviderStatus },
-      ];
+  const providers: ProviderInfo[] =
+    providerHealthRows.length > 0
+      ? providerHealthRows.map((r) => ({
+          name: r.provider_id,
+          // A CLI binary can probe healthy while the user is logged out — treat
+          // missing auth as "down" so the pill turns red and matches the banner.
+          status: (r.auth_present === false
+            ? "down"
+            : r.status) as ProviderStatus,
+        }))
+      : [
+          { name: "claude", status: "unknown" as ProviderStatus },
+          { name: "codex", status: "unknown" as ProviderStatus },
+          { name: "gemini", status: "unknown" as ProviderStatus },
+          { name: "local", status: "unknown" as ProviderStatus },
+        ];
 
   const recentEvents = useRecentEvents();
   const latestEvent = recentEvents[0]
@@ -88,10 +121,9 @@ function RootLayout() {
       <ThemeProvider defaultTheme="light" storageKey="orchestrator-ui-theme">
         <TooltipProvider>
           <div className="flex flex-col h-screen overflow-hidden">
-            <TopBar
-              section={activeSection}
-              providers={providers}
-            />
+            <TopBar section={activeSection} providers={providers} />
+
+            <NoProvidersBanner />
 
             <div className="flex flex-1 min-h-0">
               <Rail />

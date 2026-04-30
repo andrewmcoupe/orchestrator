@@ -53,6 +53,14 @@ const apiRow = (): ProviderHealthRow => ({
   auth_present: true,
 });
 
+const registryEntries = [
+  { provider_id: "claude-code", transport: "claude-code", kind: "cli", setup_hint: "Run `claude login` in your terminal" },
+  { provider_id: "codex", transport: "codex", kind: "cli", setup_hint: "Run `codex login` in your terminal" },
+  { provider_id: "gemini-cli", transport: "gemini-cli", kind: "cli", setup_hint: "Run `gemini` in your terminal and follow the login prompt" },
+  { provider_id: "anthropic-api", transport: "anthropic-api", kind: "api", setup_hint: "Add `ANTHROPIC_API_KEY=...` to `.orchestrator/.env.local`" },
+  { provider_id: "openai-api", transport: "openai-api", kind: "api", setup_hint: "Add `OPENAI_API_KEY=...` to `.orchestrator/.env.local`" },
+];
+
 const probeEvent = (latency: number, ts: string) => ({
   id: `evt-${ts}`,
   type: "provider.probed",
@@ -79,6 +87,13 @@ function setupFetch(
 ) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = input.toString();
+
+    if (url === "/api/providers" || url.endsWith("/api/providers")) {
+      return new Response(JSON.stringify(registryEntries), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     if (url.includes("/api/projections/provider_health")) {
       return new Response(JSON.stringify(healthRows), {
@@ -285,6 +300,105 @@ describe("Providers screen", () => {
     await waitFor(() => {
       const focused = document.querySelector("[data-focused='true']");
       expect(focused).toBeTruthy();
+    });
+  });
+
+  it("renders setup_hint for each provider card when auth is missing", async () => {
+    setupFetch([
+      healthRow({ auth_present: false }),
+      healthRow({ provider_id: "codex", transport: "codex", auth_present: false }),
+      healthRow({ provider_id: "gemini-cli", transport: "gemini-cli", auth_present: false }),
+      { ...apiRow(), auth_present: false } as ProviderHealthRow,
+      {
+        ...apiRow(),
+        provider_id: "openai-api",
+        transport: "openai-api",
+        endpoint: "https://api.openai.com",
+        auth_method: "env_var",
+        auth_present: false,
+      } as ProviderHealthRow,
+    ]);
+    render(<Providers />);
+    await waitFor(() => {
+      // CLI hints
+      expect(screen.getByText(/claude login/)).toBeTruthy();
+      expect(screen.getByText(/codex login/)).toBeTruthy();
+      expect(screen.getByText(/follow the login prompt/)).toBeTruthy();
+      // API hints
+      expect(screen.getByText(/ANTHROPIC_API_KEY/)).toBeTruthy();
+      expect(screen.getByText(/OPENAI_API_KEY/)).toBeTruthy();
+    });
+  });
+
+  it("renders setup_hint with warning styling when auth_present is false and CLI status is not healthy", async () => {
+    setupFetch([
+      healthRow({ auth_present: false, status: "down" }),
+    ]);
+    render(<Providers />);
+    await waitFor(() => {
+      const hint = document.querySelector("[data-testid='setup-hint']");
+      expect(hint).toBeTruthy();
+      expect(hint?.className).toContain("bg-status-danger");
+    });
+  });
+
+  it("renders setup_hint with warning styling for API provider when auth_present is false", async () => {
+    setupFetch([
+      { ...apiRow(), auth_present: false } as ProviderHealthRow,
+    ]);
+    render(<Providers />);
+    await waitFor(() => {
+      const hint = document.querySelector("[data-testid='setup-hint']");
+      expect(hint).toBeTruthy();
+      expect(hint?.className).toContain("bg-status-danger");
+    });
+  });
+
+  it("renders setup_hint with muted styling when CLI provider is healthy", async () => {
+    setupFetch([
+      healthRow({ auth_present: false, status: "healthy" }),
+    ]);
+    render(<Providers />);
+    await waitFor(() => {
+      const hint = document.querySelector("[data-testid='setup-hint']");
+      expect(hint).toBeTruthy();
+      expect(hint?.className).toContain("text-fg-muted");
+      expect(hint?.className).not.toContain("bg-status-danger");
+    });
+  });
+
+  it("hides setup_hint entirely when auth_present is true", async () => {
+    setupFetch([
+      healthRow({ auth_present: true, status: "healthy" }),
+    ]);
+    render(<Providers />);
+    // Wait for the card to render, then assert no hint is shown.
+    await waitFor(() => {
+      expect(document.querySelector("[data-testid='provider-name']")).toBeTruthy();
+    });
+    expect(document.querySelector("[data-testid='setup-hint']")).toBeNull();
+  });
+
+  it("renders backtick-delimited code spans as monospace <code> elements", async () => {
+    setupFetch([healthRow({ auth_present: false, status: "down" })]);
+    render(<Providers />);
+    await waitFor(() => {
+      // registryEntries hint for claude-code: "Run `claude login` in your terminal"
+      const codeEl = document.querySelector("[data-testid='setup-hint'] code");
+      expect(codeEl).toBeTruthy();
+      expect(codeEl?.className).toContain("font-mono");
+      expect(codeEl?.textContent).toBe("claude login");
+    });
+  });
+
+  it("setup hint is purely presentational — no onclick or data-execute attribute", async () => {
+    setupFetch([healthRow({ auth_present: false, status: "down" })]);
+    render(<Providers />);
+    await waitFor(() => {
+      const hint = document.querySelector("[data-testid='setup-hint']");
+      expect(hint).toBeTruthy();
+      expect(hint?.getAttribute("onclick")).toBeNull();
+      expect(hint?.getAttribute("data-execute")).toBeNull();
     });
   });
 
