@@ -10,8 +10,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import {
-  AreaChart,
-  Area,
   BarChart,
   Bar,
   XAxis,
@@ -21,14 +19,15 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { BarChart3, DollarSign, Zap, FlaskConical, FileText, GitMerge } from "lucide-react";
+import { BarChart3, Zap, FlaskConical, FileText, GitMerge } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsPanel } from "@web/src/components/ui/tabs.js";
 import type { CostRollupRow, AbExperimentRow, PromptVersionRow, TaskListRow } from "@shared/projections.js";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type MeasurementTab = "cost" | "invocations" | "tasks" | "experiments" | "prompts" | "auto_merge";
+type MeasurementTab = "invocations" | "tasks" | "experiments" | "prompts" | "auto_merge";
 
 interface DailyCostPoint {
   date: string;
@@ -157,22 +156,6 @@ function formatNumber(n: number): string {
   return String(n);
 }
 
-/** Group raw CostRollupRows into daily points keyed by provider. */
-function toDailyProviderPoints(rows: CostRollupRow[]): DailyCostPoint[] {
-  const byDate = new Map<string, DailyCostPoint>();
-
-  for (const row of rows) {
-    if (!byDate.has(row.date)) {
-      byDate.set(row.date, { date: row.date });
-    }
-    const point = byDate.get(row.date)!;
-    const key = row.provider_id;
-    point[key] = ((point[key] as number | undefined) ?? 0) + row.cost_usd;
-  }
-
-  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
-}
-
 /** Group raw CostRollupRows into daily invocation counts by provider. */
 function toDailyInvocationPoints(rows: CostRollupRow[]): DailyCostPoint[] {
   const byDate = new Map<string, DailyCostPoint>();
@@ -266,68 +249,6 @@ function StatCard({
       <p className="text-xs text-text-tertiary uppercase tracking-wide mb-1">{label}</p>
       <p className="text-2xl font-semibold text-text-primary">{value}</p>
       {sub && <p className="text-xs text-text-secondary mt-0.5">{sub}</p>}
-    </div>
-  );
-}
-
-// ============================================================================
-// Cost tab
-// ============================================================================
-
-function CostTab({ rows, loading }: { rows: CostRollupRow[]; loading: boolean }) {
-  const providers = useMemo(() => uniqueProviders(rows), [rows]);
-  const dailyPoints = useMemo(() => toDailyProviderPoints(rows), [rows]);
-
-  const totalCost = rows.reduce((s, r) => s + r.cost_usd, 0);
-  const totalTokens = rows.reduce((s, r) => s + r.tokens_in + r.tokens_out, 0);
-  const totalInvocations = rows.reduce((s, r) => s + r.invocation_count, 0);
-
-  if (loading) {
-    return <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">Loading cost data…</div>;
-  }
-
-  return (
-    <div className="flex-1 flex flex-col gap-6">
-      {/* Summary stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard label="Total cost" value={formatCost(totalCost)} sub={`${formatNumber(totalInvocations)} invocations`} />
-        <StatCard label="Tokens in" value={formatNumber(rows.reduce((s, r) => s + r.tokens_in, 0))} />
-        <StatCard label="Tokens out" value={formatNumber(rows.reduce((s, r) => s + r.tokens_out, 0))} sub={`${formatNumber(totalTokens)} total`} />
-      </div>
-
-      {rows.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
-          No cost data for this period. Run some tasks to see charts.
-        </div>
-      ) : (
-        <div className="bg-surface-secondary p-4">
-          <p className="text-xs text-text-tertiary uppercase tracking-wide mb-4">Daily cost by provider</p>
-          <ResponsiveContainer width="100%" height={240} data-testid="cost-chart">
-            <AreaChart data={dailyPoints} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--color-text-tertiary)" }} />
-              <YAxis tickFormatter={(v: number) => formatCost(v)} tick={{ fontSize: 10, fill: "var(--color-text-tertiary)" }} />
-              <Tooltip
-                formatter={(value) => [formatCost(Number(value)), ""]}
-                contentStyle={{ background: "var(--color-surface-secondary)", border: "1px solid var(--color-border)", borderRadius: 6 }}
-                labelStyle={{ color: "var(--color-text-primary)" }}
-              />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              {providers.map((pid, i) => (
-                <Area
-                  key={pid}
-                  type="monotone"
-                  dataKey={pid}
-                  stackId="1"
-                  stroke={providerColor(pid)}
-                  fill={providerColor(pid)}
-                  fillOpacity={0.3 + (i * 0.1)}
-                />
-              ))}
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      )}
     </div>
   );
 }
@@ -727,7 +648,6 @@ function AutoMergeTab({ rows, loading }: { rows: TaskListRow[]; loading: boolean
 // ============================================================================
 
 const TABS: Array<{ id: MeasurementTab; label: string; icon: React.FC<{ size?: number; className?: string }> }> = [
-  { id: "cost", label: "Cost", icon: DollarSign },
   { id: "invocations", label: "Invocations", icon: Zap },
   { id: "tasks", label: "Tasks", icon: BarChart3 },
   { id: "experiments", label: "A/B Experiments", icon: FlaskConical },
@@ -736,7 +656,7 @@ const TABS: Array<{ id: MeasurementTab; label: string; icon: React.FC<{ size?: n
 ];
 
 export function Measurement() {
-  const [tab, setTab] = useState<MeasurementTab>("cost");
+  const [tab, setTab] = useState<MeasurementTab>("invocations");
   const [dateRange, setDateRange] = useState(defaultDateRange);
 
   const { rows: costRows, loading: costLoading } = useCostData(dateRange.from, dateRange.to);
@@ -751,9 +671,9 @@ export function Measurement() {
         <div>
           <p className="text-xs text-text-tertiary uppercase tracking-wide">Section</p>
           <h1 className="text-2xl font-semibold text-text-primary">Measurement</h1>
-          <p className="text-xs text-text-tertiary mt-1">Cost, token usage, and invocation metrics across providers.</p>
+          <p className="text-xs text-text-tertiary mt-1">Token usage and invocation metrics across providers.</p>
         </div>
-        {(tab === "cost" || tab === "invocations") && (
+        {tab === "invocations" && (
           <DateRangeStrip
             from={dateRange.from}
             to={dateRange.to}
@@ -762,32 +682,36 @@ export function Measurement() {
         )}
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 mb-6 border-b border-border">
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm transition-colors border-b-2 -mb-px ${
-              tab === id
-                ? "border-amber-500 text-amber-400"
-                : "border-transparent text-text-secondary hover:text-text-primary"
-            }`}
-            data-testid={`tab-${id}`}
-          >
-            <Icon size={13} />
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setTab(value as MeasurementTab)}
+        className="flex-1 flex flex-col min-h-0"
+      >
+        <TabsList className="mb-6">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <TabsTrigger key={id} value={id} data-testid={`tab-${id}`} className="flex items-center gap-1.5">
+              <Icon size={13} />
+              {label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      {/* Tab content */}
-      {tab === "cost" && <CostTab rows={costRows} loading={costLoading} />}
-      {tab === "invocations" && <InvocationsTab rows={costRows} loading={costLoading} />}
-      {tab === "tasks" && <TasksTab rows={taskRows} loading={taskLoading} />}
-      {tab === "experiments" && <AbExperimentsTab rows={abRows} loading={abLoading} />}
-      {tab === "prompts" && <TopPromptsTab rows={promptRows} loading={promptLoading} />}
-      {tab === "auto_merge" && <AutoMergeTab rows={taskRows} loading={taskLoading} />}
+        <TabsPanel value="invocations" className="flex-1 flex flex-col min-h-0">
+          <InvocationsTab rows={costRows} loading={costLoading} />
+        </TabsPanel>
+        <TabsPanel value="tasks" className="flex-1 flex flex-col min-h-0">
+          <TasksTab rows={taskRows} loading={taskLoading} />
+        </TabsPanel>
+        <TabsPanel value="experiments" className="flex-1 flex flex-col min-h-0">
+          <AbExperimentsTab rows={abRows} loading={abLoading} />
+        </TabsPanel>
+        <TabsPanel value="prompts" className="flex-1 flex flex-col min-h-0">
+          <TopPromptsTab rows={promptRows} loading={promptLoading} />
+        </TabsPanel>
+        <TabsPanel value="auto_merge" className="flex-1 flex flex-col min-h-0">
+          <AutoMergeTab rows={taskRows} loading={taskLoading} />
+        </TabsPanel>
+      </Tabs>
     </div>
   );
 }

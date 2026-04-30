@@ -32,7 +32,7 @@ function TabsTrigger({
         "px-4 py-2 text-sm font-medium text-text-tertiary transition-colors cursor-pointer",
         "border-b-2 border-transparent -mb-px",
         "hover:text-text-secondary",
-        "data-[selected]:text-text-primary data-[selected]:border-text-primary data-[selected]:font-semibold",
+        "data-[active]:text-text-primary data-[active]:border-text-primary data-[active]:font-semibold",
         className,
       )}
       {...props}
