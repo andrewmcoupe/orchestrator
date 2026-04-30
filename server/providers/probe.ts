@@ -21,6 +21,7 @@ export type ProbeResult = {
   latency_ms?: number;
   models?: string[];
   error?: string;
+  auth_present?: boolean;
 };
 
 // ============================================================================
@@ -37,11 +38,44 @@ async function probeCli(binary: string): Promise<ProbeResult> {
     const message = err instanceof Error ? err.message : String(err);
     // ENOENT means the binary is not on PATH
     if (message.includes("ENOENT") || message.includes("not found")) {
-      return { status: "down", latency_ms, error: `${binary}: not found on PATH` };
+      return {
+        status: "down",
+        latency_ms,
+        error: `${binary}: not found on PATH`,
+      };
     }
     // Non-zero exit or timeout
     return { status: "degraded", latency_ms, error: message.slice(0, 200) };
   }
+}
+
+/** Post-version login probe for CLI providers. Returns true if authenticated. */
+async function probeCliAuth(
+  provider_id: string,
+  binary: string,
+): Promise<boolean> {
+  try {
+    if (provider_id === "claude-code") {
+      const result = await execa(binary, ["auth", "status", "--json"], {
+        timeout: 3000,
+      });
+      // `claude auth status` exits 0 even when logged out, so we must parse the
+      // JSON body and read `loggedIn` rather than relying on the exit code.
+      const parsed = JSON.parse(result.stdout) as { loggedIn?: boolean };
+      return parsed.loggedIn === true;
+    }
+    if (provider_id === "codex") {
+      const result = await execa(binary, ["login", "status"], {
+        timeout: 3000,
+      });
+      // codex writes "Logged in using …" to stderr, not stdout, so check both.
+      const output = `${result.stdout}\n${result.stderr}`;
+      return result.exitCode === 0 && output.includes("Logged in");
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 // ============================================================================
@@ -121,7 +155,14 @@ export async function probeProvider(provider_id: string): Promise<ProbeResult> {
   }
 
   if (config.kind === "cli") {
-    return probeCli(config.binary!);
+    const result = await probeCli(config.binary!);
+    // Only run auth probe if binary was found (not down due to missing binary)
+    if (result.status !== "down") {
+      result.auth_present = await probeCliAuth(provider_id, config.binary!);
+    } else {
+      result.auth_present = false;
+    }
+    return result;
   }
 
   // API provider — load key from orchestrator/.env.local via credential store
@@ -129,14 +170,25 @@ export async function probeProvider(provider_id: string): Promise<ProbeResult> {
   if (!apiKey) {
     return {
       status: "down",
-      error: `${config.env_var ?? "API key"} not set in orchestrator/.env.local`,
+      auth_present: false,
+      error: `${config.env_var ?? "API key"} not set in .orchestrator/.env.local`,
     };
   }
 
-  if (provider_id === "anthropic-api") return probeAnthropicApi(apiKey);
-  if (provider_id === "openai-api") return probeOpenAiApi(apiKey);
+  let result: ProbeResult;
+  if (provider_id === "anthropic-api") result = await probeAnthropicApi(apiKey);
+  else if (provider_id === "openai-api") result = await probeOpenAiApi(apiKey);
+  else
+    return {
+      status: "down",
+      auth_present: false,
+      error: `No probe implementation for ${provider_id}`,
+    };
 
-  return { status: "down", error: `No probe implementation for ${provider_id}` };
+  // API key was present; auth_present = true if probe didn't get a 401
+  result.auth_present =
+    result.status !== "down" || !result.error?.includes("401");
+  return result;
 }
 
 /** Probe all registered providers in parallel. */
@@ -144,7 +196,9 @@ export async function probeAllProviders(): Promise<
   Record<string, ProbeResult>
 > {
   const results = await Promise.all(
-    PROVIDERS.map(async (p) => [p.provider_id, await probeProvider(p.provider_id)] as const),
+    PROVIDERS.map(
+      async (p) => [p.provider_id, await probeProvider(p.provider_id)] as const,
+    ),
   );
   return Object.fromEntries(results);
 }

@@ -15,6 +15,7 @@ import type { AnyEvent } from "@shared/events.js";
 import {
   reduceTaskList,
   reduceTaskDetail,
+  reduceProviderHealth,
   PROJECTION_SUBSCRIPTIONS,
 } from "@shared/projections.js";
 import type {
@@ -180,9 +181,22 @@ export const useEventStore = create<EventStoreState & EventStoreActions>()(
             break;
           }
 
-          // Provider health, prompt_library, etc. are not yet client-reducible
-          // — they'll be added when those projections have client reducers.
-          // For now, provider_health is hydrated from REST only.
+          case "provider_health": {
+            const p = event.payload as unknown as Record<string, unknown>;
+            const providerId = typeof p.provider_id === "string" ? p.provider_id : undefined;
+            if (!providerId) break;
+            const current = state.providerHealth[providerId] ?? null;
+            const next = reduceProviderHealth(current, event);
+            if (next) {
+              updates.providerHealth = { ...(updates.providerHealth ?? state.providerHealth), [providerId]: next };
+            } else if (current) {
+              const copy = { ...(updates.providerHealth ?? state.providerHealth) };
+              delete copy[providerId];
+              updates.providerHealth = copy;
+            }
+            break;
+          }
+
           default:
             break;
         }
