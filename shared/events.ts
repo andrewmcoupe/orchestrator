@@ -530,6 +530,7 @@ export interface InvocationStarted {
   model: string;
   prompt_version_id: string;
   context_manifest_hash: string;
+  session_id?: string;
 }
 
 export interface InvocationAssistantMessage {
@@ -573,7 +574,7 @@ export interface InvocationCompleted {
   cached_tokens_in?: number;
   /** Reasoning output tokens (Codex pass-through). */
   reasoning_tokens_out?: number;
-  cost_usd: number;
+  cost_usd?: number;
   duration_ms: number;
   turns: number;
   exit_code?: number;

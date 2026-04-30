@@ -705,7 +705,7 @@ export async function runAttempt(
             const p = event.payload as InvocationCompleted;
             phaseTokensIn = p.tokens_in;
             phaseTokensOut = p.tokens_out;
-            phaseCostUsd = p.cost_usd;
+            phaseCostUsd = p.cost_usd ?? 0;
             if (p.outcome !== "success") phaseOutcome = p.outcome;
             // Mirror exit_reason fields from invocation to phase
             phaseExitReason = p.exit_reason;

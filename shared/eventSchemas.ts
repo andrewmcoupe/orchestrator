@@ -425,6 +425,7 @@ const invocationStartedSchema = z.object({
   model: z.string(),
   prompt_version_id: z.string(),
   context_manifest_hash: z.string(),
+  session_id: z.string().optional(),
 });
 
 const invocationAssistantMessageSchema = z.object({
@@ -462,7 +463,7 @@ const invocationCompletedSchema = z.object({
   outcome: z.enum(["success", "failed", "aborted"]),
   tokens_in: z.number(),
   tokens_out: z.number(),
-  cost_usd: z.number(),
+  cost_usd: z.number().optional(),
   duration_ms: z.number(),
   turns: z.number(),
   exit_code: z.number().optional(),
