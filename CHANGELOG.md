@@ -1,5 +1,11 @@
 # @andycoupe/orchestrator
 
+## 0.7.1
+
+### Patch Changes
+
+- c690334: Add screenshot to readme
+
 ## 0.7.0
 
 ### Minor Changes
