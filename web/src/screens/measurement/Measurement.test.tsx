@@ -140,10 +140,9 @@ describe("Measurement screen", () => {
     expect(screen.getByText("Measurement")).toBeTruthy();
   });
 
-  it("renders all six tabs", async () => {
+  it("renders all five tabs", async () => {
     setupFetch();
     render(<Measurement />);
-    expect(screen.getByTestId("tab-cost")).toBeTruthy();
     expect(screen.getByTestId("tab-invocations")).toBeTruthy();
     expect(screen.getByTestId("tab-tasks")).toBeTruthy();
     expect(screen.getByTestId("tab-experiments")).toBeTruthy();
@@ -151,7 +150,7 @@ describe("Measurement screen", () => {
     expect(screen.getByTestId("tab-auto_merge")).toBeTruthy();
   });
 
-  it("shows date range controls on Cost tab", async () => {
+  it("shows date range controls on the default Invocations tab", async () => {
     setupFetch();
     render(<Measurement />);
     expect(screen.getByTestId("date-from")).toBeTruthy();
@@ -159,28 +158,9 @@ describe("Measurement screen", () => {
     expect(screen.getByTestId("preset-30d")).toBeTruthy();
   });
 
-  it("displays summary stats from cost data", async () => {
-    setupFetch({ costRows: [costRow({ cost_usd: 0.05, invocation_count: 5, tokens_in: 10000, tokens_out: 3000 })] });
-    render(<Measurement />);
-    await waitFor(() => {
-      // Should show cost (in some format)
-      expect(screen.getByText(/Total cost/i)).toBeTruthy();
-      expect(screen.getByText(/Tokens in/i)).toBeTruthy();
-    });
-  });
-
-  it("shows empty state when no cost data", async () => {
-    setupFetch({ costRows: [] });
-    render(<Measurement />);
-    await waitFor(() => {
-      expect(screen.getByText(/No cost data for this period/i)).toBeTruthy();
-    });
-  });
-
-  it("switches to Invocations tab and hides cost-only sections", async () => {
+  it("renders the Invocations tab by default with totals", async () => {
     setupFetch({ costRows: [costRow()] });
     render(<Measurement />);
-    fireEvent.click(screen.getByTestId("tab-invocations"));
     await waitFor(() => {
       expect(screen.getByText(/Total invocations/i)).toBeTruthy();
     });
