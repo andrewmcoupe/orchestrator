@@ -1,5 +1,7 @@
 # @andycoupe/orchestrator
 
+![Orchestrator screenshot](assets/screenshot-1.png)
+
 An event-sourced task orchestrator for AI-assisted software development. Breaks PRDs into tasks, runs them through configurable phases (test-author, implementer, auditor), manages git worktrees, and merges the results — all from a local web UI.
 
 ## Quick start
