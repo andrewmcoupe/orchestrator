@@ -3,8 +3,16 @@ import { Link } from "@tanstack/react-router";
 import { ProviderPill } from "./ProviderPill.js";
 import { ModeToggle } from "./mode-toggle.js";
 import type { ProviderStatus } from "./ProviderPill.js";
+import { Logo } from "./Logo.js";
 
-type Section = "tasks" | "prompts" | "providers" | "measurement" | "settings" | "guide" | "ingest";
+type Section =
+  | "tasks"
+  | "prompts"
+  | "providers"
+  | "measurement"
+  | "settings"
+  | "guide"
+  | "ingest";
 
 type ProviderInfo = { name: string; status: ProviderStatus };
 
@@ -29,7 +37,7 @@ export function TopBar({ section, providers }: TopBarProps) {
     <header className="flex items-center justify-between border-b border-border-default px-4 h-12 bg-bg-primary shrink-0">
       {/* Left: logo + breadcrumb */}
       <div className="flex items-center gap-2">
-        <span className="inline-block h-3.5 w-3.5 rounded-full bg-bg-inverse" />
+        <Logo />
         <span className="font-semibold text-sm text-text-primary">
           Orchestrator
         </span>
@@ -54,15 +62,8 @@ export function TopBar({ section, providers }: TopBarProps) {
         </Link>
         <ModeToggle />
         {providers.map((p) => (
-          <Link
-            key={p.name}
-            to="/providers"
-            search={{ focus: p.name }}
-          >
-            <ProviderPill
-              name={p.name}
-              status={p.status}
-            />
+          <Link key={p.name} to="/providers" search={{ focus: p.name }}>
+            <ProviderPill name={p.name} status={p.status} />
           </Link>
         ))}
       </div>

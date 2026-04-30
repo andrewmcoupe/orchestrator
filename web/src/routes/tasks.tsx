@@ -1,4 +1,10 @@
-import { createFileRoute, Outlet, useParams, useNavigate, Link } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Outlet,
+  useParams,
+  useNavigate,
+  Link,
+} from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTaskDetail, useTaskList } from "../store/eventStore.js";
@@ -8,6 +14,7 @@ import { DependencyGraph } from "../screens/tasks/DependencyGraph.js";
 import { MergeDialog } from "../screens/review/MergeDialog.js";
 import type { TaskStatus } from "@shared/events.js";
 import { z } from "zod";
+import { Logo } from "../components/Logo.js";
 
 const statusFilterValues = ["ready", "running", "done", "blocked"] as const;
 export type StatusFilterParam = (typeof statusFilterValues)[number];
@@ -26,8 +33,17 @@ const APPROVED_STATUSES = new Set(["approved", "awaiting_merge"]);
 type ViewMode = "list" | "graph";
 
 const READY_STATUSES = new Set<TaskStatus>(["draft", "queued"]);
-const RUNNING_STATUSES = new Set<TaskStatus>(["running", "paused", "revising", "awaiting_review"]);
-const DONE_STATUSES = new Set<TaskStatus>(["merged", "approved", "awaiting_merge"]);
+const RUNNING_STATUSES = new Set<TaskStatus>([
+  "running",
+  "paused",
+  "revising",
+  "awaiting_review",
+]);
+const DONE_STATUSES = new Set<TaskStatus>([
+  "merged",
+  "approved",
+  "awaiting_merge",
+]);
 const BLOCKED_STATUSES = new Set<TaskStatus>(["blocked", "rejected"]);
 
 function TasksLayout() {
@@ -68,7 +84,9 @@ function TasksLayout() {
       if (t.prd_id) prdIds.add(t.prd_id);
       else hasStandalone = true;
     }
-    const opts: { value: string; label: string }[] = [{ value: "all", label: "All" }];
+    const opts: { value: string; label: string }[] = [
+      { value: "all", label: "All" },
+    ];
     for (const id of Array.from(prdIds).sort()) {
       opts.push({ value: id, label: id });
     }
@@ -77,7 +95,10 @@ function TasksLayout() {
   }, [tasks]);
 
   const statusCounts = useMemo(() => {
-    let ready = 0, running = 0, done = 0, blocked = 0;
+    let ready = 0,
+      running = 0,
+      done = 0,
+      blocked = 0;
     for (const t of tasks) {
       if (READY_STATUSES.has(t.status)) ready++;
       else if (RUNNING_STATUSES.has(t.status)) running++;
@@ -193,20 +214,32 @@ function TasksLayout() {
         <div className="w-px h-4 bg-border-default" />
 
         <div className="flex items-center gap-3 text-xs text-text-secondary">
-          {([
-            { key: "ready", count: statusCounts.ready, color: "text-status-healthy" },
-            { key: "running", count: statusCounts.running, color: "text-status-warning" },
-            { key: "done", count: statusCounts.done, color: "text-blue-400" },
-            { key: "blocked", count: statusCounts.blocked, color: "text-status-danger" },
-          ] as const).map(({ key, count, color }) => (
+          {(
+            [
+              {
+                key: "ready",
+                count: statusCounts.ready,
+                color: "text-status-healthy",
+              },
+              {
+                key: "running",
+                count: statusCounts.running,
+                color: "text-status-warning",
+              },
+              { key: "done", count: statusCounts.done, color: "text-blue-400" },
+              {
+                key: "blocked",
+                count: statusCounts.blocked,
+                color: "text-status-danger",
+              },
+            ] as const
+          ).map(({ key, count, color }) => (
             <Link
               key={key}
               to="/tasks"
               search={{ status: statusFilter === key ? undefined : key }}
               className={`transition-colors hover:text-text-primary ${
-                statusFilter === key
-                  ? `${color} font-medium`
-                  : ""
+                statusFilter === key ? `${color} font-medium` : ""
               }`}
             >
               <span className={`${color} font-medium`}>{count}</span> {key}
@@ -217,7 +250,10 @@ function TasksLayout() {
               to="/archive"
               className="hover:text-text-primary transition-colors"
             >
-              <span className="text-text-tertiary font-medium">{archivedCount}</span> archived
+              <span className="text-text-tertiary font-medium">
+                {archivedCount}
+              </span>{" "}
+              archived
             </Link>
           )}
         </div>
@@ -258,25 +294,8 @@ function TasksLayout() {
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center gap-3">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="48"
-                height="48"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-text-tertiary opacity-40"
-              >
-                <path d="M12 22V12" />
-                <path d="M5 12H2a10 10 0 0 0 20 0h-3" />
-                <rect x="7" y="2" width="10" height="8" rx="2" />
-                <path d="M6 2v4" />
-                <path d="M18 2v4" />
-              </svg>
-              <p className="text-sm text-text-tertiary">
+              <Logo size={58} />
+              <p className="text-sm text-muted-foreground uppercase tracking-tight">
                 {tasks.length > 0
                   ? "Select a task to view details."
                   : "No tasks yet. Ingest a PRD or create a task to get started."}

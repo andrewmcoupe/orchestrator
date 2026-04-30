@@ -1,5 +1,11 @@
 # @andycoupe/orchestrator
 
+## 0.7.0
+
+### Minor Changes
+
+- 1a9c861: Remove cost tab from the measurements page
+
 ## 0.6.0
 
 ### Minor Changes
