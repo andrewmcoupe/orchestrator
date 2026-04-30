@@ -23,13 +23,8 @@ import { probeProvider } from "./probe.js";
 const mockExeca = vi.mocked(execa);
 
 /** Helper to create a successful execa result */
-function ok(stdout = ""): ReturnType<typeof execa> {
-  return { exitCode: 0, stdout, stderr: "" } as any;
-}
-
-/** Helper to create a failed execa result (thrown error) */
-function fail(message: string): never {
-  throw Object.assign(new Error(message), { exitCode: 1, stdout: "", stderr: "" });
+function ok(stdout = "", stderr = ""): ReturnType<typeof execa> {
+  return { exitCode: 0, stdout, stderr } as any;
 }
 
 describe("CLI login probe", () => {
@@ -39,25 +34,42 @@ describe("CLI login probe", () => {
 
   // ── claude-code ───────────────────────────────────────────────────────────
 
-  it("claude-code logged in (exit code 0) → auth_present: true", async () => {
+  it("claude-code logged in (loggedIn: true in JSON) → auth_present: true", async () => {
     // First call: --version (healthy)
-    // Second call: auth status --text (success)
+    // Second call: auth status --json (success, loggedIn: true)
     mockExeca
       .mockResolvedValueOnce(ok()) // --version
-      .mockResolvedValueOnce(ok("Authenticated")); // auth status
+      .mockResolvedValueOnce(
+        ok(JSON.stringify({ loggedIn: true, authMethod: "claude.ai" })),
+      );
 
     const result = await probeProvider("claude-code");
 
     expect(result.status).toBe("healthy");
     expect(result.auth_present).toBe(true);
-    // Verify auth probe was called with correct args
-    expect(mockExeca).toHaveBeenCalledWith("claude", ["auth", "status", "--text"], { timeout: 3000 });
+    expect(mockExeca).toHaveBeenCalledWith(
+      "claude",
+      ["auth", "status", "--json"],
+      { timeout: 3000 },
+    );
   });
 
-  it("claude-code not logged in (non-zero exit) → auth_present: false", async () => {
+  it("claude-code logged out (exit 0 but loggedIn: false) → auth_present: false", async () => {
+    // `claude auth status` exits 0 even when logged out — must read the JSON body.
     mockExeca
       .mockResolvedValueOnce(ok()) // --version
-      .mockRejectedValueOnce(new Error("exit code 1")); // auth status fails
+      .mockResolvedValueOnce(ok(JSON.stringify({ loggedIn: false })));
+
+    const result = await probeProvider("claude-code");
+
+    expect(result.status).toBe("healthy");
+    expect(result.auth_present).toBe(false);
+  });
+
+  it("claude-code auth probe throws → auth_present: false", async () => {
+    mockExeca
+      .mockResolvedValueOnce(ok()) // --version
+      .mockRejectedValueOnce(new Error("ENOENT")); // auth status fails
 
     const result = await probeProvider("claude-code");
 
@@ -76,7 +88,9 @@ describe("CLI login probe", () => {
 
     expect(result.status).toBe("healthy");
     expect(result.auth_present).toBe(true);
-    expect(mockExeca).toHaveBeenCalledWith("codex", ["login", "status"], { timeout: 3000 });
+    expect(mockExeca).toHaveBeenCalledWith("codex", ["login", "status"], {
+      timeout: 3000,
+    });
   });
 
   it("codex not logged in (non-zero exit) → auth_present: false", async () => {
@@ -90,7 +104,18 @@ describe("CLI login probe", () => {
     expect(result.auth_present).toBe(false);
   });
 
-  it("codex stdout missing 'Logged in' substring → auth_present: false", async () => {
+  it("codex prints 'Logged in' on stderr (real CLI behavior) → auth_present: true", async () => {
+    mockExeca
+      .mockResolvedValueOnce(ok()) // --version
+      .mockResolvedValueOnce(ok("", "Logged in using ChatGPT")); // login status writes to stderr
+
+    const result = await probeProvider("codex");
+
+    expect(result.status).toBe("healthy");
+    expect(result.auth_present).toBe(true);
+  });
+
+  it("codex output missing 'Logged in' substring → auth_present: false", async () => {
     mockExeca
       .mockResolvedValueOnce(ok()) // --version
       .mockResolvedValueOnce(ok("Status: Not authenticated")); // exit 0 but no "Logged in"
@@ -112,7 +137,9 @@ describe("CLI login probe", () => {
     expect(result.auth_present).toBe(false);
     // Should only have called --version, no auth probe
     expect(mockExeca).toHaveBeenCalledTimes(1);
-    expect(mockExeca).toHaveBeenCalledWith("gemini", ["--version"], { timeout: 2000 });
+    expect(mockExeca).toHaveBeenCalledWith("gemini", ["--version"], {
+      timeout: 2000,
+    });
   });
 
   // ── binary missing ────────────────────────────────────────────────────────

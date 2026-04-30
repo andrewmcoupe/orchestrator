@@ -499,15 +499,15 @@ function ProviderCard({
         </div>
       )}
 
-      {/* Setup hint */}
-      {setupHint && (() => {
-        const isWarning = !row.auth_present && (isCli ? row.status !== "healthy" : true);
+      {/* Setup hint — only shown when the user still needs to set something up */}
+      {setupHint && !row.auth_present && (() => {
+        const isWarning = isCli ? row.status !== "healthy" : true;
         return (
           <div
             data-testid="setup-hint"
             className={
               isWarning
-                ? "text-xs bg-status-danger border border-status-danger/20 px-2.5 py-1.5"
+                ? "text-xs text-status-danger bg-status-danger/5 border border-status-danger/20 px-2.5 py-1.5"
                 : "text-xs text-fg-muted px-2.5 py-1.5"
             }
           >
@@ -516,8 +516,8 @@ function ProviderCard({
         );
       })()}
 
-      {/* Error */}
-      {row.last_error && (
+      {/* Error — hidden when the setup hint above already covers the missing-auth case */}
+      {row.last_error && (row.auth_present || !setupHint) && (
         <div className="text-xs text-status-danger bg-bg-primary border border-status-danger/20 px-2.5 py-1.5">
           {row.last_error}
         </div>

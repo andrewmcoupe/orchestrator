@@ -303,19 +303,19 @@ describe("Providers screen", () => {
     });
   });
 
-  it("renders setup_hint for each provider card", async () => {
+  it("renders setup_hint for each provider card when auth is missing", async () => {
     setupFetch([
-      healthRow(),
-      healthRow({ provider_id: "codex", transport: "codex" }),
-      healthRow({ provider_id: "gemini-cli", transport: "gemini-cli" }),
-      apiRow(),
+      healthRow({ auth_present: false }),
+      healthRow({ provider_id: "codex", transport: "codex", auth_present: false }),
+      healthRow({ provider_id: "gemini-cli", transport: "gemini-cli", auth_present: false }),
+      { ...apiRow(), auth_present: false } as ProviderHealthRow,
       {
         ...apiRow(),
         provider_id: "openai-api",
         transport: "openai-api",
         endpoint: "https://api.openai.com",
         auth_method: "env_var",
-        auth_present: true,
+        auth_present: false,
       } as ProviderHealthRow,
     ]);
     render(<Providers />);
@@ -367,17 +367,16 @@ describe("Providers screen", () => {
     });
   });
 
-  it("renders setup_hint with muted styling when auth_present is true", async () => {
+  it("hides setup_hint entirely when auth_present is true", async () => {
     setupFetch([
       healthRow({ auth_present: true, status: "healthy" }),
     ]);
     render(<Providers />);
+    // Wait for the card to render, then assert no hint is shown.
     await waitFor(() => {
-      const hint = document.querySelector("[data-testid='setup-hint']");
-      expect(hint).toBeTruthy();
-      expect(hint?.className).toContain("text-fg-muted");
-      expect(hint?.className).not.toContain("bg-status-danger");
+      expect(document.querySelector("[data-testid='provider-name']")).toBeTruthy();
     });
+    expect(document.querySelector("[data-testid='setup-hint']")).toBeNull();
   });
 
   it("renders backtick-delimited code spans as monospace <code> elements", async () => {
