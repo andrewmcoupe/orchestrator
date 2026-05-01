@@ -2038,7 +2038,7 @@ describe("runAttempt", () => {
         model: "gemini-2.5-flash",
         prompt: "Test prompt",
         cwd: `/tmp/fake-wt/${taskId}`,
-        permission_mode: "bypass_permissions",
+        permission_mode: "bypassPermissions",
       });
       expect(capturedOpts).not.toHaveProperty("max_budget_usd");
 

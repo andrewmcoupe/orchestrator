@@ -20,6 +20,7 @@ import {
 } from "effect";
 import type { BlobStore } from "../blobStore.js";
 import type { AppendEventInput } from "../eventStore.js";
+import type { PermissionMode } from "@shared/events";
 import { Spawner, SpawnerLive } from "./gemini/spawner.js";
 import type { SpawnError, SpawnHandle } from "./gemini/spawner.js";
 import { decodeLine } from "./gemini/schema.js";
@@ -38,7 +39,7 @@ export type GeminiInvokeOptions = {
   prompt: string;
   cwd: string;
   model?: string;
-  permission_mode?: "default" | "accept_edits" | "bypass_permissions" | "plan";
+  permission_mode?: PermissionMode;
   sandbox?: boolean;
   prompt_version_id: string;
   context_manifest_hash: string;
@@ -48,16 +49,23 @@ export type GeminiInvokeOptions = {
 // Arg builder
 // ============================================================================
 
-const PERMISSION_MODE_MAP: Record<string, string> = {
+type GeminiApprovalMode = "default" | "auto_edit" | "yolo";
+
+/** Translates the canonical orchestrator vocabulary to Gemini's --approval-mode
+ *  values. Gemini has no `plan` mode — `plan` and `default` both map to
+ *  `default`. `dontAsk` and `auto` map to `yolo` (fully autonomous). */
+const PERMISSION_MODE_MAP: Record<PermissionMode, GeminiApprovalMode> = {
   default: "default",
-  accept_edits: "auto_edit",
-  bypass_permissions: "yolo",
-  plan: "plan",
+  plan: "default",
+  acceptEdits: "auto_edit",
+  bypassPermissions: "yolo",
+  dontAsk: "yolo",
+  auto: "yolo",
 };
 
 export function buildArgs(opts: GeminiInvokeOptions): string[] {
   const model = opts.model && opts.model.length > 0 ? opts.model : "gemini-2.5-pro";
-  const approvalMode = PERMISSION_MODE_MAP[opts.permission_mode ?? "default"] ?? "default";
+  const approvalMode = PERMISSION_MODE_MAP[opts.permission_mode ?? "default"];
 
   const args: string[] = [
     "--output-format",
@@ -86,18 +94,24 @@ export function buildArgs(opts: GeminiInvokeOptions): string[] {
  * batches into the queue. Emits a synthetic error completion on non-zero
  * exit if no result event was seen.
  */
+const TAIL_BUFFER_BYTES = 4096;
+
+function appendTail(buf: string, chunk: string): string {
+  return (buf + chunk).slice(-TAIL_BUFFER_BYTES);
+}
+
 export function makeProgram(
   opts: GeminiInvokeOptions,
   queue: Queue.Queue<AppendEventInput | null>,
+  blobStore: BlobStore,
 ): Effect.Effect<boolean, SpawnError, Spawner> {
   const args = buildArgs(opts);
 
   return Effect.scoped(
     Effect.gen(function* () {
       const spawner = yield* Spawner;
-      // AC 10: acquireRelease manages SpawnHandle — release calls kill
       const handle: SpawnHandle = yield* Effect.acquireRelease(
-        spawner.spawn("gemini", args, opts.prompt),
+        spawner.spawn("gemini", args, opts.prompt, { cwd: opts.cwd }),
         (h) => h.kill,
       );
 
@@ -111,8 +125,26 @@ export function makeProgram(
         }),
       );
 
-      // Process stdout lines through decode → filter → map pipeline
+      // Rolling tail buffers — consuming both streams in full prevents the
+      // child from blocking on a full OS pipe buffer.
+      const stdoutTailRef = yield* Ref.make<string>("");
+      const stderrTailRef = yield* Ref.make<string>("");
+
+      // Drain stderr concurrently into a rolling tail buffer.
+      const stderrFiber = yield* Effect.fork(
+        handle.stderr.pipe(
+          Stream.mapEffect((chunk) =>
+            Ref.update(stderrTailRef, (buf) => appendTail(buf, chunk)),
+          ),
+          Stream.runDrain,
+        ),
+      );
+
+      // Drain stdout: tee each line into the tail buffer, then decode + map.
       yield* handle.stdout.pipe(
+        Stream.tap((line) =>
+          Ref.update(stdoutTailRef, (buf) => appendTail(buf, line + "\n")),
+        ),
         Stream.mapEffect((line) => decodeLine(line)),
         Stream.filterMap((opt: Option.Option<GeminiStreamEvent>) => opt),
         Stream.mapEffect((event) =>
@@ -129,24 +161,55 @@ export function makeProgram(
         Stream.runDrain,
       );
 
-      // Wait for process exit
+      // Wait for process exit and stderr fiber to finish
       const exitCode = yield* handle.exitCode;
+      yield* Fiber.join(stderrFiber);
+
       const finalState = yield* Ref.get(stateRef);
+      const stdoutTail = yield* Ref.get(stdoutTailRef);
+      const stderrTail = yield* Ref.get(stderrTailRef);
 
-      // If non-zero exit and no result event, emit synthetic error completion
-      if (exitCode !== 0 && !finalState.seenResult) {
-        const base = {
-          aggregate_type: "attempt" as const,
-          aggregate_id: finalState.attempt_id,
-          actor: {
-            kind: "cli" as const,
-            transport: "gemini-cli" as const,
+      const stdoutTailHash =
+        stdoutTail.length > 0 ? blobStore.putBlob(stdoutTail).hash : null;
+      const stderrTailHash =
+        stderrTail.length > 0 ? blobStore.putBlob(stderrTail).hash : null;
+
+      const base = {
+        aggregate_type: "attempt" as const,
+        aggregate_id: finalState.attempt_id,
+        actor: {
+          kind: "cli" as const,
+          transport: "gemini-cli" as const,
+          invocation_id: finalState.invocation_id,
+        },
+        correlation_id: finalState.attempt_id,
+      };
+
+      // Emit the single invocation.completed event with tail hashes attached.
+      // Success path uses stats captured by the mapper from the result event;
+      // failure path is synthetic. The exit code is encoded into exit_reason
+      // so failures aren't lumped under the opaque "unknown".
+      let completed: AppendEventInput<"invocation.completed">;
+      if (finalState.result) {
+        completed = {
+          ...base,
+          type: "invocation.completed",
+          payload: {
             invocation_id: finalState.invocation_id,
+            outcome: finalState.result.outcome,
+            tokens_in: finalState.result.tokens_in,
+            tokens_out: finalState.result.tokens_out,
+            duration_ms: finalState.result.duration_ms,
+            turns: 0,
+            exit_reason:
+              finalState.result.outcome === "success" ? "normal" : "unknown",
+            stdout_tail_hash: stdoutTailHash,
+            stderr_tail_hash: stderrTailHash,
+            permission_blocked_on: null,
           },
-          correlation_id: finalState.attempt_id,
         };
-
-        yield* Queue.offer(queue, {
+      } else {
+        completed = {
           ...base,
           type: "invocation.completed",
           payload: {
@@ -156,13 +219,14 @@ export function makeProgram(
             tokens_out: 0,
             duration_ms: 0,
             turns: 0,
-            exit_reason: "unknown",
-            stdout_tail_hash: null,
-            stderr_tail_hash: null,
+            exit_reason: exitCode === 0 ? "unknown" : "crashed",
+            stdout_tail_hash: stdoutTailHash,
+            stderr_tail_hash: stderrTailHash,
             permission_blocked_on: null,
           },
-        } satisfies AppendEventInput<"invocation.completed">);
+        };
       }
+      yield* Queue.offer(queue, completed);
 
       // Signal end-of-stream
       yield* Queue.offer(queue, null);
@@ -181,7 +245,7 @@ export function makeProgram(
 
 export async function* invoke(
   opts: GeminiInvokeOptions,
-  _blobStore: BlobStore,
+  blobStore: BlobStore,
   spawner?: Spawner,
   signal?: AbortSignal,
 ): AsyncIterable<AppendEventInput> {
@@ -195,7 +259,7 @@ export async function* invoke(
 
   // Fork the program via Effect.runFork
   const fiber = Effect.runFork(
-    makeProgram(opts, queue).pipe(Effect.provide(layer)),
+    makeProgram(opts, queue, blobStore).pipe(Effect.provide(layer)),
   );
 
   // Wire AbortSignal → Fiber.interrupt

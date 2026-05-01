@@ -115,7 +115,8 @@ describe("mapEvent", () => {
     expect(emit).toHaveLength(0);
   });
 
-  // ── AC 6: result flushes remaining buffer ───────────────────────────
+  // ── AC 6: result flushes remaining buffer (mapper no longer emits
+  //         invocation.completed — the adapter does, after stderr drain) ──
   it("flushes remaining assistant buffer on result event", () => {
     const stateWithBuffer = { ...state, assistantBuffer: "leftover" };
     const event: GeminiStreamEvent = {
@@ -125,58 +126,41 @@ describe("mapEvent", () => {
       stats: { total_tokens: 100, input_tokens: 50, output_tokens: 50, duration_ms: 500, tool_calls: 0 },
     };
     const { emit } = mapEvent(event, stateWithBuffer);
-    // Should have assistant_message + completed
-    expect(emit).toHaveLength(2);
+    expect(emit).toHaveLength(1);
     expect(emit[0]!.type).toBe("invocation.assistant_message");
     expect((emit[0]!.payload as unknown as Record<string, unknown>).text).toBe("leftover");
-    expect(emit[1]!.type).toBe("invocation.completed");
   });
 
-  // ── AC 7 & 10: result → exactly one invocation.completed ────────────
-  it("emits exactly one invocation.completed per result event", () => {
+  // ── AC 7 & 10: result records stats into state.result (no completion
+  //              event from the mapper anymore) ──────────────────────────
+  it("records stats into state.result for the adapter to emit completion", () => {
     const event: GeminiStreamEvent = {
       type: "result",
       timestamp: "t",
       status: "success",
       stats: { total_tokens: 200, input_tokens: 80, output_tokens: 120, duration_ms: 1234, tool_calls: 2 },
     };
-    const { emit } = mapEvent(event, state);
-    const completedEvents = emit.filter((e) => e.type === "invocation.completed");
-    expect(completedEvents).toHaveLength(1);
-
-    const payload = completedEvents[0]!.payload as unknown as Record<string, unknown>;
-    expect(payload.outcome).toBe("success");
-    expect(payload.tokens_in).toBe(80);
-    expect(payload.tokens_out).toBe(120);
-    expect(payload.duration_ms).toBe(1234);
+    const { emit, state: nextState } = mapEvent(event, state);
+    expect(emit.filter((e) => e.type === "invocation.completed")).toHaveLength(0);
+    expect(nextState.seenResult).toBe(true);
+    expect(nextState.result).toEqual({
+      outcome: "success",
+      tokens_in: 80,
+      tokens_out: 120,
+      duration_ms: 1234,
+    });
   });
 
-  // ── AC 8: no cost/USD field on completed ────────────────────────────
-  it("does not populate cost or USD field on invocation.completed", () => {
-    const event: GeminiStreamEvent = {
-      type: "result",
-      timestamp: "t",
-      status: "success",
-      stats: { total_tokens: 100, input_tokens: 50, output_tokens: 50, duration_ms: 500, tool_calls: 0 },
-    };
-    const { emit } = mapEvent(event, state);
-    const completed = emit.find((e) => e.type === "invocation.completed")!;
-    const payload = completed.payload as unknown as Record<string, unknown>;
-    expect(payload).not.toHaveProperty("cost_usd");
-  });
-
-  // ── AC 7: result with error status ──────────────────────────────────
-  it("maps error result status to failed outcome", () => {
+  // ── AC 7: result with error status maps to failed outcome in state ──
+  it("maps error result status to failed outcome in state.result", () => {
     const event: GeminiStreamEvent = {
       type: "result",
       timestamp: "t",
       status: "error",
       stats: { total_tokens: 10, input_tokens: 5, output_tokens: 5, duration_ms: 100, tool_calls: 0 },
     };
-    const { emit } = mapEvent(event, state);
-    const completed = emit.find((e) => e.type === "invocation.completed")!;
-    const payload = completed.payload as unknown as Record<string, unknown>;
-    expect(payload.outcome).toBe("failed");
+    const { state: nextState } = mapEvent(event, state);
+    expect(nextState.result?.outcome).toBe("failed");
   });
 
   it("does not emit events for decoded tool_use and tool_result events yet", () => {

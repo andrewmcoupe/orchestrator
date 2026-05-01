@@ -161,13 +161,23 @@ export interface PhaseConfig {
   skip_gates?: string[];
 }
 
+/** Canonical permission-mode vocabulary stored in task configs.
+ *  Adapters translate this to whatever values their CLI accepts. */
+export type PermissionMode =
+  | "default"
+  | "plan"
+  | "acceptEdits"
+  | "bypassPermissions"
+  | "dontAsk"
+  | "auto";
+
 export type TransportOptions =
   | {
       kind: "cli";
       bare?: boolean;
       max_turns?: number;
       max_budget_usd: number;
-      permission_mode: "default" | "plan" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "auto";
+      permission_mode: PermissionMode;
       allowed_tools?: string[];
       disallowed_tools?: string[];
       append_system_prompt_path?: string;

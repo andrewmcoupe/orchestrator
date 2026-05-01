@@ -657,11 +657,7 @@ export async function runAttempt(
               prompt_version_id: cliInvokeOpts.prompt_version_id,
               context_manifest_hash: cliInvokeOpts.context_manifest_hash,
               cwd: cliInvokeOpts.cwd,
-              permission_mode:
-                cliOpts.permission_mode === "acceptEdits" ? "accept_edits"
-                : cliOpts.permission_mode === "bypassPermissions" ? "bypass_permissions"
-                : cliOpts.permission_mode === "plan" ? "plan"
-                : "default",
+              permission_mode: cliOpts.permission_mode,
             };
             invoker = doGeminiInvoke(geminiOpts, bs);
           } else if (phase.transport === "codex") {

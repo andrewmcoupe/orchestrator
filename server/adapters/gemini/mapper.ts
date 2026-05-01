@@ -16,6 +16,14 @@ export interface MapperState {
   readonly assistantBuffer: string;
   readonly seenResult: boolean;
   readonly session_id?: string;
+  /** Captured stats from the result event — used by the adapter to build the
+   *  final invocation.completed event together with stdout/stderr tail hashes. */
+  readonly result?: {
+    readonly outcome: "success" | "failed";
+    readonly tokens_in: number;
+    readonly tokens_out: number;
+    readonly duration_ms: number;
+  };
   /** Invocation context — set once at creation, threaded through unchanged. */
   readonly invocation_id: string;
   readonly attempt_id: string;
@@ -118,10 +126,12 @@ export function mapEvent(
   }
 
   // ── result ────────────────────────────────────────────────────────────
+  // Flush remaining assistant buffer and capture stats into state. The
+  // adapter emits the invocation.completed event after the process exits so
+  // it can attach stdout/stderr tail hashes.
   if (event.type === "result") {
     const emit: AppendEventInput[] = [];
 
-    // Flush any remaining assistant buffer
     if (state.assistantBuffer.length > 0) {
       emit.push({
         ...base,
@@ -133,28 +143,18 @@ export function mapEvent(
       } satisfies AppendEventInput<"invocation.assistant_message">);
     }
 
-    const outcome = event.status === "success" ? "success" : "failed";
-    const exitReason = event.status === "success" ? "normal" : "unknown";
-
-    emit.push({
-      ...base,
-      type: "invocation.completed",
-      payload: {
-        invocation_id: state.invocation_id,
-        outcome,
-        tokens_in: event.stats.input_tokens,
-        tokens_out: event.stats.output_tokens,
-        duration_ms: event.stats.duration_ms,
-        turns: 0,
-        exit_reason: exitReason,
-        stdout_tail_hash: null,
-        stderr_tail_hash: null,
-        permission_blocked_on: null,
-      },
-    } satisfies AppendEventInput<"invocation.completed">);
-
     return {
-      state: { ...state, assistantBuffer: "", seenResult: true },
+      state: {
+        ...state,
+        assistantBuffer: "",
+        seenResult: true,
+        result: {
+          outcome: event.status === "success" ? "success" : "failed",
+          tokens_in: event.stats.input_tokens,
+          tokens_out: event.stats.output_tokens,
+          duration_ms: event.stats.duration_ms,
+        },
+      },
       emit,
     };
   }

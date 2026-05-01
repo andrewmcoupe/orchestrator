@@ -150,13 +150,15 @@ describe("buildArgs", () => {
     expect(args[args.indexOf("--model") + 1]).toBe("gemini-2.5-flash");
   });
 
-  vitestIt("maps permission_mode to --approval-mode correctly", () => {
+  vitestIt("maps every canonical permission_mode to --approval-mode", () => {
     const cases: Array<[GeminiInvokeOptions["permission_mode"], string]> = [
       [undefined, "default"],
       ["default", "default"],
-      ["accept_edits", "auto_edit"],
-      ["bypass_permissions", "yolo"],
-      ["plan", "plan"],
+      ["plan", "default"],
+      ["acceptEdits", "auto_edit"],
+      ["bypassPermissions", "yolo"],
+      ["dontAsk", "yolo"],
+      ["auto", "yolo"],
     ];
     for (const [mode, expected] of cases) {
       const args = buildArgs({ ...baseOpts, permission_mode: mode });
@@ -182,7 +184,7 @@ describe("gemini adapter — inner Effect program", () => {
       const spawner = makeFakeSpawner(SAMPLE_LINES, 0);
       const layer = Layer.succeed(Spawner, spawner);
 
-      const seenResult = yield* makeProgram(baseOpts, queue).pipe(Effect.provide(layer));
+      const seenResult = yield* makeProgram(baseOpts, queue, fakeBlobStore).pipe(Effect.provide(layer));
 
       expect(seenResult).toBe(true);
 
@@ -218,7 +220,7 @@ describe("gemini adapter — inner Effect program", () => {
       const spawner = makeFakeSpawner(linesNoResult, 1);
       const layer = Layer.succeed(Spawner, spawner);
 
-      const seenResult = yield* makeProgram(baseOpts, queue).pipe(Effect.provide(layer));
+      const seenResult = yield* makeProgram(baseOpts, queue, fakeBlobStore).pipe(Effect.provide(layer));
 
       expect(seenResult).toBe(false);
 

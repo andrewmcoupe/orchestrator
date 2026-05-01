@@ -33,11 +33,16 @@ export interface SpawnHandle {
 // Spawner service
 // ============================================================================
 
+export interface SpawnOptions {
+  readonly cwd?: string;
+}
+
 export interface Spawner {
   readonly spawn: (
     command: string,
     args: ReadonlyArray<string>,
     input: string,
+    options?: SpawnOptions,
   ) => Effect.Effect<SpawnHandle, SpawnError, Scope.Scope>;
 }
 
@@ -103,11 +108,12 @@ function readableToStream(readable: Readable): Stream.Stream<string, never> {
 export const SpawnerLive: Layer.Layer<Spawner> = Layer.succeed(
   Spawner,
   Spawner.of({
-    spawn: (command, args, input) =>
+    spawn: (command, args, input, options) =>
       Effect.acquireRelease(
         Effect.gen(function* () {
           const proc = nodeSpawn(command, args as string[], {
             stdio: ["pipe", "pipe", "pipe"],
+            cwd: options?.cwd,
           });
 
           let exited = false;
