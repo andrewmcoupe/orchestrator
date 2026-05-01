@@ -40,6 +40,8 @@ import { invoke as claudeCodeInvoke } from "./adapters/claudeCode.js";
 import type { InvokeOptions as ClaudeCodeInvokeOptions } from "./adapters/claudeCode.js";
 import { invoke as codexInvoke } from "./adapters/codex.js";
 import type { InvokeOptions as CodexInvokeOptions } from "./adapters/codex.js";
+import { invoke as geminiInvoke } from "./adapters/gemini.js";
+import type { GeminiInvokeOptions } from "./adapters/gemini.js";
 import { invoke as apiInvoke } from "./adapters/anthropicApi.js";
 import type { ApiInvokeOptions } from "./adapters/anthropicApi.js";
 import { runGate } from "./gates/runner.js";
@@ -132,7 +134,7 @@ export function evaluateExitReasonPolicy(
 // ============================================================================
 
 export type AdapterInvokeFn = (
-  opts: ClaudeCodeInvokeOptions | CodexInvokeOptions | ApiInvokeOptions,
+  opts: ClaudeCodeInvokeOptions | CodexInvokeOptions | ApiInvokeOptions | GeminiInvokeOptions,
   blobStore: BlobStore,
 ) => AsyncIterable<AppendEventInput>;
 
@@ -145,6 +147,7 @@ export type PhaseRunnerDeps = {
   packer?: (input: PackInput) => Promise<PackResult>;
   claudeCodeInvoker?: AdapterInvokeFn;
   codexInvoker?: AdapterInvokeFn;
+  geminiCliInvoker?: AdapterInvokeFn;
   apiInvoker?: AdapterInvokeFn;
   gateRunner?: (
     db: Database.Database,
@@ -356,6 +359,9 @@ export async function runAttempt(
   const doCodexInvoke: AdapterInvokeFn =
     deps?.codexInvoker ??
     ((opts, blobStore) => codexInvoke(opts as CodexInvokeOptions, blobStore));
+  const doGeminiInvoke: AdapterInvokeFn =
+    deps?.geminiCliInvoker ??
+    ((opts, bs) => geminiInvoke(opts as GeminiInvokeOptions, bs));
   const doApiInvoke: AdapterInvokeFn =
     deps?.apiInvoker ??
     ((opts, _blobStore) => apiInvoke(opts as ApiInvokeOptions));
@@ -641,7 +647,24 @@ export async function runAttempt(
               transport_options: cliOpts,
             };
 
-          if (phase.transport === "codex") {
+          if (phase.transport === "gemini-cli") {
+            const geminiOpts: GeminiInvokeOptions = {
+              invocation_id: cliInvokeOpts.invocation_id,
+              attempt_id: cliInvokeOpts.attempt_id,
+              phase_name: cliInvokeOpts.phase_name,
+              model: cliInvokeOpts.model,
+              prompt: cliInvokeOpts.prompt,
+              prompt_version_id: cliInvokeOpts.prompt_version_id,
+              context_manifest_hash: cliInvokeOpts.context_manifest_hash,
+              cwd: cliInvokeOpts.cwd,
+              permission_mode:
+                cliOpts.permission_mode === "acceptEdits" ? "accept_edits"
+                : cliOpts.permission_mode === "bypassPermissions" ? "bypass_permissions"
+                : cliOpts.permission_mode === "plan" ? "plan"
+                : "default",
+            };
+            invoker = doGeminiInvoke(geminiOpts, bs);
+          } else if (phase.transport === "codex") {
             invoker = doCodexInvoke(cliInvokeOpts as CodexInvokeOptions, bs);
           } else {
             invoker = doClaudeCodeInvoke(cliInvokeOpts as ClaudeCodeInvokeOptions, bs);
