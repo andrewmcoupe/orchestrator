@@ -161,13 +161,23 @@ export interface PhaseConfig {
   skip_gates?: string[];
 }
 
+/** Canonical permission-mode vocabulary stored in task configs.
+ *  Adapters translate this to whatever values their CLI accepts. */
+export type PermissionMode =
+  | "default"
+  | "plan"
+  | "acceptEdits"
+  | "bypassPermissions"
+  | "dontAsk"
+  | "auto";
+
 export type TransportOptions =
   | {
       kind: "cli";
       bare?: boolean;
       max_turns?: number;
       max_budget_usd: number;
-      permission_mode: "default" | "plan" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "auto";
+      permission_mode: PermissionMode;
       allowed_tools?: string[];
       disallowed_tools?: string[];
       append_system_prompt_path?: string;
@@ -530,6 +540,7 @@ export interface InvocationStarted {
   model: string;
   prompt_version_id: string;
   context_manifest_hash: string;
+  session_id?: string;
 }
 
 export interface InvocationAssistantMessage {
@@ -573,7 +584,7 @@ export interface InvocationCompleted {
   cached_tokens_in?: number;
   /** Reasoning output tokens (Codex pass-through). */
   reasoning_tokens_out?: number;
-  cost_usd: number;
+  cost_usd?: number;
   duration_ms: number;
   turns: number;
   exit_code?: number;

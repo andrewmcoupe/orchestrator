@@ -1554,7 +1554,7 @@ export function reduceAttempt(
         ...current,
         tokens_in_total: current.tokens_in_total + p.tokens_in,
         tokens_out_total: current.tokens_out_total + p.tokens_out,
-        cost_usd_total: current.cost_usd_total + p.cost_usd,
+        cost_usd_total: current.cost_usd_total + (p.cost_usd ?? 0),
         last_event_id: event.id,
       };
     }
@@ -1893,12 +1893,12 @@ export function reduceAbExperiment(
       const variant = current._variant;
       if (variant === "A") {
         const a_n = current.a_n + 1;
-        const a_cost_usd = current.a_cost_usd + event.payload.cost_usd;
+        const a_cost_usd = current.a_cost_usd + (event.payload.cost_usd ?? 0);
         const a_success_rate = a_n > 0 ? current.a_success_n / a_n : 0;
         return { ...current, a_n, a_cost_usd, a_success_rate };
       } else {
         const b_n = current.b_n + 1;
-        const b_cost_usd = current.b_cost_usd + event.payload.cost_usd;
+        const b_cost_usd = current.b_cost_usd + (event.payload.cost_usd ?? 0);
         const b_success_rate = b_n > 0 ? current.b_success_n / b_n : 0;
         return { ...current, b_n, b_cost_usd, b_success_rate };
       }
@@ -1968,7 +1968,7 @@ export function reduceCostRollup(
         invocation_count: current.invocation_count + 1,
         tokens_in: current.tokens_in + event.payload.tokens_in,
         tokens_out: current.tokens_out + event.payload.tokens_out,
-        cost_usd: current.cost_usd + event.payload.cost_usd,
+        cost_usd: current.cost_usd + (event.payload.cost_usd ?? 0),
       };
 
     default:
