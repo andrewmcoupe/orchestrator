@@ -7,7 +7,7 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import type { Readable } from "node:stream";
-import { Context, Effect, Layer, Stream, Deferred } from "effect";
+import { Context, Effect, Layer, Stream, Deferred, Scope } from "effect";
 
 // ============================================================================
 // Error type
@@ -38,7 +38,7 @@ export interface Spawner {
     command: string,
     args: ReadonlyArray<string>,
     input: string,
-  ) => Effect.Effect<SpawnHandle, SpawnError, never>;
+  ) => Effect.Effect<SpawnHandle, SpawnError, Scope.Scope>;
 }
 
 export const Spawner = Context.GenericTag<Spawner>("Spawner");

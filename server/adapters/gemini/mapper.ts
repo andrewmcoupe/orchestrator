@@ -159,6 +159,12 @@ export function mapEvent(
     };
   }
 
+  // Tool events are decoded so the adapter can observe real stream shape,
+  // but are not emitted until args/results can be persisted via blob hashes.
+  if (event.type === "tool_use" || event.type === "tool_result") {
+    return { state, emit: [] };
+  }
+
   // Unknown event type — passthrough
   return { state, emit: [] };
 }

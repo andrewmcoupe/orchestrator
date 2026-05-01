@@ -21,7 +21,7 @@ import {
 import type { BlobStore } from "../blobStore.js";
 import type { AppendEventInput } from "../eventStore.js";
 import { Spawner, SpawnerLive } from "./gemini/spawner.js";
-import type { SpawnHandle } from "./gemini/spawner.js";
+import type { SpawnError, SpawnHandle } from "./gemini/spawner.js";
 import { decodeLine } from "./gemini/schema.js";
 import type { GeminiStreamEvent } from "./gemini/schema.js";
 import { mapEvent, createInitialState } from "./gemini/mapper.js";
@@ -89,7 +89,7 @@ export function buildArgs(opts: GeminiInvokeOptions): string[] {
 export function makeProgram(
   opts: GeminiInvokeOptions,
   queue: Queue.Queue<AppendEventInput | null>,
-): Effect.Effect<boolean, never, Spawner> {
+): Effect.Effect<boolean, SpawnError, Spawner> {
   const args = buildArgs(opts);
 
   return Effect.scoped(

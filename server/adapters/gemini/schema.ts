@@ -45,9 +45,31 @@ export const ResultEvent = Schema.Struct({
 });
 export type ResultEvent = typeof ResultEvent.Type;
 
-// TODO(gemini-tools): capture and decode tool-call event variant
+export const ToolUseEvent = Schema.Struct({
+  type: Schema.Literal("tool_use"),
+  timestamp: Schema.String,
+  tool_name: Schema.String,
+  tool_id: Schema.String,
+  parameters: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+});
+export type ToolUseEvent = typeof ToolUseEvent.Type;
 
-export const GeminiStreamEvent = Schema.Union(InitEvent, MessageEvent, ResultEvent);
+export const ToolResultEvent = Schema.Struct({
+  type: Schema.Literal("tool_result"),
+  timestamp: Schema.String,
+  tool_id: Schema.String,
+  status: Schema.String,
+  output: Schema.optional(Schema.String),
+});
+export type ToolResultEvent = typeof ToolResultEvent.Type;
+
+export const GeminiStreamEvent = Schema.Union(
+  InitEvent,
+  MessageEvent,
+  ResultEvent,
+  ToolUseEvent,
+  ToolResultEvent,
+);
 export type GeminiStreamEvent = typeof GeminiStreamEvent.Type;
 
 // ============================================================================

@@ -27,7 +27,7 @@ describe("decodeLine", () => {
 
   it.effect("returns None for JSON with unknown type", () =>
     Effect.gen(function* () {
-      const result = yield* decodeLine(JSON.stringify({ type: "tool_call", data: {} }));
+      const result = yield* decodeLine(JSON.stringify({ type: "future_tool_call", data: {} }));
       expect(Option.isNone(result)).toBe(true);
     }),
   );
@@ -93,6 +93,46 @@ describe("decodeLine", () => {
       if (event.type === "result") {
         expect(event.status).toBe("success");
         expect(event.stats.total_tokens).toBe(100);
+      }
+    }),
+  );
+
+  it.effect("decodes the observed tool_use event shape", () =>
+    Effect.gen(function* () {
+      const line = JSON.stringify({
+        type: "tool_use",
+        timestamp: "2026-05-01T05:07:42.530Z",
+        tool_name: "read_file",
+        tool_id: "read_file-1777612062529-422a0334adfae",
+        parameters: { file_path: "package.json" },
+      });
+      const result = yield* decodeLine(line);
+      expect(Option.isSome(result)).toBe(true);
+      const event = Option.getOrThrow(result);
+      expect(event.type).toBe("tool_use");
+      if (event.type === "tool_use") {
+        expect(event.tool_name).toBe("read_file");
+        expect(event.parameters.file_path).toBe("package.json");
+      }
+    }),
+  );
+
+  it.effect("decodes the observed tool_result event shape", () =>
+    Effect.gen(function* () {
+      const line = JSON.stringify({
+        type: "tool_result",
+        timestamp: "2026-05-01T05:07:42.614Z",
+        tool_id: "read_file-1777612062529-422a0334adfae",
+        status: "success",
+        output: "",
+      });
+      const result = yield* decodeLine(line);
+      expect(Option.isSome(result)).toBe(true);
+      const event = Option.getOrThrow(result);
+      expect(event.type).toBe("tool_result");
+      if (event.type === "tool_result") {
+        expect(event.tool_id).toBe("read_file-1777612062529-422a0334adfae");
+        expect(event.status).toBe("success");
       }
     }),
   );

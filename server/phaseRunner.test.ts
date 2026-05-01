@@ -1966,13 +1966,23 @@ describe("runAttempt", () => {
           {
             ...minimalCliConfig.phases[0],
             transport: "gemini-cli",
+            model: "gemini-2.5-flash",
+            transport_options: {
+              kind: "cli",
+              bare: true,
+              max_turns: 5,
+              permission_mode: "bypassPermissions",
+              max_budget_usd: 123,
+            },
           },
         ],
       };
 
       let geminiInvokerCalled = false;
+      let capturedOpts: Record<string, unknown> | undefined;
       const fakeGeminiInvoker: AdapterInvokeFn = async function* (opts) {
         geminiInvokerCalled = true;
+        capturedOpts = opts as unknown as Record<string, unknown>;
         const attempt_id = (opts as { attempt_id: string }).attempt_id;
         const invocation_id = (opts as { invocation_id: string }).invocation_id;
         const actor = { kind: "cli" as const, transport: "gemini-cli" as const, invocation_id };
@@ -1983,7 +1993,7 @@ describe("runAttempt", () => {
           correlation_id: attempt_id,
         };
 
-        yield {
+        const scriptedEvents: AppendEventInput[] = [{
           ...base,
           type: "invocation.started" as const,
           payload: {
@@ -1995,9 +2005,7 @@ describe("runAttempt", () => {
             prompt_version_id: "pv-test",
             context_manifest_hash: "abc",
           },
-        } satisfies AppendEventInput<"invocation.started">;
-
-        yield {
+        } satisfies AppendEventInput<"invocation.started">, {
           ...base,
           type: "invocation.completed" as const,
           payload: {
@@ -2012,7 +2020,9 @@ describe("runAttempt", () => {
             stderr_tail_hash: null,
             permission_blocked_on: null,
           },
-        } satisfies AppendEventInput<"invocation.completed">;
+        } satisfies AppendEventInput<"invocation.completed">];
+
+        yield* scriptedEvents;
       };
 
       const taskId = createTask(db, geminiConfig);
@@ -2024,10 +2034,28 @@ describe("runAttempt", () => {
       });
 
       expect(geminiInvokerCalled).toBe(true);
+      expect(capturedOpts).toMatchObject({
+        model: "gemini-2.5-flash",
+        prompt: "Test prompt",
+        cwd: `/tmp/fake-wt/${taskId}`,
+        permission_mode: "bypass_permissions",
+      });
+      expect(capturedOpts).not.toHaveProperty("max_budget_usd");
 
       const types = getEventTypes(db);
       expect(types).toContain("invocation.started");
       expect(types).toContain("invocation.completed");
+      expect(types).toContain("phase.completed");
+
+      const persistedInvocationEvents = db
+        .prepare(
+          "SELECT type FROM events WHERE type LIKE 'invocation.%' ORDER BY ts, id",
+        )
+        .all() as Array<{ type: string }>;
+      expect(persistedInvocationEvents.map((row) => row.type)).toEqual([
+        "invocation.started",
+        "invocation.completed",
+      ]);
     });
   });
 });

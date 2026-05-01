@@ -178,4 +178,26 @@ describe("mapEvent", () => {
     const payload = completed.payload as unknown as Record<string, unknown>;
     expect(payload.outcome).toBe("failed");
   });
+
+  it("does not emit events for decoded tool_use and tool_result events yet", () => {
+    const toolUse: GeminiStreamEvent = {
+      type: "tool_use",
+      timestamp: "t1",
+      tool_name: "read_file",
+      tool_id: "read_file-1",
+      parameters: { file_path: "package.json" },
+    };
+    const toolResult: GeminiStreamEvent = {
+      type: "tool_result",
+      timestamp: "t2",
+      tool_id: "read_file-1",
+      status: "success",
+      output: "",
+    };
+
+    const r1 = mapEvent(toolUse, state);
+    expect(r1.emit).toHaveLength(0);
+    const r2 = mapEvent(toolResult, r1.state);
+    expect(r2.emit).toHaveLength(0);
+  });
 });
